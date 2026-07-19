@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <AssemblyName>SeqChapterHelperBridge</AssemblyName>
+    <RootNamespace></RootNamespace>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <HotfixPath Condition="'$(HotfixPath)' == ''">..\..\cg37_Data\assets\hotfixdata\hotfix.dll.bytes</HotfixPath>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="Hotfix">
+      <HintPath>$(HotfixPath)</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+</Project>

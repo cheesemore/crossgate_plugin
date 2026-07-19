@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <DefaultItemExcludes>$(DefaultItemExcludes);ref_stubs\**;ilrepack\**;_roundtrip\**;LoadTest\**;DumpIl\**;_pereader_test\**;_inject_launch_test.py;cecil_roundtrip_test.py</DefaultItemExcludes>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>HotfixPatcher</AssemblyName>
+    <RootNamespace>CrossgateMod.Patcher</RootNamespace>
+    <!-- 单文件自包含发布时避免依赖 ICU，防止目标机报 UErrorCode: 2 -->
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Mono.Cecil" Version="0.11.6" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.11.0" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,101 @@
+# Cursor / IDE
+.cursor/
+.vs/
+*.user
+*.suo
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.venv/
+venv/
+
+# .NET build
+**/bin/
+**/obj/
+*.pdb
+
+# Game client — never commit
+cg37_Data/
+cg37.exe
+GameAssembly.dll
+UnityPlayer.dll
+baselib.dll
+Update.exe
+Uninstall.exe
+Uninstall.dat
+UnityCrashHandler64.exe
+cg37-1-*.setup
+
+# Hotfix / assembly dumps
+*.bytes
+*.bytes.orig
+*.bytes.testbak
+
+# Prefer rebuild HotfixPatcher locally
+魔力宝贝序章补丁/patcher/
+魔力宝贝序章补丁/发布/
+
+# Publish / PyInstaller staging
+**/发布/
+**/_build/
+**/_one_time_bundle/
+**/_pyi_work/
+**/_pyi_spec/
+*.spec
+
+# Local GUI state
+魔力宝贝序章补丁/combo_patch_state.json
+魔力宝贝序章补丁/hotfix_watch_stamp.json
+魔力宝贝序章补丁/patch_config.json
+tools/hotfix_baseline.json
+tools/hotfix.dll.bytes.neworig
+.env
+.env.*
+**/secrets*
+**/*credential*
+
+# Archives & exports
+*.zip
+*.7z
+*.rar
+tools/**/*.xlsx
+tools/**/*.csv
+
+# tools scratch / large optional dumps
+tools/hotfix_ilspy/
+tools/_config_extract/
+tools/_hotfixdata_backup_*/
+tools/_launch_test/
+tools/fake_game_root/
+tools/_*.log
+tools/_*.txt
+tools/_cmp_*.py
+tools/_probe_*.py
+tools/_fix_*.py
+tools/_inject_*.py
+tools/_update_*.py
+tools/_nine_*.log
+tools/_family_*.log
+tools/_battle_test/
+
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# hotfix_patcher scratch
+tools/hotfix_patcher/_*/
+tools/hotfix_patcher/_*.py
+tools/hotfix_patcher/_*.txt
+tools/hotfix_patcher/*.log
+
+tools/hotfix_patcher/_build*/
+tools/hotfix_patcher/_combo_test.txt
+tools/hotfix_patcher/_find_rva.py
+tools/hotfix_patcher/_nine_out.txt
+tools/hotfix_patcher/_oncmd_*.txt
+tools/hotfix_patcher/_vip_test.bytes
+tools/hotfix_patcher/ref_stubs/**/*.dll
