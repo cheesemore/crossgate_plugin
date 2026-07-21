@@ -10,24 +10,31 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
-from apply_combo_patch import apply_combo, get_status
+from apply_combo_patch import apply_combo, get_status, restore_hotfix
 from patch_common import (
     CUSTOMER_GM_LABELS,
     DATA_DIR,
     adopt_client_hotfix_update,
     bridge_variant_label,
     detect_hotfix_drift,
+    ensure_orig_backup,
     format_client_update_hint,
     format_hotfix_drift_hint,
     format_size_status,
     get_game_root,
     get_update_status,
     has_valid_orig_backup,
+    hotfix_orig,
+    hotfix_path,
     initialize_hotfix_workspace,
     is_bridge_patched,
     mark_hotfix_watch_stamp,
+    save_baseline_meta,
     set_game_root,
+    sha256_file,
+    updated_hotfix_candidate,
     effective_expected_size,
+    _safe_copy2,
 )
 from patch_slack import (
     assert_combo_slack_ok,
@@ -59,6 +66,14 @@ class ComboPatchApp:
             activeforeground="red",
         )
         self.init_btn.pack(side=tk.LEFT)
+        self.backup_btn = ttk.Button(
+            btn_row, text="制作备份", command=self.on_create_backup, width=10
+        )
+        self.backup_btn.pack(side=tk.LEFT, padx=(10, 0))
+        self.restore_btn = ttk.Button(
+            btn_row, text="恢复备份", command=self.on_restore_backup, width=10
+        )
+        self.restore_btn.pack(side=tk.LEFT, padx=(6, 0))
         self._add_action_button(
             btn_row,
             ttk.Button(btn_row, text="应用补丁", command=self.on_apply, width=12),
@@ -71,9 +86,6 @@ class ComboPatchApp:
             btn_row,
             ttk.Button(btn_row, text="启动游戏", command=self.on_launch_game, width=10),
         ).pack(side=tk.LEFT, padx=(6, 0))
-        ttk.Button(btn_row, text="刷新状态", command=self.refresh_status, width=10).pack(
-            side=tk.LEFT, padx=(6, 0)
-        )
 
         apply_frm = ttk.Frame(outer)
         apply_frm.pack(side=tk.BOTTOM, fill=tk.X, pady=(0, 4))
@@ -368,6 +380,85 @@ class ComboPatchApp:
             self.update_hint_var.set("")
         # 漂移时仍允许点「应用补丁」，以便弹出自动修复确认
         self._set_actions_enabled(ready or drifted)
+        self._update_backup_buttons()
+
+    def _update_backup_buttons(self) -> None:
+        """制作备份 / 恢复备份：不依赖「已初始化」，无 .orig 时恢复不可点。"""
+        can_backup = False
+        can_restore = False
+        try:
+            root = self._resolve_root()
+            can_backup = hotfix_path(root).is_file()
+            can_restore = hotfix_orig(root).is_file()
+        except Exception:
+            pass
+        self.backup_btn.state(["!disabled"] if can_backup else ["disabled"])
+        self.restore_btn.state(["!disabled"] if can_restore else ["disabled"])
+
+    def on_create_backup(self) -> None:
+        try:
+            root = self._resolve_root()
+            hf = hotfix_path(root)
+            if not hf.is_file():
+                messagebox.showerror("制作备份", f"找不到 hotfix：\n{hf}")
+                return
+            expected = effective_expected_size(root)
+            size = hf.stat().st_size
+            warn = ""
+            if size != expected:
+                warn = (
+                    f"\n\n注意：当前 hotfix 体积 {size:,} 与工具期望 {expected:,} 不一致，"
+                    "仍可备份，但可能无法用于打补丁。"
+                )
+            orig = hotfix_orig(root)
+            overwrite = "将覆盖已有 .orig 备份。\n" if orig.is_file() else ""
+            if not messagebox.askyesno(
+                "制作备份",
+                f"把当前游戏 hotfix 备份为 hotfix.dll.bytes.orig？\n"
+                f"{overwrite}"
+                f"请确认已是干净原版（未打补丁），且游戏已关闭。"
+                f"{warn}",
+            ):
+                return
+            ensure_orig_backup(root, source=hf, expected=size if size != expected else None)
+            # 同步 neworig，便于后续初始化 / 傻瓜补丁使用同一底稿
+            neworig = updated_hotfix_candidate(root)
+            neworig.parent.mkdir(parents=True, exist_ok=True)
+            _safe_copy2(hf, neworig)
+            digest = sha256_file(neworig)
+            save_baseline_meta(
+                root,
+                {
+                    "expected_size": size,
+                    "neworig_sha256": digest,
+                    "source": "manual_backup",
+                    "notes": "GUI「制作备份」写入",
+                },
+            )
+            messagebox.showinfo("制作备份", f"已备份：\n{orig}")
+            self.refresh_status()
+        except Exception as exc:
+            messagebox.showerror("制作备份失败", str(exc).strip() or "未知错误")
+
+    def on_restore_backup(self) -> None:
+        try:
+            root = self._resolve_root()
+            orig = hotfix_orig(root)
+            if not orig.is_file():
+                messagebox.showerror("恢复备份", "还没有 .orig 备份，请先「制作备份」。")
+                self._update_backup_buttons()
+                return
+            if not messagebox.askyesno(
+                "恢复备份",
+                "用 .orig 覆盖当前 hotfix.dll.bytes？\n"
+                "已打的补丁会丢掉。请先关闭游戏。",
+            ):
+                return
+            restore_hotfix(root)
+            messagebox.showinfo("恢复备份", "已从 .orig 恢复 hotfix。")
+            self.refresh_status()
+        except Exception as exc:
+            messagebox.showerror("恢复备份失败", str(exc).strip() or "未知错误")
 
     def _confirm_fix_client_update_if_needed(self, root: Path) -> bool:
         """若 hotfix 与标记不一致，询问是否自动采新底稿。返回 False 表示用户取消。"""
