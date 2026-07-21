@@ -50,12 +50,25 @@ cg37-1-*.setup
 魔力宝贝序章补丁/combo_patch_state.json
 魔力宝贝序章补丁/hotfix_watch_stamp.json
 魔力宝贝序章补丁/patch_config.json
+combo_patch_state.json
+hotfix_watch_stamp.json
+patch_config.json
 tools/hotfix_baseline.json
 tools/hotfix.dll.bytes.neworig
 .env
 .env.*
 **/secrets*
 **/*credential*
+
+# Accidental extract of 傻瓜补丁 into repo root
+/_internal/
+/patcher/
+/傻瓜补丁.exe
+/一键打补丁.bat
+/使用说明.txt
+tools/_tmp_bundle.b
+tools/item_list_export.json
+tools/protocol_catalog.json
 
 # Archives & exports
 *.zip

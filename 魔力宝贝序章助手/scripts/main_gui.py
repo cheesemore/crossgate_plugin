@@ -365,7 +365,7 @@ class SeqChapterAssistantApp:
         ttk.Entry(count_row, textvariable=self.packet_use_count_var, width=6).pack(side=tk.LEFT, padx=(4, 8))
         ttk.Label(
             count_row,
-            text="Usecount，默认 1",
+            text="Usecount，任意整数（含 -1）",
             font=("Microsoft YaHei UI", 8),
             foreground="#666",
         ).pack(side=tk.LEFT)
@@ -822,14 +822,10 @@ class SeqChapterAssistantApp:
     def _parse_packet_use_count(self) -> int | None:
         raw = self.packet_use_count_var.get().strip()
         try:
-            count = int(raw)
+            return int(raw)
         except ValueError:
-            messagebox.showwarning("输入无效", "数量必须是整数")
+            messagebox.showwarning("输入无效", "Usecount 必须是整数（可为负数，如 -1）")
             return None
-        if count < 1:
-            messagebox.showwarning("输入无效", "数量不能小于 1")
-            return None
-        return count
 
     def _update_packet_chars(self, st: dict) -> None:
         if not hasattr(self, "packet_char_cb"):

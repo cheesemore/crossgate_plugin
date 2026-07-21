@@ -95,6 +95,11 @@ internal static class Program
             return MapSprintSpeedIlPatcher.Run(args.Skip(1).ToArray());
         }
 
+        if (args.Length > 0 && args[0] == "transition-speed-patch")
+        {
+            return TransitionSpeedIlPatcher.Run(args.Skip(1).ToArray());
+        }
+
         if (args.Length > 0 && args[0] == "skill-effect-speed-patch")
         {
             return SkillEffectSpeedIlPatcher.Run(args.Skip(1).ToArray());

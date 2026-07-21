@@ -8,13 +8,12 @@ import subprocess
 import sys
 import tkinter as tk
 from pathlib import Path
-from tkinter import filedialog, messagebox, scrolledtext, ttk
+from tkinter import filedialog, messagebox, ttk
 
 from apply_combo_patch import apply_combo, get_status
 from patch_common import (
     CUSTOMER_GM_LABELS,
     DATA_DIR,
-    EXPECTED_SIZE,
     adopt_client_hotfix_update,
     bridge_variant_label,
     detect_hotfix_drift,
@@ -41,29 +40,83 @@ class ComboPatchApp:
     def __init__(self) -> None:
         self.root = tk.Tk()
         self.root.title("魔力宝贝：序章 — 热补丁")
-        self.root.geometry("600x860")
-        self.root.minsize(560, 800)
+        self.root.geometry("620x720")
+        self.root.minsize(560, 640)
         self.action_buttons: list[tk.Widget] = []
 
         outer = ttk.Frame(self.root, padding=12)
         outer.pack(fill=tk.BOTH, expand=True)
 
-        ttk.Label(outer, text="魔力宝贝：序章 客户端热补丁", font=("Microsoft YaHei UI", 11, "bold")).pack(
+        # 底部按钮栏先 pack，保证始终可见（去掉说明区后窗口变矮时不会被选项挤没）
+        btn_row = ttk.Frame(outer)
+        btn_row.pack(side=tk.BOTTOM, fill=tk.X, pady=(8, 0))
+        self.init_btn = tk.Button(
+            btn_row,
+            text="初始化",
+            command=self.on_initialize,
+            width=14,
+            fg="red",
+            activeforeground="red",
+        )
+        self.init_btn.pack(side=tk.LEFT)
+        self._add_action_button(
+            btn_row,
+            ttk.Button(btn_row, text="应用补丁", command=self.on_apply, width=12),
+        ).pack(side=tk.LEFT, padx=(10, 0))
+        self._add_action_button(
+            btn_row,
+            ttk.Button(btn_row, text="测算余量", command=self.on_slack_check, width=10),
+        ).pack(side=tk.LEFT, padx=(6, 0))
+        self._add_action_button(
+            btn_row,
+            ttk.Button(btn_row, text="启动游戏", command=self.on_launch_game, width=10),
+        ).pack(side=tk.LEFT, padx=(6, 0))
+        ttk.Button(btn_row, text="刷新状态", command=self.refresh_status, width=10).pack(
+            side=tk.LEFT, padx=(6, 0)
+        )
+
+        apply_frm = ttk.Frame(outer)
+        apply_frm.pack(side=tk.BOTTOM, fill=tk.X, pady=(0, 4))
+        self.inject_bridge_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            apply_frm,
+            text="注入桥接（序章助手连接所需；与神奇九动互斥，不能共存）",
+            variable=self.inject_bridge_var,
+            command=self._on_inject_bridge_toggle,
+        ).pack(anchor=tk.W)
+
+        self.status_var = tk.StringVar()
+        ttk.Label(outer, textvariable=self.status_var, font=("Microsoft YaHei UI", 9)).pack(
+            side=tk.BOTTOM, anchor=tk.W, fill=tk.X, pady=(0, 4)
+        )
+        self.update_hint_var = tk.StringVar()
+        ttk.Label(
+            outer,
+            textvariable=self.update_hint_var,
+            foreground="#c0392b",
+            wraplength=520,
+            font=("Microsoft YaHei UI", 9),
+        ).pack(side=tk.BOTTOM, anchor=tk.W, fill=tk.X, pady=(0, 2))
+
+        body = ttk.Frame(outer)
+        body.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+
+        ttk.Label(body, text="魔力宝贝：序章 客户端热补丁", font=("Microsoft YaHei UI", 11, "bold")).pack(
             anchor=tk.W
         )
         ttk.Label(
-            outer,
+            body,
             text="关闭游戏 → 选目录 → 初始化 → 应用补丁。初始化会自动完成所有准备工作（可重复点）。",
             wraplength=520,
             foreground="#555555",
         ).pack(anchor=tk.W, pady=(0, 6))
         ttk.Label(
-            outer,
+            body,
             text=f"目标：{DATA_DIR}/assets/hotfixdata/hotfix.dll.bytes",
             wraplength=500,
         ).pack(anchor=tk.W, pady=(0, 10))
 
-        path_frm = ttk.LabelFrame(outer, text=f"游戏目录（含 {DATA_DIR} 文件夹）", padding=8)
+        path_frm = ttk.LabelFrame(body, text=f"游戏目录（含 {DATA_DIR} 文件夹）", padding=8)
         path_frm.pack(fill=tk.X, pady=(0, 8))
         self.path_var = tk.StringVar()
         row = ttk.Frame(path_frm)
@@ -71,13 +124,13 @@ class ComboPatchApp:
         ttk.Entry(row, textvariable=self.path_var).pack(side=tk.LEFT, fill=tk.X, expand=True)
         ttk.Button(row, text="浏览…", command=self.pick_game_dir, width=8).pack(side=tk.LEFT, padx=(6, 0))
 
-        opt_frm = ttk.LabelFrame(outer, text="补丁选项", padding=8)
-        opt_frm.pack(fill=tk.X, pady=(0, 8))
+        opt_frm = ttk.LabelFrame(body, text="补丁选项", padding=8)
+        opt_frm.pack(fill=tk.BOTH, expand=True, pady=(0, 8))
         self.vip_var = tk.BooleanVar(value=True)
         self.vip_non_vip_var = tk.BooleanVar(value=True)
         self.vip_scale_var = tk.StringVar(value="5")
         self._patch_toggle_guard = False
-        self.battle_nine_action_var = tk.BooleanVar(value=False)
+        self.battle_nine_action_var = tk.BooleanVar(value=True)
         ttk.Checkbutton(opt_frm, text="VIP 战斗倍速", variable=self.vip_var).pack(anchor=tk.W)
         vip_row = ttk.Frame(opt_frm)
         vip_row.pack(anchor=tk.W, padx=(18, 0), pady=(4, 0))
@@ -97,14 +150,14 @@ class ComboPatchApp:
 
         ttk.Checkbutton(
             opt_frm,
-            text="神奇九动·IL原版（需足够间隙；与 DLL版/桥接互斥）",
+            text="神奇九动·IL原版（默认；需足够间隙；与 DLL版/桥接互斥）",
             variable=self.battle_nine_action_var,
             command=self._on_battle_nine_action_toggle,
         ).pack(anchor=tk.W, pady=(8, 0))
         self.battle_nine_external_var = tk.BooleanVar(value=False)
         ttk.Checkbutton(
             opt_frm,
-            text="神奇九动·DLL版（推荐；与 IL原版/桥接互斥）",
+            text="神奇九动·DLL版（与 IL原版/桥接互斥）",
             variable=self.battle_nine_external_var,
             command=self._on_battle_nine_external_toggle,
         ).pack(anchor=tk.W, pady=(4, 0))
@@ -123,11 +176,9 @@ class ComboPatchApp:
                 ("challengeboss", "讨伐令3045"),
                 ("bravetrial", "试炼3047"),
                 ("crystal", "水晶阁"),
-                ("tower", "无尽之塔"),
             ),
             (
                 ("autoskill", "自动技能"),
-                ("familyhall", "公会领地"),
             ),
         ):
             gm_row = ttk.Frame(opt_frm)
@@ -162,6 +213,23 @@ class ComboPatchApp:
             variable=self.battle_longpress_var,
         ).pack(anchor=tk.W, pady=(8, 0))
 
+        self.transition_speed_var = tk.BooleanVar(value=True)
+        self.transition_speed_scale_var = tk.StringVar(value="0.2")
+        ttk.Checkbutton(
+            opt_frm,
+            text="加速过场（进出战斗十字格；不影响协议 8 退场回执）",
+            variable=self.transition_speed_var,
+        ).pack(anchor=tk.W, pady=(8, 0))
+        transition_row = ttk.Frame(opt_frm)
+        transition_row.pack(anchor=tk.W, padx=(18, 0), pady=(4, 0))
+        for scale, text in (("0.4", "快"), ("0.2", "很快"), ("0.1", "飞快")):
+            ttk.Radiobutton(
+                transition_row,
+                text=text,
+                variable=self.transition_speed_scale_var,
+                value=scale,
+            ).pack(side=tk.LEFT, padx=(0, 8))
+
         self.skill_effect_speed_var = tk.BooleanVar(value=True)
         self.skill_effect_scale_var = tk.StringVar(value="2")
         ttk.Checkbutton(
@@ -179,62 +247,6 @@ class ComboPatchApp:
                 variable=self.skill_effect_scale_var,
                 value=scale,
             ).pack(side=tk.LEFT, padx=(0, 8))
-
-        self.update_hint_var = tk.StringVar()
-        ttk.Label(
-            outer,
-            textvariable=self.update_hint_var,
-            foreground="#c0392b",
-            wraplength=520,
-            font=("Microsoft YaHei UI", 9),
-        ).pack(anchor=tk.W, pady=(0, 4))
-
-        self.status_var = tk.StringVar()
-        ttk.Label(outer, textvariable=self.status_var, font=("Microsoft YaHei UI", 9)).pack(
-            anchor=tk.W, pady=(0, 8)
-        )
-
-        apply_frm = ttk.Frame(outer)
-        apply_frm.pack(fill=tk.X, pady=(0, 8))
-        self.inject_bridge_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(
-            apply_frm,
-            text="注入桥接（序章助手连接所需；与神奇九动互斥，不能共存）",
-            variable=self.inject_bridge_var,
-            command=self._on_inject_bridge_toggle,
-        ).pack(anchor=tk.W)
-
-        btn_row = ttk.Frame(outer)
-        btn_row.pack(fill=tk.X, pady=(0, 8))
-        self.init_btn = tk.Button(
-            btn_row,
-            text="初始化",
-            command=self.on_initialize,
-            width=14,
-            fg="red",
-            activeforeground="red",
-        )
-        self.init_btn.pack(side=tk.LEFT)
-        self._add_action_button(
-            btn_row,
-            ttk.Button(btn_row, text="应用补丁", command=self.on_apply, width=12),
-        ).pack(side=tk.LEFT, padx=(10, 0))
-        self._add_action_button(
-            btn_row,
-            ttk.Button(btn_row, text="测算余量", command=self.on_slack_check, width=10),
-        ).pack(side=tk.LEFT, padx=(6, 0))
-        self._add_action_button(
-            btn_row,
-            ttk.Button(btn_row, text="启动游戏", command=self.on_launch_game, width=10),
-        ).pack(side=tk.LEFT, padx=(6, 0))
-        ttk.Button(btn_row, text="刷新状态", command=self.refresh_status, width=10).pack(side=tk.LEFT, padx=(6, 0))
-
-        help_frm = ttk.LabelFrame(outer, text="说明", padding=6)
-        help_frm.pack(fill=tk.BOTH, expand=True)
-        self.help_text = scrolledtext.ScrolledText(help_frm, height=12, font=("Microsoft YaHei UI", 9), wrap=tk.WORD)
-        self.help_text.pack(fill=tk.BOTH, expand=True)
-        self.help_text.insert(tk.END, self._help_content())
-        self.help_text.configure(state=tk.DISABLED)
 
         self.load_saved_path()
         self.refresh_status()
@@ -281,43 +293,6 @@ class ComboPatchApp:
             self.battle_nine_external_var.set(False)
         finally:
             self._patch_toggle_guard = False
-
-    def _help_content(self) -> str:
-        return f"""【怎么用（两步）】
-1. 完全关闭 cg37.exe，选择游戏目录（含 {DATA_DIR}）
-2. 点红色「初始化」→ 勾选补丁与「注入桥接」→ 点「应用补丁」→「启动游戏」
-
-【初始化会自动做什么】
-• 编译补丁引擎（需 .NET SDK，约半分钟）
-• 优先采用游戏内干净 hotfix（与旧底稿哈希不同时视为客户端更新）
-• 写入 tools/hotfix.dll.bytes.neworig，并重建 hotfix / .orig
-• 清除上次补丁状态；初始化后需再点「应用补丁」
-• 可重复点击（更新后、打补丁失败、想恢复原版后再打，都点初始化）
-
-【应用补丁】
-• 始终从干净 .orig 开始叠加所选补丁（无需手动还原）
-• 勾选「注入桥接」会在补丁打完后注入序章助手桥接（多开器/助手需要）
-• 神奇九动（IL原版 / DLL版）与注入桥接不能同时开：
-  两者都改写 HotfixEntry.OnApplicationPause 作 DLL 加载器，后打的会覆盖先打的；
-  另共用 .text 余量。当前实现无法共存（DLL 版也一样）。
-• 「测算余量」可预检各补丁能否打进 .text VA 间隙（约 438B）
-• 改补丁选项后：再点一次「应用补丁」即可
-• 「启动游戏」会启动目录下的 cg37.exe
-
-【客户端更新检测】
-• 每次「初始化 / 应用补丁」成功后会标记当前 hotfix 指纹（体积+哈希）
-• 打开工具若发现与标记不一致，状态栏会提示；点初始化或应用补丁时会询问是否自动修复
-• 自动修复＝采用游戏内干净新 hotfix 重建底稿，不会用旧 .orig 盖新文件
-
-【客户端更新后】
-启动器「更新 / 修复」→ 关闭游戏 → 打开本工具（若提示更新则选「是」）→「应用补丁」
-
-【当前补丁（默认）】
-• 桥接 + VIP / 非VIP 战斗 5x · 客服→自动技能 · Sprint 8 · 战斗长按详情 · 技能特效 2x
-• 可选：神奇九动（需取消桥接；间隙够优先 IL 原版，不够用 DLL 版）
-
-期望 hotfix 体积：{EXPECTED_SIZE:,} 字节
-"""
 
     def load_saved_path(self) -> None:
         root = get_game_root()
@@ -474,6 +449,7 @@ class ComboPatchApp:
                 customer_gm=self.customer_gm_var.get(),
                 map_sprint=self.map_sprint_var.get(),
                 battle_longpress=self.battle_longpress_var.get(),
+                transition_speed=self.transition_speed_var.get(),
                 skill_effect_speed=self.skill_effect_speed_var.get(),
                 inject_bridge=self.inject_bridge_var.get(),
             )
@@ -522,6 +498,7 @@ class ComboPatchApp:
                 or self.customer_gm_var.get()
                 or self.map_sprint_var.get()
                 or self.battle_longpress_var.get()
+                or self.transition_speed_var.get()
                 or self.skill_effect_speed_var.get()
                 or self.inject_bridge_var.get()
             ):
@@ -549,6 +526,8 @@ class ComboPatchApp:
                 map_sprint=self.map_sprint_var.get(),
                 map_sprint_scale=int(self.map_sprint_scale_var.get()),
                 battle_longpress=self.battle_longpress_var.get(),
+                transition_speed=self.transition_speed_var.get(),
+                transition_speed_scale=float(self.transition_speed_scale_var.get()),
                 skill_effect_speed=self.skill_effect_speed_var.get(),
                 skill_effect_scale=float(self.skill_effect_scale_var.get()),
                 inject_bridge=self.inject_bridge_var.get(),

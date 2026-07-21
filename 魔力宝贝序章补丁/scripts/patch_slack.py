@@ -81,6 +81,7 @@ def combo_check_ids(
     customer_gm: bool = False,
     map_sprint: bool = False,
     battle_longpress: bool = False,
+    transition_speed: bool = False,
     skill_effect_speed: bool = False,
     inject_bridge: bool = False,
 ) -> list[str]:
@@ -97,6 +98,8 @@ def combo_check_ids(
         ids.append("sprint")
     if battle_longpress:
         ids.append("longpress")
+    if transition_speed:
+        ids.append("transition")
     if skill_effect_speed:
         ids.append("skill_effect")
     if inject_bridge:
@@ -114,6 +117,7 @@ def assert_combo_slack_ok(
     customer_gm: bool = False,
     map_sprint: bool = False,
     battle_longpress: bool = False,
+    transition_speed: bool = False,
     skill_effect_speed: bool = False,
     inject_bridge: bool = False,
 ) -> tuple[dict[str, Any], list[str]]:
@@ -129,6 +133,7 @@ def assert_combo_slack_ok(
         customer_gm=customer_gm,
         map_sprint=map_sprint,
         battle_longpress=battle_longpress,
+        transition_speed=transition_speed,
         skill_effect_speed=skill_effect_speed,
         inject_bridge=inject_bridge,
     )

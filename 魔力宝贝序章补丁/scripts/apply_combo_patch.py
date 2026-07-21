@@ -79,6 +79,9 @@ MAP_SPRINT_LABELS = {8: "快", 10: "很快", 12: "飞快"}
 SKILL_EFFECT_SCALES = (1.5, 2.0, 3.0, 5.0)
 SKILL_EFFECT_LABELS = {1.5: "1.5x", 2.0: "2x", 3.0: "3x", 5.0: "5x"}
 
+TRANSITION_SPEED_SCALES = (0.4, 0.2, 0.1)
+TRANSITION_SPEED_LABELS = {0.4: "快", 0.2: "很快", 0.1: "飞快"}
+
 
 def apply_map_sprint(hotfix: Path, scale: int = 8) -> tuple[bool, str]:
     if scale not in MAP_SPRINT_SCALES:
@@ -174,6 +177,33 @@ def apply_battle_longpress(hotfix: Path, source: Path) -> tuple[bool, str]:
     return True, "战斗长按：任意战斗类型可查看单位详情"
 
 
+def apply_transition_speed(hotfix: Path, source: Path, scale: float = 0.2) -> tuple[bool, str]:
+    if scale not in TRANSITION_SPEED_SCALES:
+        return False, f"无效过场时长: {scale}"
+    proc = run_patcher_capture(
+        [
+            "transition-speed-patch",
+            "--hotfix",
+            str(source),
+            "--output",
+            str(hotfix),
+            "--scale",
+            str(scale),
+        ]
+    )
+    out = (proc.stdout or "") + (proc.stderr or "")
+    if proc.returncode != 0:
+        if "[SKIP]" in out or "可能已打过" in out:
+            label = TRANSITION_SPEED_LABELS.get(scale, str(scale))
+            return True, f"加速过场：已是 {label}（跳过）"
+        return False, out.strip() or "加速过场补丁失败"
+    if "[SKIP]" in out:
+        label = TRANSITION_SPEED_LABELS.get(scale, str(scale))
+        return True, f"加速过场：已是 {label}（跳过）"
+    label = TRANSITION_SPEED_LABELS.get(scale, str(scale))
+    return True, f"加速过场：{label}（CrossBlocks {scale}s，原版 0.8s）"
+
+
 def apply_battle_nine_action(
     hotfix: Path,
     source: Path,
@@ -231,6 +261,8 @@ def _apply_gameplay_patches(
     map_sprint: bool,
     map_sprint_scale: int,
     battle_longpress: bool,
+    transition_speed: bool,
+    transition_speed_scale: float,
     skill_effect_speed: bool,
     skill_effect_scale: float,
     pet_equip_unlock: bool,
@@ -287,6 +319,15 @@ def _apply_gameplay_patches(
         messages.append(msg)
         work = hotfix
 
+    if transition_speed:
+        if transition_speed_scale not in TRANSITION_SPEED_SCALES:
+            raise ValueError("transition_speed_scale 须为 0.4、0.2 或 0.1")
+        ok, msg = apply_transition_speed(hotfix, work, transition_speed_scale)
+        if not ok:
+            raise RuntimeError(msg)
+        messages.append(msg)
+        work = hotfix
+
     if skill_effect_speed:
         if skill_effect_scale not in SKILL_EFFECT_SCALES:
             raise ValueError("skill_effect_scale 须为 1.5、2、3 或 5")
@@ -315,6 +356,8 @@ def apply_combo(
     map_sprint: bool = False,
     map_sprint_scale: int = 8,
     battle_longpress: bool = False,
+    transition_speed: bool = False,
+    transition_speed_scale: float = 0.2,
     skill_effect_speed: bool = False,
     skill_effect_scale: float = 2.0,
     pet_equip_unlock: bool = False,
@@ -353,6 +396,7 @@ def apply_combo(
         customer_gm=customer_gm,
         map_sprint=map_sprint,
         battle_longpress=battle_longpress,
+        transition_speed=transition_speed,
         skill_effect_speed=skill_effect_speed,
         inject_bridge=inject_bridge,
     )
@@ -369,6 +413,7 @@ def apply_combo(
         or customer_gm
         or map_sprint
         or battle_longpress
+        or transition_speed
         or skill_effect_speed
         or pet_equip_unlock
     )
@@ -384,6 +429,8 @@ def apply_combo(
         map_sprint=map_sprint,
         map_sprint_scale=map_sprint_scale,
         battle_longpress=battle_longpress,
+        transition_speed=transition_speed,
+        transition_speed_scale=transition_speed_scale,
         skill_effect_speed=skill_effect_speed,
         skill_effect_scale=skill_effect_scale,
         pet_equip_unlock=pet_equip_unlock,
@@ -419,6 +466,8 @@ def apply_combo(
         "map_sprint": map_sprint,
         "map_sprint_scale": map_sprint_scale if map_sprint else 0,
         "battle_longpress": battle_longpress,
+        "transition_speed": transition_speed,
+        "transition_speed_scale": transition_speed_scale if transition_speed else 0,
         "skill_effect_speed": skill_effect_speed,
         "skill_effect_scale": skill_effect_scale if skill_effect_speed else 0,
         "pet_equip_unlock": pet_equip_unlock,
@@ -495,7 +544,7 @@ def main() -> int:
     )
     parser.add_argument("--vip-non-vip", action="store_true", help="非VIP同样倍速")
     parser.add_argument("--vip-scale", type=int, choices=[3, 5, 10], default=5)
-    parser.add_argument("--customer-gm", action="store_true", help="客服按钮改开 GM / 盲盒 / 水晶阁 / 无尽之塔")
+    parser.add_argument("--customer-gm", action="store_true", help="客服按钮改开：盲盒/秘宝/讨伐令/试炼/水晶/自动技能")
     parser.add_argument("--customer-gm-mode", choices=CUSTOMER_GM_MODES, default="autoskill")
     parser.add_argument("--map-sprint", action="store_true", help="Sprint 跑速 8/10/12")
     parser.add_argument("--map-sprint-scale", type=int, choices=[8, 10, 12], default=8)
@@ -503,6 +552,18 @@ def main() -> int:
         "--battle-longpress",
         action="store_true",
         help="任意战斗类型长按单位可打开 BattleMessageTips 详情",
+    )
+    parser.add_argument(
+        "--transition-speed",
+        action="store_true",
+        help="加速过场：进出战斗 CrossBlocks 0.4/0.2/0.1s",
+    )
+    parser.add_argument(
+        "--transition-speed-scale",
+        type=float,
+        choices=[0.4, 0.2, 0.1],
+        default=0.2,
+        help="过场时长：0.4=快 0.2=很快 0.1=飞快",
     )
     parser.add_argument(
         "--skill-effect-speed",
@@ -558,6 +619,8 @@ def main() -> int:
             map_sprint=args.map_sprint,
             map_sprint_scale=args.map_sprint_scale,
             battle_longpress=args.battle_longpress,
+            transition_speed=args.transition_speed,
+            transition_speed_scale=args.transition_speed_scale,
             skill_effect_speed=args.skill_effect_speed,
             skill_effect_scale=args.skill_effect_scale,
             pet_equip_unlock=args.pet_equip_unlock,

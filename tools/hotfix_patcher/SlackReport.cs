@@ -164,6 +164,7 @@ internal static class SlackReport
         list.Add(new PatchSlackProfile("vip", "战斗倍速", 0, "inplace", false, "改 ldc.r4，不占 VA 间隙"));
         list.Add(new PatchSlackProfile("sprint", "Sprint 跑速", 0, "inplace", false, "改 float，不占 VA 间隙"));
         list.Add(new PatchSlackProfile("longpress", "战斗长按", 0, "inplace", false, "beq.s→br.s，不占 VA 间隙"));
+        list.Add(new PatchSlackProfile("transition", "加速过场", 0, "inplace", false, "CrossBlocks 0.8→0.4/0.2/0.1，不占 VA 间隙"));
         list.Add(new PatchSlackProfile("customer_gm", "客服入口", 0, "inplace", false, "Compact 回调，通常变小"));
 
         var skill = EstimateSkillEffectGrowth(asm);

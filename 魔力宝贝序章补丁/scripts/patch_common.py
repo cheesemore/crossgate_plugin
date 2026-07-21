@@ -37,8 +37,8 @@ UPDATED_HOTFIX_REL = Path("tools") / "hotfix.dll.bytes.neworig"
 BASELINE_META_REL = Path("tools") / "hotfix_baseline.json"
 HOTFIX_WATCH_STAMP_NAME = "hotfix_watch_stamp.json"
 CUSTOMER_GM_MODES = (
-    "blindbox", "lottery", "crystal", "tower", "autoskill",
-    "challengeboss", "bravetrial", "familyhall",
+    "blindbox", "lottery", "crystal", "autoskill",
+    "challengeboss", "bravetrial",
 )
 CUSTOMER_GM_LABELS = {
     "original": "原版 QQ 客服",
@@ -46,12 +46,12 @@ CUSTOMER_GM_LABELS = {
     "lottery": "幸运秘宝(3049)",
     "crystal": "水晶阁",
     "boss": "讨伐 Boss",
-    "tower": "无尽之塔",
+    "tower": "无尽之塔(已下架)",
     "ruby": "露比试炼",
     "autoskill": "自动技能设置",
     "challengeboss": "讨伐令(3045)",
     "bravetrial": "英雄试炼(3047)",
-    "familyhall": "传送公会领地",
+    "familyhall": "公会领地(已下架)",
     "unknown": "未知",
 }
 
@@ -125,24 +125,50 @@ def get_game_root() -> Path | None:
 
 
 def detect_game_root_from_launcher() -> Path | None:
-    """从 exe/工具目录或其上级查找含 cg37_Data 的游戏根目录。"""
-    candidates: list[Path] = []
+    """从 exe/工具目录起逐级向上查找含 cg37.exe + cg37_Data 的游戏根目录。"""
+    starts: list[Path] = []
     if _is_frozen():
-        candidates.append(Path(sys.executable).resolve().parent)
-    candidates.append(toolkit_root())
+        starts.append(Path(sys.executable).resolve().parent)
+    starts.append(toolkit_root())
+    try:
+        starts.append(Path.cwd().resolve())
+    except OSError:
+        pass
     if not _is_frozen() and (GAME_ROOT / DATA_DIR).is_dir():
-        candidates.append(GAME_ROOT)
+        starts.append(GAME_ROOT)
 
     seen: set[str] = set()
-    for base in candidates:
-        for path in (base, base.parent):
-            key = str(path.resolve()).lower()
-            if key in seen:
-                continue
-            seen.add(key)
-            if (path / DATA_DIR).is_dir():
-                return path
+    for base in starts:
+        found = find_game_root_walking_up(base)
+        if found is None:
+            continue
+        key = str(found.resolve()).lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        return found
     return None
+
+
+def find_game_root_walking_up(start: Path | None = None) -> Path | None:
+    """从 start 起向上查找游戏根（含 cg37.exe 与 cg37_Data），直到盘符根。"""
+    if start is None:
+        if _is_frozen():
+            start = Path(sys.executable).resolve().parent
+        else:
+            start = Path.cwd()
+    cur = start.resolve()
+    if cur.is_file():
+        cur = cur.parent
+    while True:
+        exe = cur / "cg37.exe"
+        data = cur / DATA_DIR
+        if exe.is_file() and data.is_dir():
+            return cur
+        parent = cur.parent
+        if parent == cur:
+            return None
+        cur = parent
 
 
 def set_game_root(path: Path) -> None:
@@ -614,8 +640,8 @@ def sniff_customer_gm(hotfix: Path) -> tuple[bool, str]:
 
 
 def normalize_customer_gm_mode(mode: str) -> str:
-    if mode == "dojo":
-        return "tower"
+    if mode in ("dojo", "tower", "endless", "无尽之塔", "无尽"):
+        return "autoskill"
     if mode in ("boss", "ruby", "gm1", "gm2", "gm3", "gm4", "gm5"):
         return "autoskill"
     if mode in ("3045", "讨伐令", "suppress"):
@@ -625,11 +651,11 @@ def normalize_customer_gm_mode(mode: str) -> str:
     if mode in ("3046", "地鼠", "地鼠抽奖", "earthmouse", "diglett"):
         return "autoskill"
     if mode in ("3050", "boss大陆", "水晶副本", "crystal_sw", "bossland"):
-        return "tower"
+        return "autoskill"
     if mode in ("collection", "collect", "采集", "采集面板"):
         return "autoskill"
-    if mode in ("公会", "公会领地", "传送公会", "family", "guild"):
-        return "familyhall"
+    if mode in ("公会", "公会领地", "传送公会", "family", "guild", "familyhall"):
+        return "autoskill"
     if mode in ("宠物改造", "改造", "pet-reform", "reform", "petreform"):
         return "autoskill"
     if mode in CUSTOMER_GM_MODES:
