@@ -24,7 +24,7 @@ PARTIALCONFIG_STREAMING_REL = Path(DATA_DIR) / "StreamingAssets" / "partialconfi
 KEEP_CHANNELS = frozenset({"1100", "1102"})
 DEFAULT_CHANNEL = "1101"
 OLD_HOTFIX_SIZE = 6_879_744
-EXPECTED_SIZE = 7_068_160
+EXPECTED_SIZE = 7_075_328
 KNOWN_OLD_SIZES: dict[int, str] = {
     6_879_744: "2026-6-21 之前",
     6_923_264: "2026-6-21 ~ 2026-6-27",
@@ -32,6 +32,7 @@ KNOWN_OLD_SIZES: dict[int, str] = {
     7_042_560: "2026-7 ~ 2026-7-15",
     7_055_360: "2026-7-15 ~ 2026-7-18",
     7_067_648: "2026-7-18 ~ 2026-7-19",
+    7_068_160: "2026-7-19 ~ 2026-7-22",
 }
 UPDATED_HOTFIX_REL = Path("tools") / "hotfix.dll.bytes.neworig"
 BASELINE_META_REL = Path("tools") / "hotfix_baseline.json"

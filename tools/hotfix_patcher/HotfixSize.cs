@@ -2,7 +2,7 @@
 
 internal static class HotfixSize
 {
-    public const int Expected = 7_068_160;
+    public const int Expected = 7_075_328;
 
     public static int Require(byte[] data, string label = "源文件")
     {
