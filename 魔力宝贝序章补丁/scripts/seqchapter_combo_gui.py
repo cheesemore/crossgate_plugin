@@ -226,7 +226,7 @@ class ComboPatchApp:
         ).pack(anchor=tk.W, pady=(8, 0))
 
         self.transition_speed_var = tk.BooleanVar(value=True)
-        self.transition_speed_scale_var = tk.StringVar(value="0.2")
+        self.transition_speed_scale_var = tk.StringVar(value="0.4")
         ttk.Checkbutton(
             opt_frm,
             text="加速过场（进出战斗十字格；不影响协议 8 退场回执）",

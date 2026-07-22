@@ -3,9 +3,11 @@
 """
 傻瓜补丁：与 GUI 默认勾选一致，自动判断客户端状态后一键打补丁。
 
-默认组合（见 patch_defaults.DEFAULT_COMBO_KWARGS）：
-  VIP/非VIP 5x · 客服→自动技能 · Sprint 快 · 长按详情 · 加速过场很快
+默认组合（见 patch_defaults.FOOLPROOF_COMBO_KWARGS）：
+  VIP/非VIP 5x · 客服→自动技能 · Sprint 快 · 长按详情 · 无加速过场
   · 技能特效 2x · 神奇九动（优先 IL，不行则 DLL）· 无桥接
+
+GUI / 简单补丁默认过场为「快」0.4s（见 DEFAULT_COMBO_KWARGS）。
 
 体积与 HotfixSize.Expected / EXPECTED_SIZE 绑定；客户端更新导致体积变化时
 需发新版傻瓜补丁（平时不改，等稳定版再更新）。
@@ -38,7 +40,7 @@ from patch_common import (
     sha256_file,
     updated_hotfix_candidate,
 )
-from patch_defaults import FOOLPROOF_COMBO_KWARGS
+from patch_defaults import FOOLPROOF_COMBO_KWARGS, FOOLPROOF_NO_NINE_COMBO_KWARGS
 from patch_slack import format_slack_summary, slack_report
 
 
@@ -207,7 +209,11 @@ def _size_mismatch_error(size: int) -> FoolproofError:
     )
 
 
-def run_foolproof_patch(game_root: Path | None = None) -> list[str]:
+def run_foolproof_patch(
+    game_root: Path | None = None,
+    *,
+    enable_nine: bool = True,
+) -> list[str]:
     """一键诊断并打傻瓜补丁。成功返回消息列表；失败抛 FoolproofError。"""
     messages: list[str] = []
     root = resolve_game_root(game_root)
@@ -219,13 +225,23 @@ def run_foolproof_patch(game_root: Path | None = None) -> list[str]:
     messages.append("正在检查 hotfix / 底稿…")
     _ensure_clean_baseline(root, messages)
 
-    use_il = choose_nine_il(root)
-    nine_label = "IL原版" if use_il else "DLL版"
-    messages.append(f"神奇九动：选用 {nine_label}")
+    if enable_nine:
+        use_il = choose_nine_il(root)
+        nine_label = "IL原版" if use_il else "DLL版"
+        messages.append(f"神奇九动：选用 {nine_label}")
+        kwargs = dict(FOOLPROOF_COMBO_KWARGS)
+        kwargs["battle_nine_action"] = use_il
+        kwargs["battle_nine_external"] = not use_il
+        nine_checks = ["nine"] if use_il else ["nine_external"]
+    else:
+        use_il = False
+        nine_label = "无"
+        messages.append("神奇九动：本包不打九动")
+        kwargs = dict(FOOLPROOF_NO_NINE_COMBO_KWARGS)
+        kwargs["battle_nine_action"] = False
+        kwargs["battle_nine_external"] = False
+        nine_checks = []
 
-    kwargs = dict(FOOLPROOF_COMBO_KWARGS)
-    kwargs["battle_nine_action"] = use_il
-    kwargs["battle_nine_external"] = not use_il
     kwargs["from_orig"] = True
     kwargs["inject_bridge"] = False
     kwargs["game_root"] = root
@@ -234,8 +250,9 @@ def run_foolproof_patch(game_root: Path | None = None) -> list[str]:
         data = slack_report(
             game_root=root,
             prefer_orig=True,
-            check=["vip", "sprint", "longpress", "transition", "customer_gm", "skill_effect"]
-            + (["nine"] if use_il else ["nine_external"]),
+            check=["vip", "sprint", "longpress", "customer_gm", "skill_effect"]
+            + (["transition"] if kwargs.get("transition_speed") else [])
+            + nine_checks,
         )
         messages.append("余量预检:\n" + format_slack_summary(data))
     except Exception as exc:
@@ -252,7 +269,7 @@ def run_foolproof_patch(game_root: Path | None = None) -> list[str]:
                 "请启动器修复或重新下载客户端；若客户端已是更新版，需等待傻瓜补丁更新。\n\n"
                 f"详情：{text}"
             ) from exc
-        if "余量" in text or "间隙" in text:
+        if enable_nine and ("余量" in text or "间隙" in text):
             if use_il:
                 messages.append(f"IL 九动失败，改试 DLL 版…（{text}）")
                 kwargs["battle_nine_action"] = False
@@ -272,12 +289,17 @@ def run_foolproof_patch(game_root: Path | None = None) -> list[str]:
 
     messages.extend(patch_msgs)
     fx = kwargs.get("skill_effect_scale", 2.0)
-    tr = kwargs.get("transition_speed_scale", 0.2)
+    nine_part = f" · 九动{nine_label}" if enable_nine else " · 无九动"
+    if kwargs.get("transition_speed"):
+        tr = kwargs.get("transition_speed_scale", 0.4)
+        tr_part = f" · 过场{tr}s"
+    else:
+        tr_part = " · 无加速过场"
     messages.append(
-        f"已应用：VIP5x · 自动技能 · Sprint快 · 长按详情 · 过场{tr}s · 特效{fx}x · 九动{nine_label}"
+        f"已应用：VIP5x · 自动技能 · Sprint快 · 长按详情{tr_part} · 特效{fx}x{nine_part}"
     )
     try:
-        mark_hotfix_watch_stamp(root, marked_by="foolproof")
+        mark_hotfix_watch_stamp(root, marked_by="foolproof" if enable_nine else "foolproof_no_nine")
         messages.append("已标记 hotfix 指纹")
     except Exception as exc:
         messages.append(f"警告：标记指纹失败（{exc}）")

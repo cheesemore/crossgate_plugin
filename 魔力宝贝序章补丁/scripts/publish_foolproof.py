@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""构建「傻瓜补丁」独立包（含 HotfixPatcher + 一键打补丁.bat）→ 发布/傻瓜补丁.zip。"""
+"""构建「傻瓜补丁」独立包（含 HotfixPatcher + 一键打补丁.bat）→ 发布/傻瓜补丁.zip。
+
+用法：
+  python publish_foolproof.py           # 默认含九动
+  python publish_foolproof.py --no-nine # 无九动变体
+"""
 from __future__ import annotations
 
 import shutil
@@ -19,25 +24,31 @@ DIST_DIR = RELEASE_DIR / "dist_foolproof"
 PATCHER_CSPROJ = GAME_ROOT / "tools" / "hotfix_patcher" / "HotfixPatcher.csproj"
 PATCHER_STAGING = TOOLKIT_ROOT / "patcher" / "_release_staging"
 
-APP_NAME = "傻瓜补丁"
+NO_NINE = any(a in ("--no-nine", "--without-nine", "/no-nine") for a in sys.argv[1:])
+APP_NAME = "傻瓜补丁_无九动" if NO_NINE else "傻瓜补丁"
 ENTRY = SCRIPTS_DIR / "foolproof_gui.py"
 
 BAT_NAME = "一键打补丁.bat"
-BAT_CONTENT = r"""@echo off
+_AUTO_ARGS = "--auto --no-nine" if NO_NINE else "--auto"
+BAT_CONTENT = rf"""@echo off
 chcp 65001 >nul
 cd /d "%~dp0"
-if not exist "%~dp0傻瓜补丁.exe" (
-  echo [错误] 找不到 傻瓜补丁.exe
-  echo 请勿只拷贝本 bat，需解压整个「傻瓜补丁」文件夹。
+if not exist "%~dp0{APP_NAME}.exe" (
+  echo [错误] 找不到 {APP_NAME}.exe
+  echo 请勿只拷贝本 bat，需解压整个「{APP_NAME}」文件夹。
   pause
   exit /b 1
 )
 echo 正在打补丁（会自动向上查找游戏目录）…
-"%~dp0傻瓜补丁.exe" --auto
+"%~dp0{APP_NAME}.exe" {_AUTO_ARGS}
 exit /b %ERRORLEVEL%
 """
 
-README = """魔力宝贝：序章 — 傻瓜补丁
+README = (
+    """魔力宝贝：序章 — 傻瓜补丁（无九动）
+
+内容：VIP/非VIP 5x · 自动技能 · 跑速快 · 长按详情 · 特效2x
+不含：神奇九动、加速过场、助手桥接
 
 1. 关掉游戏
 2. 把本文件夹解压到游戏目录（和 cg37.exe 放一起，或放在子文件夹里也行）
@@ -46,6 +57,20 @@ README = """魔力宝贝：序章 — 傻瓜补丁
 
 找不到游戏时会自动往上一级目录找，一直找到盘符为止。
 """
+    if NO_NINE
+    else """魔力宝贝：序章 — 傻瓜补丁
+
+内容：VIP/非VIP 5x · 自动技能 · 跑速快 · 长按详情 · 特效2x · 神奇九动
+不含：加速过场、助手桥接
+
+1. 关掉游戏
+2. 把本文件夹解压到游戏目录（和 cg37.exe 放一起，或放在子文件夹里也行）
+3. 双击「一键打补丁.bat」
+4. 看弹窗：成功或失败都会提示
+
+找不到游戏时会自动往上一级目录找，一直找到盘符为止。
+"""
+)
 
 
 def _run(cmd: list[str], *, cwd: Path | None = None) -> None:
@@ -134,6 +159,8 @@ def build_exe() -> Path:
 
     (out_dir / BAT_NAME).write_text(BAT_CONTENT, encoding="utf-8")
     (out_dir / "使用说明.txt").write_text(README, encoding="utf-8")
+    if NO_NINE:
+        (out_dir / "无九动.flag").write_text("1\n", encoding="utf-8")
     print(f"[OK] {out_dir}")
     return out_dir
 
@@ -150,7 +177,8 @@ def zip_folder(folder: Path, zip_path: Path) -> None:
 
 def main() -> int:
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    print(f"=== 傻瓜补丁构建 {stamp} ===\n")
+    label = "无九动" if NO_NINE else "默认"
+    print(f"=== 傻瓜补丁构建 {stamp}（{label}）===\n")
     RELEASE_DIR.mkdir(parents=True, exist_ok=True)
     publish_patcher()
     out_dir = build_exe()

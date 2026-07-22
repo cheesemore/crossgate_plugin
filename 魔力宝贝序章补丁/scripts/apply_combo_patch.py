@@ -177,7 +177,7 @@ def apply_battle_longpress(hotfix: Path, source: Path) -> tuple[bool, str]:
     return True, "战斗长按：任意战斗类型可查看单位详情"
 
 
-def apply_transition_speed(hotfix: Path, source: Path, scale: float = 0.2) -> tuple[bool, str]:
+def apply_transition_speed(hotfix: Path, source: Path, scale: float = 0.4) -> tuple[bool, str]:
     if scale not in TRANSITION_SPEED_SCALES:
         return False, f"无效过场时长: {scale}"
     proc = run_patcher_capture(
@@ -357,7 +357,7 @@ def apply_combo(
     map_sprint_scale: int = 8,
     battle_longpress: bool = False,
     transition_speed: bool = False,
-    transition_speed_scale: float = 0.2,
+    transition_speed_scale: float = 0.4,
     skill_effect_speed: bool = False,
     skill_effect_scale: float = 2.0,
     pet_equip_unlock: bool = False,
@@ -562,7 +562,7 @@ def main() -> int:
         "--transition-speed-scale",
         type=float,
         choices=[0.4, 0.2, 0.1],
-        default=0.2,
+        default=0.4,
         help="过场时长：0.4=快 0.2=很快 0.1=飞快",
     )
     parser.add_argument(

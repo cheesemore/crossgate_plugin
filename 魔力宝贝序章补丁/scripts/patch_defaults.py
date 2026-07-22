@@ -13,7 +13,7 @@ DEFAULT_COMBO_KWARGS = {
     "map_sprint_scale": 8,
     "battle_longpress": True,
     "transition_speed": True,
-    "transition_speed_scale": 0.2,
+    "transition_speed_scale": 0.4,
     "skill_effect_speed": True,
     "skill_effect_scale": 2.0,
     "pet_equip_unlock": False,
@@ -21,9 +21,17 @@ DEFAULT_COMBO_KWARGS = {
     "from_orig": True,
 }
 
-# 傻瓜补丁 = 与 GUI 默认勾选一致；九动由运行时在 IL/DLL 间择优（默认倾向 IL）
+# 傻瓜补丁：有九动（运行时 IL/DLL 择优）、无加速过场
 FOOLPROOF_COMBO_KWARGS = {
     **DEFAULT_COMBO_KWARGS,
+    "battle_nine_action": False,
+    "battle_nine_external": False,
+    "transition_speed": False,
+}
+
+# 无九动傻瓜包：其余与傻瓜补丁相同（仍无加速过场）
+FOOLPROOF_NO_NINE_COMBO_KWARGS = {
+    **FOOLPROOF_COMBO_KWARGS,
     "battle_nine_action": False,
     "battle_nine_external": False,
 }
@@ -39,7 +47,7 @@ LAUNCH_INJECT_PRESET = {
     "map_sprint_scale": 8,
     "battle_longpress": True,
     "transition_speed": False,
-    "transition_speed_scale": 0.2,
+    "transition_speed_scale": 0.4,
     "skill_effect_speed": True,
     "skill_effect_scale": 2.0,
     "pet_equip_unlock": False,

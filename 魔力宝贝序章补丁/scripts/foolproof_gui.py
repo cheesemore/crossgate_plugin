@@ -18,6 +18,22 @@ from foolproof_apply import FoolproofError, resolve_game_root, run_foolproof_pat
 from patch_common import DATA_DIR, EXPECTED_SIZE, detect_game_root_from_launcher, get_game_root
 
 
+def _detect_no_nine() -> bool:
+    if any(a in ("--no-nine", "--without-nine", "/no-nine") for a in sys.argv[1:]):
+        return True
+    bases: list[Path] = []
+    if getattr(sys, "frozen", False):
+        bases.append(Path(sys.executable).resolve().parent)
+    bases.append(Path(__file__).resolve().parent)
+    for base in bases:
+        if (base / "无九动.flag").is_file() or (base / "NO_NINE").is_file():
+            return True
+    return False
+
+
+NO_NINE = _detect_no_nine()
+
+
 def show_popup(title: str, text: str, *, error: bool = False) -> None:
     """成功/失败弹窗（无主窗口时也能用）。"""
     root = tk.Tk()
@@ -34,9 +50,10 @@ def show_popup(title: str, text: str, *, error: bool = False) -> None:
 def run_auto() -> int:
     """命令行/ bat 一键：自动找游戏目录 → 打补丁 → 弹窗。"""
     try:
-        msgs = run_foolproof_patch()
+        msgs = run_foolproof_patch(enable_nine=not NO_NINE)
         detail = "\n".join(msgs[-8:]) if msgs else "补丁已打好。"
-        show_popup("傻瓜补丁 — 成功", f"补丁已打好。\n请启动游戏验证。\n\n{detail}")
+        title = "傻瓜补丁（无九动）— 成功" if NO_NINE else "傻瓜补丁 — 成功"
+        show_popup(title, f"补丁已打好。\n请启动游戏验证。\n\n{detail}")
         return 0
     except FoolproofError as exc:
         show_popup("傻瓜补丁 — 无法打补丁", str(exc), error=True)
@@ -49,24 +66,31 @@ def run_auto() -> int:
 class FoolproofApp:
     def __init__(self) -> None:
         self.root = tk.Tk()
-        self.root.title("魔力宝贝：序章 — 傻瓜补丁")
+        title = "魔力宝贝：序章 — 傻瓜补丁（无九动）" if NO_NINE else "魔力宝贝：序章 — 傻瓜补丁"
+        self.root.title(title)
         self.root.geometry("560x480")
         self.root.minsize(520, 420)
 
         outer = ttk.Frame(self.root, padding=12)
         outer.pack(fill=tk.BOTH, expand=True)
 
+        head = "傻瓜补丁（无九动）" if NO_NINE else "傻瓜补丁（一键）"
         ttk.Label(
             outer,
-            text="傻瓜补丁（一键）",
+            text=head,
             font=("Microsoft YaHei UI", 12, "bold"),
         ).pack(anchor=tk.W)
+        nine_line = (
+            "· 不含神奇九动 · 无加速过场 · 无桥接。"
+            if NO_NINE
+            else "· 神奇九动（优先 IL）· 无加速过场 · 无桥接。"
+        )
         ttk.Label(
             outer,
             text=(
-                "与完整补丁 GUI 默认勾选一致：\n"
-                "VIP/非VIP 5x · 自动技能 · 跑速快 · 长按详情 · 过场很快 · 特效2x\n"
-                "· 神奇九动（优先 IL）· 无桥接。会自动向上查找游戏目录。"
+                "固定组合：\n"
+                "VIP/非VIP 5x · 自动技能 · 跑速快 · 长按详情 · 特效2x\n"
+                f"{nine_line}会自动向上查找游戏目录。"
             ),
             wraplength=520,
             foreground="#444",
@@ -134,7 +158,7 @@ class FoolproofApp:
             try:
                 root = resolve_game_root(explicit)
                 self.root.after(0, lambda: self.path_var.set(str(root)))
-                msgs = run_foolproof_patch(root)
+                msgs = run_foolproof_patch(root, enable_nine=not NO_NINE)
 
                 def ok() -> None:
                     for m in msgs:

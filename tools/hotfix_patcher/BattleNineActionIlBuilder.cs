@@ -44,7 +44,7 @@ internal static class BattleNineActionIlBuilder
         var getUid = FindPlayerGetUid(insns)
             ?? throw new InvalidOperationException("未找到 Proto_BattlePlayer.get_Uid");
 
-        var battleData = Req(module, "BattleDataHolder");
+        var battleData = Defn(module, "BattleDataHolder");
         var acountListField = module.ImportReference(battleData.Fields.First(f => f.Name == "AcountList"));
         var addMethod = module.ImportReference((MethodReference)addCall.Operand!);
         var getPlayerMethod = module.ImportReference(getPlayerRef);
@@ -122,7 +122,7 @@ internal static class BattleNineActionIlBuilder
         Append(il.Create(OpCodes.Callvirt, getUidMethod));
         AppendAddUidChain();
 
-        body.MaxStackSize = Math.Max(body.MaxStackSize, (short)10);
+        body.MaxStackSize = Math.Max(body.MaxStackSize, (short)8);
     }
 
     internal static bool IsHookInstalled(MethodDefinition method)
@@ -166,6 +166,7 @@ internal static class BattleNineActionIlBuilder
             return false;
         }
 
+        // blt → ldc.i4.0 → stloc.1（次轮扩队）
         return blt.Next.OpCode == OpCodes.Ldc_I4_0
             && blt.Next.Next?.OpCode == OpCodes.Stloc_1;
     }
@@ -368,7 +369,7 @@ internal static class BattleNineActionIlBuilder
         throw new InvalidOperationException($"不支持的 uid 加载指令: {src.OpCode}");
     }
 
-    private static TypeDefinition Req(ModuleDefinition module, string name)
+    private static TypeDefinition Defn(ModuleDefinition module, string name)
     {
         return module.Types.FirstOrDefault(t => t.Name == name)
             ?? module.Types.SelectMany(CecilHelpers.NestedTypes).FirstOrDefault(t => t.Name == name)

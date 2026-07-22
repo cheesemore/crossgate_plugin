@@ -88,7 +88,6 @@ public static class SeqChapterNineAction
             return;
         }
 
-        // 先拷贝前 N-1，避免在同一 IList 上边读边 Add
         var head = n - 1;
         var prefix = new object[head];
         for (var i = 0; i < head; i++)
@@ -118,7 +117,7 @@ public static class SeqChapterNineAction
             }
 
             var mode = Convert.ToInt32(_battleModeField.GetValue(null));
-            // WATCH=3, PVP_WATCH=8, REPLAY=9（与反编译 beq 常量一致）
+            // WATCH=3, PVP_WATCH=8, REPLAY=9
             if (mode == 3 || mode == 8 || mode == 9)
             {
                 return false;
@@ -126,7 +125,7 @@ public static class SeqChapterNineAction
         }
         catch
         {
-            // 读模式失败则仍尝试扩
+            // ignore
         }
 
         return true;
