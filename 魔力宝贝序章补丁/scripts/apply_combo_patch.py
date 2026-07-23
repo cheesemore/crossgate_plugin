@@ -247,6 +247,14 @@ def apply_battle_nine_external(hotfix: Path, source: Path) -> tuple[bool, str]:
     return True, "神奇九动·DLL版：已部署 DLL + 加载钩 + Magics"
 
 
+def _emit_combo(messages: list[str], on_log, text: str) -> None:
+    messages.append(text)
+    if on_log is None:
+        return
+    for line in text.splitlines() or [text]:
+        on_log(line)
+
+
 def _apply_gameplay_patches(
     hotfix: Path,
     orig: Path,
@@ -266,75 +274,84 @@ def _apply_gameplay_patches(
     skill_effect_speed: bool,
     skill_effect_scale: float,
     pet_equip_unlock: bool,
+    on_log=None,
 ) -> tuple[list[str], Path]:
     """在现有 hotfix 上叠加玩法补丁（不还原 .orig）。返回 (messages, work_path)。"""
     messages: list[str] = []
     work = hotfix
 
     if battle_nine_external:
+        _emit_combo(messages, on_log, "正在打：神奇九动·DLL版…")
         ok, msg = apply_battle_nine_external(hotfix, work)
         if not ok:
             raise RuntimeError(msg)
-        messages.append(msg)
+        _emit_combo(messages, on_log, msg)
         work = hotfix
 
     if vip or vip_non_vip:
         if vip_scale not in (3, 5, 10):
             raise ValueError("vip_scale 须为 3、5 或 10")
+        _emit_combo(messages, on_log, f"正在打：战斗倍速 {vip_scale}x…")
         ok, msg = apply_vip(hotfix, work, vip_scale, vip_branch=vip, non_vip=vip_non_vip)
         if not ok:
             raise RuntimeError(msg)
-        messages.append(msg)
+        _emit_combo(messages, on_log, msg)
         work = hotfix
 
     if battle_nine_action:
+        _emit_combo(messages, on_log, "正在打：神奇九动·IL原版…")
         ok, msg = apply_battle_nine_action(hotfix, work)
         if not ok:
             raise RuntimeError(msg)
-        messages.append(msg)
+        _emit_combo(messages, on_log, msg)
         work = hotfix
 
     if customer_gm:
         sniff_target = orig if orig.is_file() else hotfix
+        _emit_combo(messages, on_log, "正在打：客服入口→自动技能…")
         ok, sniff_out = sniff_customer_gm(sniff_target)
         if not ok:
             raise RuntimeError(f"客服入口嗅探失败:\n{sniff_out}")
         ok, msg = apply_customer_gm(hotfix, normalize_customer_gm_mode(customer_gm_mode))
         if not ok:
             raise RuntimeError(msg)
-        messages.append(msg)
+        _emit_combo(messages, on_log, msg)
 
     if map_sprint:
         if map_sprint_scale not in MAP_SPRINT_SCALES:
             raise ValueError("map_sprint_scale 须为 8、10 或 12")
+        _emit_combo(messages, on_log, "正在打：地图跑速…")
         ok, msg = apply_map_sprint(hotfix, map_sprint_scale)
         if not ok:
             raise RuntimeError(msg)
-        messages.append(msg)
+        _emit_combo(messages, on_log, msg)
 
     if battle_longpress:
+        _emit_combo(messages, on_log, "正在打：长按详情…")
         ok, msg = apply_battle_longpress(hotfix, work)
         if not ok:
             raise RuntimeError(msg)
-        messages.append(msg)
+        _emit_combo(messages, on_log, msg)
         work = hotfix
 
     if transition_speed:
         if transition_speed_scale not in TRANSITION_SPEED_SCALES:
             raise ValueError("transition_speed_scale 须为 0.4、0.2 或 0.1")
+        _emit_combo(messages, on_log, "正在打：加速过场…")
         ok, msg = apply_transition_speed(hotfix, work, transition_speed_scale)
         if not ok:
             raise RuntimeError(msg)
-        messages.append(msg)
+        _emit_combo(messages, on_log, msg)
         work = hotfix
 
     if skill_effect_speed:
         if skill_effect_scale not in SKILL_EFFECT_SCALES:
             raise ValueError("skill_effect_scale 须为 1.5、2、3 或 5")
+        _emit_combo(messages, on_log, "正在打：技能特效加速…")
         ok, msg = apply_skill_effect_speed(hotfix, work, skill_effect_scale)
         if not ok:
             raise RuntimeError(msg)
-        messages.append(msg)
+        _emit_combo(messages, on_log, msg)
         work = hotfix
 
     if pet_equip_unlock:
@@ -364,6 +381,7 @@ def apply_combo(
     inject_bridge: bool = False,
     from_orig: bool = False,
     game_root: Path | None = None,
+    on_log=None,
 ) -> list[str]:
     hotfix = hotfix_path(game_root)
     orig = hotfix_orig(game_root)
@@ -374,8 +392,9 @@ def apply_combo(
             raise FileNotFoundError(
                 f"缺少原版备份 {orig.name}。请先将 hotfix.dll.bytes 复制为 {orig.name}"
             )
+        _emit_combo(messages, on_log, "正在从 .orig 恢复干净 hotfix…")
         shutil.copy2(orig, hotfix)
-        messages.append("已从 .orig 恢复为干净 hotfix，再叠加所选补丁")
+        _emit_combo(messages, on_log, "已从 .orig 恢复为干净 hotfix，再叠加所选补丁")
 
     verify_hotfix(hotfix)
     work = hotfix
@@ -387,6 +406,7 @@ def apply_combo(
             "九动与助手桥接不能同时启用（共用 OnApplicationPause / .text 余量），请二选一。"
         )
 
+    _emit_combo(messages, on_log, "正在做组合余量校验…")
     slack_data, slack_warnings = assert_combo_slack_ok(
         game_root=game_root,
         vip=vip,
@@ -401,9 +421,9 @@ def apply_combo(
         inject_bridge=inject_bridge,
     )
     if slack_data:
-        messages.append("余量测算:\n" + format_slack_summary(slack_data))
+        _emit_combo(messages, on_log, "余量测算:\n" + format_slack_summary(slack_data))
     for w in slack_warnings:
-        messages.append("[余量] " + w)
+        _emit_combo(messages, on_log, "[余量] " + w)
 
     gameplay_flags = (
         vip
@@ -434,19 +454,20 @@ def apply_combo(
         skill_effect_speed=skill_effect_speed,
         skill_effect_scale=skill_effect_scale,
         pet_equip_unlock=pet_equip_unlock,
+        on_log=on_log,
     )
 
     if inject_bridge:
         from bridge_inject import apply_bridge_patch
 
-        messages.append("桥接：先在干净 .orig 上注入（玩法补丁随后叠加）…")
+        _emit_combo(messages, on_log, "桥接：先在干净 .orig 上注入（玩法补丁随后叠加）…")
         ok, msg = apply_bridge_patch(game_root, force_from_orig=True)
         if not ok:
             raise RuntimeError(msg)
         variant = detect_bridge_variant(game_root)
         label = bridge_variant_label(variant)
         summary = msg.splitlines()[0] if msg else "助手桥接注入成功"
-        messages.append(f"桥接：{summary}" + (f"（{label}）" if label else ""))
+        _emit_combo(messages, on_log, f"桥接：{summary}" + (f"（{label}）" if label else ""))
 
         if gameplay_flags:
             patch_msgs, work = _apply_gameplay_patches(hotfix, orig, **patch_kwargs)
@@ -481,9 +502,9 @@ def apply_combo(
     STATE_PATH.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
     try:
         mark_hotfix_watch_stamp(game_root, marked_by="apply")
-        messages.append("已标记当前 hotfix 指纹（供下次检测客户端更新）")
+        _emit_combo(messages, on_log, "已标记当前 hotfix 指纹（供下次检测客户端更新）")
     except Exception as exc:
-        messages.append(f"警告：标记 hotfix 指纹失败（{exc}）")
+        _emit_combo(messages, on_log, f"警告：标记 hotfix 指纹失败（{exc}）")
     return messages
 
 

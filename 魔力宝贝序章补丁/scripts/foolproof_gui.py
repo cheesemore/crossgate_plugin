@@ -50,7 +50,10 @@ def show_popup(title: str, text: str, *, error: bool = False) -> None:
 def run_auto() -> int:
     """命令行/ bat 一键：自动找游戏目录 → 打补丁 → 弹窗。"""
     try:
-        msgs = run_foolproof_patch(enable_nine=not NO_NINE)
+        msgs = run_foolproof_patch(
+            enable_nine=not NO_NINE,
+            on_log=lambda line: print(line, flush=True),
+        )
         detail = "\n".join(msgs[-8:]) if msgs else "补丁已打好。"
         title = "傻瓜补丁（无九动）— 成功" if NO_NINE else "傻瓜补丁 — 成功"
         show_popup(title, f"补丁已打好。\n请启动游戏验证。\n\n{detail}")
@@ -154,15 +157,16 @@ class FoolproofApp:
         self.log.delete("1.0", tk.END)
         self._append("开始…")
 
+        def live(line: str) -> None:
+            self.root.after(0, lambda s=line: self._append(s))
+
         def work() -> None:
             try:
                 root = resolve_game_root(explicit)
                 self.root.after(0, lambda: self.path_var.set(str(root)))
-                msgs = run_foolproof_patch(root, enable_nine=not NO_NINE)
+                run_foolproof_patch(root, enable_nine=not NO_NINE, on_log=live)
 
                 def ok() -> None:
-                    for m in msgs:
-                        self._append(m)
                     self.apply_btn.configure(state=tk.NORMAL)
                     messagebox.showinfo("完成", "补丁已打好。\n请启动游戏验证。")
 

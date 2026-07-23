@@ -5,8 +5,9 @@
 
 默认组合（见 patch_defaults.FOOLPROOF_COMBO_KWARGS）：
   VIP/非VIP 5x · 客服→自动技能 · Sprint 快 · 长按详情 · 无加速过场
-  · 技能特效 2x · 神奇九动（优先 IL，不行则 DLL）· 无桥接
+  · 技能特效 2x · 无九动 · 无桥接
 
+带九动包：run_foolproof_patch(enable_nine=True) 时运行时择优 IL/DLL。
 GUI / 简单补丁默认过场为「快」0.4s（见 DEFAULT_COMBO_KWARGS）。
 
 体积与 HotfixSize.Expected / EXPECTED_SIZE 绑定；客户端更新导致体积变化时
@@ -17,6 +18,7 @@ from __future__ import annotations
 import subprocess
 import sys
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 from apply_combo_patch import apply_combo
@@ -43,9 +45,20 @@ from patch_common import (
 from patch_defaults import FOOLPROOF_COMBO_KWARGS, FOOLPROOF_NO_NINE_COMBO_KWARGS
 from patch_slack import format_slack_summary, slack_report
 
+LogFn = Callable[[str], None]
+
 
 class FoolproofError(RuntimeError):
     """面向用户的失败说明（可直接弹窗）。"""
+
+
+def _emit(messages: list[str], on_log: LogFn | None, text: str) -> None:
+    """追加并实时回调（多行按行回调，便于 GUI 立刻刷新）。"""
+    messages.append(text)
+    if on_log is None:
+        return
+    for line in text.splitlines() or [text]:
+        on_log(line)
 
 
 def _cg37_running() -> bool:
@@ -105,11 +118,15 @@ def resolve_game_root(explicit: Path | None = None) -> Path:
     )
 
 
-def choose_nine_il(game_root: Path) -> bool:
+def choose_nine_il(game_root: Path, on_log: LogFn | None = None) -> bool:
     """True=打 IL 九动；False=打 DLL 版。默认倾向 IL（与 GUI 默认勾选一致）。"""
+    if on_log:
+        on_log("正在测算九动余量（启动补丁引擎，首次可能较慢）…")
     try:
         data = slack_report(game_root=game_root, prefer_orig=True, check=["nine"])
-    except Exception:
+    except Exception as exc:
+        if on_log:
+            on_log(f"九动余量测算失败，仍优先尝试 IL（{exc}）")
         return True  # 探测失败时仍优先尝试 IL，失败再回退 DLL
 
     va_gap = int(data.get("va_gap_bytes") or 0)
@@ -128,7 +145,11 @@ def choose_nine_il(game_root: Path) -> bool:
     return True
 
 
-def _ensure_clean_baseline(root: Path, messages: list[str]) -> Path:
+def _ensure_clean_baseline(
+    root: Path,
+    messages: list[str],
+    on_log: LogFn | None = None,
+) -> Path:
     """保证 .orig / neworig 为干净原版且体积=EXPECTED_SIZE，返回 orig 路径。"""
     hf = hotfix_path(root)
     if not hf.is_file():
@@ -136,6 +157,10 @@ def _ensure_clean_baseline(root: Path, messages: list[str]) -> Path:
             "找不到 hotfix.dll.bytes。\n"
             "请用启动器「更新/修复」或重新下载客户端后再试。"
         )
+
+    _emit(messages, on_log, f"hotfix 路径: {hf}")
+    _emit(messages, on_log, f"hotfix 体积: {hf.stat().st_size:,} 字节（期望 {EXPECTED_SIZE:,}）")
+    _emit(messages, on_log, "正在挑选干净底稿…")
 
     try:
         src, label = pick_clean_hotfix_source(root)
@@ -160,15 +185,17 @@ def _ensure_clean_baseline(root: Path, messages: list[str]) -> Path:
     neworig = updated_hotfix_candidate(root)
     orig = hotfix_orig(root)
     neworig.parent.mkdir(parents=True, exist_ok=True)
+    _emit(messages, on_log, f"底稿来源: {label} → 同步 neworig / .orig …")
     if _safe_copy2(src, neworig):
-        messages.append(f"已同步底稿 neworig（来源 {label}，{EXPECTED_SIZE:,} 字节）")
+        _emit(messages, on_log, f"已同步底稿 neworig（来源 {label}，{EXPECTED_SIZE:,} 字节）")
     else:
-        messages.append(f"底稿 neworig 已是最新（来源 {label}）")
+        _emit(messages, on_log, f"底稿 neworig 已是最新（来源 {label}）")
     if _safe_copy2(neworig, orig):
-        messages.append("已写入/更新 hotfix.dll.bytes.orig")
+        _emit(messages, on_log, "已写入/更新 hotfix.dll.bytes.orig")
     else:
-        messages.append(".orig 已与底稿一致")
+        _emit(messages, on_log, ".orig 已与底稿一致")
 
+    _emit(messages, on_log, "正在计算底稿 SHA256…")
     digest = sha256_file(neworig)
     save_baseline_meta(
         root,
@@ -180,14 +207,15 @@ def _ensure_clean_baseline(root: Path, messages: list[str]) -> Path:
             "notes": f"傻瓜补丁底稿；EXPECTED_SIZE={EXPECTED_SIZE:,}",
         },
     )
+    _emit(messages, on_log, f"底稿 SHA256: {digest[:16]}…")
 
     bridge = bridge_dll_path(root)
     if bridge.is_file():
         try:
             bridge.unlink()
-            messages.append("已移除残留助手桥接 DLL")
+            _emit(messages, on_log, "已移除残留助手桥接 DLL")
         except OSError:
-            messages.append("警告：无法删除桥接 DLL（请确认游戏已关闭）")
+            _emit(messages, on_log, "警告：无法删除桥接 DLL（请确认游戏已关闭）")
 
     clear_combo_patch_state()
     return orig
@@ -213,22 +241,30 @@ def run_foolproof_patch(
     game_root: Path | None = None,
     *,
     enable_nine: bool = True,
+    on_log: LogFn | None = None,
 ) -> list[str]:
-    """一键诊断并打傻瓜补丁。成功返回消息列表；失败抛 FoolproofError。"""
-    messages: list[str] = []
-    root = resolve_game_root(game_root)
-    messages.append(f"游戏目录: {root}")
+    """一键诊断并打傻瓜补丁。成功返回消息列表；失败抛 FoolproofError。
 
+    on_log：每产生一条进度即回调（GUI 可用来实时刷日志）。
+    """
+    messages: list[str] = []
+
+    _emit(messages, on_log, "正在解析游戏目录…")
+    root = resolve_game_root(game_root)
+    _emit(messages, on_log, f"游戏目录: {root}")
+
+    _emit(messages, on_log, "正在检查 cg37.exe 是否在运行…")
     if _cg37_running():
         raise FoolproofError("检测到 cg37.exe 正在运行。\n请先完全关闭游戏后再打补丁。")
+    _emit(messages, on_log, "未检测到运行中的游戏")
 
-    messages.append("正在检查 hotfix / 底稿…")
-    _ensure_clean_baseline(root, messages)
+    _emit(messages, on_log, "正在检查 hotfix / 底稿…")
+    _ensure_clean_baseline(root, messages, on_log=on_log)
 
     if enable_nine:
-        use_il = choose_nine_il(root)
+        use_il = choose_nine_il(root, on_log=on_log)
         nine_label = "IL原版" if use_il else "DLL版"
-        messages.append(f"神奇九动：选用 {nine_label}")
+        _emit(messages, on_log, f"神奇九动：选用 {nine_label}")
         kwargs = dict(FOOLPROOF_COMBO_KWARGS)
         kwargs["battle_nine_action"] = use_il
         kwargs["battle_nine_external"] = not use_il
@@ -236,7 +272,7 @@ def run_foolproof_patch(
     else:
         use_il = False
         nine_label = "无"
-        messages.append("神奇九动：本包不打九动")
+        _emit(messages, on_log, "神奇九动：本包不打九动")
         kwargs = dict(FOOLPROOF_NO_NINE_COMBO_KWARGS)
         kwargs["battle_nine_action"] = False
         kwargs["battle_nine_external"] = False
@@ -245,7 +281,9 @@ def run_foolproof_patch(
     kwargs["from_orig"] = True
     kwargs["inject_bridge"] = False
     kwargs["game_root"] = root
+    kwargs["on_log"] = on_log
 
+    _emit(messages, on_log, "正在余量预检（启动补丁引擎，首次可能较慢）…")
     try:
         data = slack_report(
             game_root=root,
@@ -254,11 +292,11 @@ def run_foolproof_patch(
             + (["transition"] if kwargs.get("transition_speed") else [])
             + nine_checks,
         )
-        messages.append("余量预检:\n" + format_slack_summary(data))
+        _emit(messages, on_log, "余量预检:\n" + format_slack_summary(data))
     except Exception as exc:
-        messages.append(f"余量预检跳过（{exc}）")
+        _emit(messages, on_log, f"余量预检跳过（{exc}）")
 
-    messages.append("开始叠加补丁…")
+    _emit(messages, on_log, "开始叠加补丁…")
     try:
         patch_msgs = apply_combo(**kwargs)
     except Exception as exc:
@@ -271,7 +309,7 @@ def run_foolproof_patch(
             ) from exc
         if enable_nine and ("余量" in text or "间隙" in text):
             if use_il:
-                messages.append(f"IL 九动失败，改试 DLL 版…（{text}）")
+                _emit(messages, on_log, f"IL 九动失败，改试 DLL 版…（{text}）")
                 kwargs["battle_nine_action"] = False
                 kwargs["battle_nine_external"] = True
                 try:
@@ -287,7 +325,11 @@ def run_foolproof_patch(
         else:
             raise FoolproofError(f"打补丁失败：\n{text}") from exc
 
-    messages.extend(patch_msgs)
+    # apply_combo 已通过 on_log 实时输出；这里只汇总进 messages，避免 GUI 重复刷
+    for msg in patch_msgs:
+        if msg not in messages:
+            messages.append(msg)
+
     fx = kwargs.get("skill_effect_scale", 2.0)
     nine_part = f" · 九动{nine_label}" if enable_nine else " · 无九动"
     if kwargs.get("transition_speed"):
@@ -295,14 +337,16 @@ def run_foolproof_patch(
         tr_part = f" · 过场{tr}s"
     else:
         tr_part = " · 无加速过场"
-    messages.append(
-        f"已应用：VIP5x · 自动技能 · Sprint快 · 长按详情{tr_part} · 特效{fx}x{nine_part}"
+    _emit(
+        messages,
+        on_log,
+        f"已应用：VIP5x · 自动技能 · Sprint快 · 长按详情{tr_part} · 特效{fx}x{nine_part}",
     )
     try:
         mark_hotfix_watch_stamp(root, marked_by="foolproof" if enable_nine else "foolproof_no_nine")
-        messages.append("已标记 hotfix 指纹")
+        _emit(messages, on_log, "已标记 hotfix 指纹")
     except Exception as exc:
-        messages.append(f"警告：标记指纹失败（{exc}）")
+        _emit(messages, on_log, f"警告：标记指纹失败（{exc}）")
 
-    messages.append("完成。请启动游戏验证。")
+    _emit(messages, on_log, "完成。请启动游戏验证。")
     return messages

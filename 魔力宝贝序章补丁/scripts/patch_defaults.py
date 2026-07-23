@@ -21,7 +21,7 @@ DEFAULT_COMBO_KWARGS = {
     "from_orig": True,
 }
 
-# 傻瓜补丁：有九动（运行时 IL/DLL 择优）、无加速过场
+# 傻瓜补丁：无九动、无加速过场（九动仅 GUI / 带九动包显式开启）
 FOOLPROOF_COMBO_KWARGS = {
     **DEFAULT_COMBO_KWARGS,
     "battle_nine_action": False,
@@ -29,11 +29,9 @@ FOOLPROOF_COMBO_KWARGS = {
     "transition_speed": False,
 }
 
-# 无九动傻瓜包：其余与傻瓜补丁相同（仍无加速过场）
+# 无九动傻瓜包（与 FOOLPROOF_COMBO_KWARGS 相同，供 --no-nine 路径显式引用）
 FOOLPROOF_NO_NINE_COMBO_KWARGS = {
     **FOOLPROOF_COMBO_KWARGS,
-    "battle_nine_action": False,
-    "battle_nine_external": False,
 }
 
 # 序章多开器「启动前自动注入」使用的组合（不含客服 GM；改这里即可，勿改多开器代码）

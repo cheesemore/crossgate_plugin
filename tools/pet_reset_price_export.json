@@ -1,0 +1,2013 @@
+{
+  "note": "图鉴详细档位来自 pet_tbcommenemybaseconfig；洗档价来自 pet_tbpetresetpriceconfig。\n总档位 = ETBASE体力+力量+强度+速度+魔法 + 10（同图鉴 TotleNum）。\n单维上限(Cap) = 对应 ETBASE + 2（同图鉴各维上限显示）。\nBase 列为配置原值 ETBASE*；实际洗档当前/最大档以服务端宠物实例为准。",
+  "groomCostCurrency": "水晶",
+  "rows": [
+    {
+      "petId": 1,
+      "name": "虎人",
+      "groomCrystal": 10,
+      "totalRank": 100,
+      "rankDetail": "体20+力24+强15+速17+魔14+10=100",
+      "capDetail": "体22/力26/强17/速19/魔16",
+      "rare": "普卡"
+    },
+    {
+      "petId": 2,
+      "name": "猫妖",
+      "groomCrystal": 50,
+      "totalRank": 105,
+      "rankDetail": "体19+力22+强15+速26+魔13+10=105",
+      "capDetail": "体21/力24/强17/速28/魔15",
+      "rare": "普卡"
+    },
+    {
+      "petId": 3,
+      "name": "罗刹",
+      "groomCrystal": 500,
+      "totalRank": 107,
+      "rankDetail": "体22+力27+强12+速20+魔16+10=107",
+      "capDetail": "体24/力29/强14/速22/魔18",
+      "rare": "银卡"
+    },
+    {
+      "petId": 5,
+      "name": "恶魔猫",
+      "groomCrystal": 1600,
+      "totalRank": 112,
+      "rankDetail": "体20+力22+强23+速26+魔11+10=112",
+      "capDetail": "体22/力24/强25/速28/魔13",
+      "rare": "银卡"
+    },
+    {
+      "petId": 4,
+      "name": "猫人",
+      "groomCrystal": 500,
+      "totalRank": 124,
+      "rankDetail": "体22+力11+强16+速28+魔37+10=124",
+      "capDetail": "体24/力13/强18/速30/魔39",
+      "rare": "金卡"
+    },
+    {
+      "petId": 6,
+      "name": "妖狐",
+      "groomCrystal": 1600,
+      "totalRank": 119,
+      "rankDetail": "体24+力35+强17+速24+魔9+10=119",
+      "capDetail": "体26/力37/强19/速26/魔11",
+      "rare": "金卡"
+    },
+    {
+      "petId": 11,
+      "name": "穴熊",
+      "groomCrystal": 50,
+      "totalRank": 120,
+      "rankDetail": "体32+力32+强17+速17+魔12+10=120",
+      "capDetail": "体34/力34/强19/速19/魔14",
+      "rare": "普卡"
+    },
+    {
+      "petId": 12,
+      "name": "赤熊",
+      "groomCrystal": 100,
+      "totalRank": 122,
+      "rankDetail": "体33+力37+强15+速16+魔11+10=122",
+      "capDetail": "体35/力39/强17/速18/魔13",
+      "rare": "银卡"
+    },
+    {
+      "petId": 13,
+      "name": "北极熊",
+      "groomCrystal": 500,
+      "totalRank": 120,
+      "rankDetail": "体34+力31+强18+速18+魔9+10=120",
+      "capDetail": "体36/力33/强20/速20/魔11",
+      "rare": "普卡"
+    },
+    {
+      "petId": 14,
+      "name": "赤目黑熊",
+      "groomCrystal": 500,
+      "totalRank": 122,
+      "rankDetail": "体31+力33+强12+速27+魔9+10=122",
+      "capDetail": "体33/力35/强14/速29/魔11",
+      "rare": "银卡"
+    },
+    {
+      "petId": 15,
+      "name": "猫熊",
+      "groomCrystal": 2400,
+      "totalRank": 119,
+      "rankDetail": "体32+力39+强15+速18+魔5+10=119",
+      "capDetail": "体34/力41/强17/速20/魔7",
+      "rare": "金卡"
+    },
+    {
+      "petId": 21,
+      "name": "大地鼠",
+      "groomCrystal": 50,
+      "totalRank": 100,
+      "rankDetail": "体4+力11+强18+速24+魔33+10=100",
+      "capDetail": "体6/力13/强20/速26/魔35",
+      "rare": "普卡"
+    },
+    {
+      "petId": 22,
+      "name": "恶梦鼠",
+      "groomCrystal": 50,
+      "totalRank": 102,
+      "rankDetail": "体2+力6+强16+速31+魔37+10=102",
+      "capDetail": "体4/力8/强18/速33/魔39",
+      "rare": "银卡"
+    },
+    {
+      "petId": 23,
+      "name": "火焰鼠",
+      "groomCrystal": 500,
+      "totalRank": 100,
+      "rankDetail": "体5+力10+强13+速32+魔30+10=100",
+      "capDetail": "体7/力12/强15/速34/魔32",
+      "rare": "普卡"
+    },
+    {
+      "petId": 24,
+      "name": "宝石鼠",
+      "groomCrystal": 500,
+      "totalRank": 102,
+      "rankDetail": "体5+力5+强20+速25+魔37+10=102",
+      "capDetail": "体7/力7/强22/速27/魔39",
+      "rare": "银卡"
+    },
+    {
+      "petId": 25,
+      "name": "水蓝鼠",
+      "groomCrystal": 2400,
+      "totalRank": 119,
+      "rankDetail": "体13+力6+强31+速26+魔33+10=119",
+      "capDetail": "体15/力8/强33/速28/魔35",
+      "rare": "金卡"
+    },
+    {
+      "petId": 26,
+      "name": "鼠王",
+      "groomCrystal": 2400,
+      "totalRank": 129,
+      "rankDetail": "体17+力7+强19+速34+魔42+10=129",
+      "capDetail": "体19/力9/强21/速36/魔44",
+      "rare": "金卡"
+    },
+    {
+      "petId": 31,
+      "name": "地狱看门犬",
+      "groomCrystal": 50,
+      "totalRank": 115,
+      "rankDetail": "体24+力34+强10+速21+魔16+10=115",
+      "capDetail": "体26/力36/强12/速23/魔18",
+      "rare": "普卡"
+    },
+    {
+      "petId": 32,
+      "name": "巨狼",
+      "groomCrystal": 50,
+      "totalRank": 115,
+      "rankDetail": "体20+力35+强9+速23+魔18+10=115",
+      "capDetail": "体22/力37/强11/速25/魔20",
+      "rare": "普卡"
+    },
+    {
+      "petId": 33,
+      "name": "地狱猎犬",
+      "groomCrystal": 50,
+      "totalRank": 117,
+      "rankDetail": "体24+力33+强17+速20+魔13+10=117",
+      "capDetail": "体26/力35/强19/速22/魔15",
+      "rare": "银卡"
+    },
+    {
+      "petId": 34,
+      "name": "地狱妖犬",
+      "groomCrystal": 500,
+      "totalRank": 117,
+      "rankDetail": "体23+力38+强11+速19+魔16+10=117",
+      "capDetail": "体25/力40/强13/速21/魔18",
+      "rare": "银卡"
+    },
+    {
+      "petId": 5001,
+      "name": "山飞甲",
+      "groomCrystal": 200,
+      "totalRank": 120,
+      "rankDetail": "体25+力30+强19+速25+魔11+10=120",
+      "capDetail": "体27/力32/强21/速27/魔13",
+      "rare": "普卡"
+    },
+    {
+      "petId": 5002,
+      "name": "独角兽",
+      "groomCrystal": 800,
+      "totalRank": 122,
+      "rankDetail": "体15+力11+强23+速26+魔37+10=122",
+      "capDetail": "体17/力13/强25/速28/魔39",
+      "rare": "银卡"
+    },
+    {
+      "petId": 5003,
+      "name": "天马",
+      "groomCrystal": 200,
+      "totalRank": 120,
+      "rankDetail": "体20+力30+强20+速30+魔10+10=120",
+      "capDetail": "体22/力32/强22/速32/魔12",
+      "rare": "普卡"
+    },
+    {
+      "petId": 5004,
+      "name": "麒麟",
+      "groomCrystal": 800,
+      "totalRank": 122,
+      "rankDetail": "体17+力8+强25+速32+魔30+10=122",
+      "capDetail": "体19/力10/强27/速34/魔32",
+      "rare": "银卡"
+    },
+    {
+      "petId": 5011,
+      "name": "地底龟",
+      "groomCrystal": 100,
+      "totalRank": 110,
+      "rankDetail": "体20+力20+强35+速8+魔17+10=110",
+      "capDetail": "体22/力22/强37/速10/魔19",
+      "rare": "普卡"
+    },
+    {
+      "petId": 5012,
+      "name": "海底龟",
+      "groomCrystal": 500,
+      "totalRank": 113,
+      "rankDetail": "体24+力18+强43+速2+魔16+10=113",
+      "capDetail": "体26/力20/强45/速4/魔18",
+      "rare": "银卡"
+    },
+    {
+      "petId": 5013,
+      "name": "火焰龟",
+      "groomCrystal": 100,
+      "totalRank": 110,
+      "rankDetail": "体25+力15+强40+速5+魔15+10=110",
+      "capDetail": "体27/力17/强42/速7/魔17",
+      "rare": "普卡"
+    },
+    {
+      "petId": 5014,
+      "name": "硬壳龟",
+      "groomCrystal": 500,
+      "totalRank": 112,
+      "rankDetail": "体26+力14+强45+速3+魔14+10=112",
+      "capDetail": "体28/力16/强47/速5/魔16",
+      "rare": "银卡"
+    },
+    {
+      "petId": 101,
+      "name": "僵尸",
+      "groomCrystal": 200,
+      "totalRank": 105,
+      "rankDetail": "体35+力30+强10+速10+魔10+10=105",
+      "capDetail": "体37/力32/强12/速12/魔12",
+      "rare": "普卡"
+    },
+    {
+      "petId": 102,
+      "name": "丧尸",
+      "groomCrystal": 800,
+      "totalRank": 107,
+      "rankDetail": "体35+力32+强5+速13+魔12+10=107",
+      "capDetail": "体37/力34/强7/速15/魔14",
+      "rare": "银卡"
+    },
+    {
+      "petId": 103,
+      "name": "食尸鬼",
+      "groomCrystal": 800,
+      "totalRank": 107,
+      "rankDetail": "体30+力37+强15+速5+魔10+10=107",
+      "capDetail": "体32/力39/强17/速7/魔12",
+      "rare": "银卡"
+    },
+    {
+      "petId": 104,
+      "name": "腐尸",
+      "groomCrystal": 200,
+      "totalRank": 105,
+      "rankDetail": "体40+力35+强10+速5+魔5+10=105",
+      "capDetail": "体42/力37/强12/速7/魔7",
+      "rare": "普卡"
+    },
+    {
+      "petId": 105,
+      "name": "木乃伊",
+      "groomCrystal": 1600,
+      "totalRank": 124,
+      "rankDetail": "体42+力39+强15+速10+魔8+10=124",
+      "capDetail": "体44/力41/强17/速12/魔10",
+      "rare": "金卡"
+    },
+    {
+      "petId": 111,
+      "name": "骷髅战士",
+      "groomCrystal": 200,
+      "totalRank": 110,
+      "rankDetail": "体10+力40+强25+速10+魔15+10=110",
+      "capDetail": "体12/力42/强27/速12/魔17",
+      "rare": "普卡"
+    },
+    {
+      "petId": 112,
+      "name": "血骷髅",
+      "groomCrystal": 800,
+      "totalRank": 112,
+      "rankDetail": "体11+力22+强39+速8+魔22+10=112",
+      "capDetail": "体13/力24/强41/速10/魔24",
+      "rare": "银卡"
+    },
+    {
+      "petId": 113,
+      "name": "地狱骷髅",
+      "groomCrystal": 200,
+      "totalRank": 110,
+      "rankDetail": "体12+力38+强28+速9+魔13+10=110",
+      "capDetail": "体14/力40/强30/速11/魔15",
+      "rare": "普卡"
+    },
+    {
+      "petId": 114,
+      "name": "武装骷髅",
+      "groomCrystal": 800,
+      "totalRank": 112,
+      "rankDetail": "体7+力24+强45+速6+魔20+10=112",
+      "capDetail": "体9/力26/强47/速8/魔22",
+      "rare": "银卡"
+    },
+    {
+      "petId": 115,
+      "name": "骷髅海盗",
+      "groomCrystal": 2400,
+      "totalRank": 119,
+      "rankDetail": "体18+力5+强43+速11+魔32+10=119",
+      "capDetail": "体20/力7/强45/速13/魔34",
+      "rare": "金卡"
+    },
+    {
+      "petId": 121,
+      "name": "幽灵",
+      "groomCrystal": 200,
+      "totalRank": 115,
+      "rankDetail": "体17+力16+强29+速18+魔25+10=115",
+      "capDetail": "体19/力18/强31/速20/魔27",
+      "rare": "普卡"
+    },
+    {
+      "petId": 122,
+      "name": "鬼灵",
+      "groomCrystal": 800,
+      "totalRank": 117,
+      "rankDetail": "体9+力19+强25+速23+魔31+10=117",
+      "capDetail": "体11/力21/强27/速25/魔33",
+      "rare": "银卡"
+    },
+    {
+      "petId": 123,
+      "name": "亡灵",
+      "groomCrystal": 800,
+      "totalRank": 115,
+      "rankDetail": "体12+力25+强28+速13+魔27+10=115",
+      "capDetail": "体14/力27/强30/速15/魔29",
+      "rare": "银卡"
+    },
+    {
+      "petId": 124,
+      "name": "死灵",
+      "groomCrystal": 200,
+      "totalRank": 115,
+      "rankDetail": "体14+力18+强30+速17+魔26+10=115",
+      "capDetail": "体16/力20/强32/速19/魔28",
+      "rare": "普卡"
+    },
+    {
+      "petId": 5101,
+      "name": "镰刀魔",
+      "groomCrystal": 200,
+      "totalRank": 124,
+      "rankDetail": "体18+力35+强32+速15+魔14+10=124",
+      "capDetail": "体20/力37/强34/速17/魔16",
+      "rare": "普卡"
+    },
+    {
+      "petId": 5102,
+      "name": "暗黑僧侣",
+      "groomCrystal": 200,
+      "totalRank": 120,
+      "rankDetail": "体14+力30+强21+速10+魔35+10=120",
+      "capDetail": "体16/力32/强23/速12/魔37",
+      "rare": "银卡"
+    },
+    {
+      "petId": 5103,
+      "name": "斩首者",
+      "groomCrystal": 800,
+      "totalRank": 122,
+      "rankDetail": "体16+力31+强17+速12+魔36+10=122",
+      "capDetail": "体18/力33/强19/速14/魔38",
+      "rare": "银卡"
+    },
+    {
+      "petId": 5104,
+      "name": "冥界死神",
+      "groomCrystal": 200,
+      "totalRank": 112,
+      "rankDetail": "体22+力27+强24+速18+魔11+10=112",
+      "capDetail": "体24/力29/强26/速20/魔13",
+      "rare": "普卡"
+    },
+    {
+      "petId": 5111,
+      "name": "牙骨",
+      "groomCrystal": 200,
+      "totalRank": 110,
+      "rankDetail": "体25+力30+强30+速10+魔5+10=110",
+      "capDetail": "体27/力32/强32/速12/魔7",
+      "rare": "普卡"
+    },
+    {
+      "petId": 5112,
+      "name": "颚牙",
+      "groomCrystal": 800,
+      "totalRank": 112,
+      "rankDetail": "体32+力27+强35+速5+魔3+10=112",
+      "capDetail": "体34/力29/强37/速7/魔5",
+      "rare": "银卡"
+    },
+    {
+      "petId": 5113,
+      "name": "巨牙",
+      "groomCrystal": 200,
+      "totalRank": 110,
+      "rankDetail": "体23+力28+强25+速15+魔9+10=110",
+      "capDetail": "体25/力30/强27/速17/魔11",
+      "rare": "普卡"
+    },
+    {
+      "petId": 5114,
+      "name": "利牙",
+      "groomCrystal": 800,
+      "totalRank": 112,
+      "rankDetail": "体28+力37+强28+速7+魔2+10=112",
+      "capDetail": "体30/力39/强30/速9/魔4",
+      "rare": "银卡"
+    },
+    {
+      "petId": 201,
+      "name": "小石像怪",
+      "groomCrystal": 50,
+      "totalRank": 105,
+      "rankDetail": "体14+力19+强9+速29+魔24+10=105",
+      "capDetail": "体16/力21/强11/速31/魔26",
+      "rare": "普卡"
+    },
+    {
+      "petId": 202,
+      "name": "使魔",
+      "groomCrystal": 10,
+      "totalRank": 110,
+      "rankDetail": "体19+力18+强13+速25+魔25+10=110",
+      "capDetail": "体21/力20/强15/速27/魔27",
+      "rare": "普卡"
+    },
+    {
+      "petId": 203,
+      "name": "水蓝鸟魔",
+      "groomCrystal": 500,
+      "totalRank": 107,
+      "rankDetail": "体20+力21+强8+速23+魔25+10=107",
+      "capDetail": "体22/力23/强10/速25/魔27",
+      "rare": "银卡"
+    },
+    {
+      "petId": 204,
+      "name": "小恶魔",
+      "groomCrystal": 10,
+      "totalRank": 105,
+      "rankDetail": "体19+力18+强7+速23+魔28+10=105",
+      "capDetail": "体21/力20/强9/速25/魔30",
+      "rare": "普卡"
+    },
+    {
+      "petId": 205,
+      "name": "迷你石象怪",
+      "groomCrystal": 500,
+      "totalRank": 107,
+      "rankDetail": "体21+力17+强8+速22+魔29+10=107",
+      "capDetail": "体23/力19/强10/速24/魔31",
+      "rare": "银卡"
+    },
+    {
+      "petId": 206,
+      "name": "丘比特",
+      "groomCrystal": 1000,
+      "totalRank": 119,
+      "rankDetail": "体14+力5+强14+速38+魔38+10=119",
+      "capDetail": "体16/力7/强16/速40/魔40",
+      "rare": "金卡"
+    },
+    {
+      "petId": 211,
+      "name": "石象怪",
+      "groomCrystal": 500,
+      "totalRank": 122,
+      "rankDetail": "体12+力30+强30+速20+魔20+10=122",
+      "capDetail": "体14/力32/强32/速22/魔22",
+      "rare": "银卡"
+    },
+    {
+      "petId": 212,
+      "name": "血魔",
+      "groomCrystal": 100,
+      "totalRank": 120,
+      "rankDetail": "体11+力29+强24+速23+魔23+10=120",
+      "capDetail": "体13/力31/强26/速25/魔25",
+      "rare": "普卡"
+    },
+    {
+      "petId": 213,
+      "name": "堕天使",
+      "groomCrystal": 500,
+      "totalRank": 122,
+      "rankDetail": "体9+力28+强26+速25+魔24+10=122",
+      "capDetail": "体11/力30/强28/速27/魔26",
+      "rare": "银卡"
+    },
+    {
+      "petId": 214,
+      "name": "恶魔",
+      "groomCrystal": 100,
+      "totalRank": 120,
+      "rankDetail": "体8+力25+强24+速24+魔29+10=120",
+      "capDetail": "体10/力27/强26/速26/魔31",
+      "rare": "普卡"
+    },
+    {
+      "petId": 241,
+      "name": "小蝙蝠",
+      "groomCrystal": 10,
+      "totalRank": 105,
+      "rankDetail": "体9+力24+强14+速29+魔19+10=105",
+      "capDetail": "体11/力26/强16/速31/魔21",
+      "rare": "普卡"
+    },
+    {
+      "petId": 242,
+      "name": "扫把蝙蝠",
+      "groomCrystal": 500,
+      "totalRank": 102,
+      "rankDetail": "体11+力28+强10+速27+魔16+10=102",
+      "capDetail": "体13/力30/强12/速29/魔18",
+      "rare": "银卡"
+    },
+    {
+      "petId": 243,
+      "name": "迷你蝙蝠",
+      "groomCrystal": 10,
+      "totalRank": 100,
+      "rankDetail": "体9+力24+强18+速25+魔14+10=100",
+      "capDetail": "体11/力26/强20/速27/魔16",
+      "rare": "普卡"
+    },
+    {
+      "petId": 244,
+      "name": "水果蝙蝠",
+      "groomCrystal": 500,
+      "totalRank": 102,
+      "rankDetail": "体15+力25+强13+速24+魔15+10=102",
+      "capDetail": "体17/力27/强15/速26/魔17",
+      "rare": "银卡"
+    },
+    {
+      "petId": 245,
+      "name": "恶魔蝙蝠",
+      "groomCrystal": 1600,
+      "totalRank": 124,
+      "rankDetail": "体24+力36+强14+速31+魔9+10=124",
+      "capDetail": "体26/力38/强16/速33/魔11",
+      "rare": "金卡"
+    },
+    {
+      "petId": 246,
+      "name": "天使蝙蝠",
+      "groomCrystal": 1600,
+      "totalRank": 124,
+      "rankDetail": "体22+力9+强11+速36+魔36+10=124",
+      "capDetail": "体24/力11/强13/速38/魔38",
+      "rare": "金卡"
+    },
+    {
+      "petId": 251,
+      "name": "大蝙蝠",
+      "groomCrystal": 50,
+      "totalRank": 115,
+      "rankDetail": "体21+力26+强21+速26+魔11+10=115",
+      "capDetail": "体23/力28/强23/速28/魔13",
+      "rare": "普卡"
+    },
+    {
+      "petId": 252,
+      "name": "巨蝙蝠",
+      "groomCrystal": 500,
+      "totalRank": 115,
+      "rankDetail": "体25+力28+强20+速22+魔10+10=115",
+      "capDetail": "体27/力30/强22/速24/魔12",
+      "rare": "普卡"
+    },
+    {
+      "petId": 253,
+      "name": "海蝙蝠",
+      "groomCrystal": 50,
+      "totalRank": 117,
+      "rankDetail": "体16+力29+强25+速28+魔9+10=117",
+      "capDetail": "体18/力31/强27/速30/魔11",
+      "rare": "银卡"
+    },
+    {
+      "petId": 254,
+      "name": "胖蝙蝠",
+      "groomCrystal": 500,
+      "totalRank": 117,
+      "rankDetail": "体23+力24+强18+速24+魔18+10=117",
+      "capDetail": "体25/力26/强20/速26/魔20",
+      "rare": "银卡"
+    },
+    {
+      "petId": 255,
+      "name": "兔耳蝙蝠",
+      "groomCrystal": 500,
+      "totalRank": 117,
+      "rankDetail": "体22+力29+强15+速30+魔11+10=117",
+      "capDetail": "体24/力31/强17/速32/魔13",
+      "rare": "银卡"
+    },
+    {
+      "petId": 5201,
+      "name": "狮鹫兽",
+      "groomCrystal": 200,
+      "totalRank": 120,
+      "rankDetail": "体19+力29+强14+速39+魔9+10=120",
+      "capDetail": "体21/力31/强16/速41/魔11",
+      "rare": "普卡"
+    },
+    {
+      "petId": 5202,
+      "name": "变种狮鹫兽",
+      "groomCrystal": 200,
+      "totalRank": 120,
+      "rankDetail": "体23+力26+强13+速41+魔7+10=120",
+      "capDetail": "体25/力28/强15/速43/魔9",
+      "rare": "普卡"
+    },
+    {
+      "petId": 5203,
+      "name": "布雷欧",
+      "groomCrystal": 800,
+      "totalRank": 122,
+      "rankDetail": "体17+力37+强12+速40+魔6+10=122",
+      "capDetail": "体19/力39/强14/速42/魔8",
+      "rare": "银卡"
+    },
+    {
+      "petId": 5204,
+      "name": "依格罗斯",
+      "groomCrystal": 800,
+      "totalRank": 122,
+      "rankDetail": "体15+力31+强13+速45+魔8+10=122",
+      "capDetail": "体17/力33/强15/速47/魔10",
+      "rare": "银卡"
+    },
+    {
+      "petId": 5211,
+      "name": "托罗帝鸟",
+      "groomCrystal": 500,
+      "totalRank": 112,
+      "rankDetail": "体30+力20+强11+速33+魔8+10=112",
+      "capDetail": "体32/力22/强13/速35/魔10",
+      "rare": "普卡"
+    },
+    {
+      "petId": 5212,
+      "name": "岩地跑者",
+      "groomCrystal": 50,
+      "totalRank": 110,
+      "rankDetail": "体25+力20+强15+速30+魔10+10=110",
+      "capDetail": "体27/力22/强17/速32/魔12",
+      "rare": "银卡"
+    },
+    {
+      "petId": 5213,
+      "name": "火焰啄木鸟",
+      "groomCrystal": 50,
+      "totalRank": 110,
+      "rankDetail": "体20+力25+强17+速27+魔11+10=110",
+      "capDetail": "体22/力27/强19/速29/魔13",
+      "rare": "普卡"
+    },
+    {
+      "petId": 5214,
+      "name": "狂奔鸟",
+      "groomCrystal": 500,
+      "totalRank": 112,
+      "rankDetail": "体25+力22+强16+速34+魔5+10=112",
+      "capDetail": "体27/力24/强18/速36/魔7",
+      "rare": "银卡"
+    },
+    {
+      "petId": 301,
+      "name": "蓝蝎",
+      "groomCrystal": 500,
+      "totalRank": 117,
+      "rankDetail": "体20+力25+强45+速11+魔6+10=117",
+      "capDetail": "体22/力27/强47/速13/魔8",
+      "rare": "银卡"
+    },
+    {
+      "petId": 302,
+      "name": "红蝎",
+      "groomCrystal": 50,
+      "totalRank": 115,
+      "rankDetail": "体17+力26+强40+速17+魔5+10=115",
+      "capDetail": "体19/力28/强42/速19/魔7",
+      "rare": "普卡"
+    },
+    {
+      "petId": 303,
+      "name": "黄蝎",
+      "groomCrystal": 500,
+      "totalRank": 117,
+      "rankDetail": "体20+力28+强41+速10+魔8+10=117",
+      "capDetail": "体22/力30/强43/速12/魔10",
+      "rare": "银卡"
+    },
+    {
+      "petId": 304,
+      "name": "杀手蝎",
+      "groomCrystal": 50,
+      "totalRank": 115,
+      "rankDetail": "体28+力27+强36+速9+魔5+10=115",
+      "capDetail": "体30/力29/强38/速11/魔7",
+      "rare": "普卡"
+    },
+    {
+      "petId": 311,
+      "name": "杀人蜂",
+      "groomCrystal": 500,
+      "totalRank": 112,
+      "rankDetail": "体10+力35+强10+速37+魔10+10=112",
+      "capDetail": "体12/力37/强12/速39/魔12",
+      "rare": "银卡"
+    },
+    {
+      "petId": 312,
+      "name": "异型蜂",
+      "groomCrystal": 50,
+      "totalRank": 110,
+      "rankDetail": "体13+力31+强11+速33+魔12+10=110",
+      "capDetail": "体15/力33/强13/速35/魔14",
+      "rare": "普卡"
+    },
+    {
+      "petId": 313,
+      "name": "虎头蜂",
+      "groomCrystal": 1600,
+      "totalRank": 129,
+      "rankDetail": "体14+力42+强10+速44+魔9+10=129",
+      "capDetail": "体16/力44/强12/速46/魔11",
+      "rare": "金卡"
+    },
+    {
+      "petId": 314,
+      "name": "黄蜂",
+      "groomCrystal": 100,
+      "totalRank": 110,
+      "rankDetail": "体8+力36+强11+速41+魔4+10=110",
+      "capDetail": "体10/力38/强13/速43/魔6",
+      "rare": "普卡"
+    },
+    {
+      "petId": 315,
+      "name": "死亡蜂",
+      "groomCrystal": 500,
+      "totalRank": 112,
+      "rankDetail": "体5+力37+强13+速41+魔6+10=112",
+      "capDetail": "体7/力39/强15/速43/魔8",
+      "rare": "银卡"
+    },
+    {
+      "petId": 321,
+      "name": "螳螂",
+      "groomCrystal": 100,
+      "totalRank": 120,
+      "rankDetail": "体14+力42+强20+速25+魔9+10=120",
+      "capDetail": "体16/力44/强22/速27/魔11",
+      "rare": "普卡"
+    },
+    {
+      "petId": 322,
+      "name": "杀人螳螂",
+      "groomCrystal": 640,
+      "totalRank": 122,
+      "rankDetail": "体10+力45+强18+速24+魔15+10=122",
+      "capDetail": "体12/力47/强20/速26/魔17",
+      "rare": "银卡"
+    },
+    {
+      "petId": 323,
+      "name": "赤目螳螂",
+      "groomCrystal": 640,
+      "totalRank": 122,
+      "rankDetail": "体12+力44+强17+速27+魔12+10=122",
+      "capDetail": "体14/力46/强19/速29/魔14",
+      "rare": "银卡"
+    },
+    {
+      "petId": 324,
+      "name": "死灰螳螂",
+      "groomCrystal": 1600,
+      "totalRank": 119,
+      "rankDetail": "体14+力39+强14+速33+魔9+10=119",
+      "capDetail": "体16/力41/强16/速35/魔11",
+      "rare": "金卡"
+    },
+    {
+      "petId": 325,
+      "name": "致命螳螂",
+      "groomCrystal": 100,
+      "totalRank": 120,
+      "rankDetail": "体18+力41+强16+速25+魔10+10=120",
+      "capDetail": "体20/力43/强18/速27/魔12",
+      "rare": "普卡"
+    },
+    {
+      "petId": 331,
+      "name": "土蜘蛛",
+      "groomCrystal": 10,
+      "totalRank": 105,
+      "rankDetail": "体24+力13+强16+速21+魔21+10=105",
+      "capDetail": "体26/力15/强18/速23/魔23",
+      "rare": "普卡"
+    },
+    {
+      "petId": 332,
+      "name": "水蜘蛛",
+      "groomCrystal": 500,
+      "totalRank": 107,
+      "rankDetail": "体22+力14+强15+速18+魔28+10=107",
+      "capDetail": "体24/力16/强17/速20/魔30",
+      "rare": "银卡"
+    },
+    {
+      "petId": 333,
+      "name": "火蜘蛛",
+      "groomCrystal": 10,
+      "totalRank": 105,
+      "rankDetail": "体20+力16+强14+速23+魔22+10=105",
+      "capDetail": "体22/力18/强16/速25/魔24",
+      "rare": "普卡"
+    },
+    {
+      "petId": 334,
+      "name": "风蜘蛛",
+      "groomCrystal": 500,
+      "totalRank": 107,
+      "rankDetail": "体23+力12+强13+速21+魔28+10=107",
+      "capDetail": "体25/力14/强15/速23/魔30",
+      "rare": "银卡"
+    },
+    {
+      "petId": 5301,
+      "name": "甲虫",
+      "groomCrystal": 50,
+      "totalRank": 115,
+      "rankDetail": "体15+力35+强30+速10+魔15+10=115",
+      "capDetail": "体17/力37/强32/速12/魔17",
+      "rare": "普卡"
+    },
+    {
+      "petId": 5302,
+      "name": "堀地虫",
+      "groomCrystal": 500,
+      "totalRank": 117,
+      "rankDetail": "体20+力33+强34+速6+魔14+10=117",
+      "capDetail": "体22/力35/强36/速8/魔16",
+      "rare": "银卡"
+    },
+    {
+      "petId": 5303,
+      "name": "锹型虫",
+      "groomCrystal": 50,
+      "totalRank": 115,
+      "rankDetail": "体13+力37+强27+速12+魔16+10=115",
+      "capDetail": "体15/力39/强29/速14/魔18",
+      "rare": "普卡"
+    },
+    {
+      "petId": 5304,
+      "name": "独角仙",
+      "groomCrystal": 500,
+      "totalRank": 117,
+      "rankDetail": "体16+力41+强32+速7+魔11+10=117",
+      "capDetail": "体18/力43/强34/速9/魔13",
+      "rare": "银卡"
+    },
+    {
+      "petId": 401,
+      "name": "树精",
+      "groomCrystal": 10,
+      "totalRank": 110,
+      "rankDetail": "体29+力20+强30+速9+魔12+10=110",
+      "capDetail": "体31/力22/强32/速11/魔14",
+      "rare": "普卡"
+    },
+    {
+      "petId": 402,
+      "name": "死亡树精",
+      "groomCrystal": 500,
+      "totalRank": 112,
+      "rankDetail": "体28+力18+强35+速7+魔14+10=112",
+      "capDetail": "体30/力20/强37/速9/魔16",
+      "rare": "银卡"
+    },
+    {
+      "petId": 403,
+      "name": "黄金树精",
+      "groomCrystal": 1600,
+      "totalRank": 119,
+      "rankDetail": "体40+力20+强26+速15+魔8+10=119",
+      "capDetail": "体42/力22/强28/速17/魔10",
+      "rare": "金卡"
+    },
+    {
+      "petId": 404,
+      "name": "惨白树精",
+      "groomCrystal": 500,
+      "totalRank": 112,
+      "rankDetail": "体29+力14+强26+速15+魔18+10=112",
+      "capDetail": "体31/力16/强28/速17/魔20",
+      "rare": "银卡"
+    },
+    {
+      "petId": 405,
+      "name": "冰冷树精",
+      "groomCrystal": 500,
+      "totalRank": 118,
+      "rankDetail": "体20+力15+强11+速30+魔32+10=118",
+      "capDetail": "体22/力17/强13/速32/魔34",
+      "rare": "银卡"
+    },
+    {
+      "petId": 406,
+      "name": "沼泽树精",
+      "groomCrystal": 50,
+      "totalRank": 110,
+      "rankDetail": "体31+力15+强32+速11+魔11+10=110",
+      "capDetail": "体33/力17/强34/速13/魔13",
+      "rare": "普卡"
+    },
+    {
+      "petId": 411,
+      "name": "妖草",
+      "groomCrystal": 100,
+      "totalRank": 105,
+      "rankDetail": "体24+力9+强14+速14+魔34+10=105",
+      "capDetail": "体26/力11/强16/速16/魔36",
+      "rare": "普卡"
+    },
+    {
+      "petId": 412,
+      "name": "曼佗罗草",
+      "groomCrystal": 640,
+      "totalRank": 107,
+      "rankDetail": "体23+力11+强12+速13+魔38+10=107",
+      "capDetail": "体25/力13/强14/速15/魔40",
+      "rare": "银卡"
+    },
+    {
+      "petId": 413,
+      "name": "妖花",
+      "groomCrystal": 100,
+      "totalRank": 105,
+      "rankDetail": "体25+力10+强10+速17+魔33+10=105",
+      "capDetail": "体27/力12/强12/速19/魔35",
+      "rare": "普卡"
+    },
+    {
+      "petId": 414,
+      "name": "人魔草",
+      "groomCrystal": 640,
+      "totalRank": 107,
+      "rankDetail": "体27+力10+强11+速11+魔38+10=107",
+      "capDetail": "体29/力12/强13/速13/魔40",
+      "rare": "银卡"
+    },
+    {
+      "petId": 421,
+      "name": "绿色口臭鬼",
+      "groomCrystal": 10,
+      "totalRank": 115,
+      "rankDetail": "体36+力21+强14+速21+魔13+10=115",
+      "capDetail": "体38/力23/强16/速23/魔15",
+      "rare": "普卡"
+    },
+    {
+      "petId": 422,
+      "name": "黄色口臭鬼",
+      "groomCrystal": 10,
+      "totalRank": 115,
+      "rankDetail": "体35+力25+强16+速20+魔9+10=115",
+      "capDetail": "体37/力27/强18/速22/魔11",
+      "rare": "普卡"
+    },
+    {
+      "petId": 423,
+      "name": "蓝色口臭鬼",
+      "groomCrystal": 500,
+      "totalRank": 122,
+      "rankDetail": "体35+力23+强13+速25+魔16+10=122",
+      "capDetail": "体37/力25/强15/速27/魔18",
+      "rare": "银卡"
+    },
+    {
+      "petId": 424,
+      "name": "红色口臭鬼",
+      "groomCrystal": 500,
+      "totalRank": 122,
+      "rankDetail": "体44+力19+强12+速27+魔10+10=122",
+      "capDetail": "体46/力21/强14/速29/魔12",
+      "rare": "银卡"
+    },
+    {
+      "petId": 431,
+      "name": "凶暴仙人掌",
+      "groomCrystal": 10,
+      "totalRank": 110,
+      "rankDetail": "体25+力27+强20+速18+魔10+10=110",
+      "capDetail": "体27/力29/强22/速20/魔12",
+      "rare": "普卡"
+    },
+    {
+      "petId": 432,
+      "name": "武术仙人掌",
+      "groomCrystal": 500,
+      "totalRank": 112,
+      "rankDetail": "体22+力32+强25+速15+魔8+10=112",
+      "capDetail": "体24/力34/强27/速17/魔10",
+      "rare": "银卡"
+    },
+    {
+      "petId": 433,
+      "name": "兔耳仙人掌",
+      "groomCrystal": 500,
+      "totalRank": 112,
+      "rankDetail": "体26+力35+强17+速12+魔12+10=112",
+      "capDetail": "体28/力37/强19/速14/魔14",
+      "rare": "银卡"
+    },
+    {
+      "petId": 434,
+      "name": "印地安仙人掌",
+      "groomCrystal": 50,
+      "totalRank": 110,
+      "rankDetail": "体24+力34+强22+速13+魔7+10=110",
+      "capDetail": "体26/力36/强24/速15/魔9",
+      "rare": "普卡"
+    },
+    {
+      "petId": 435,
+      "name": "火焰舞者",
+      "groomCrystal": 1600,
+      "totalRank": 124,
+      "rankDetail": "体25+力39+强17+速24+魔9+10=124",
+      "capDetail": "体27/力41/强19/速26/魔11",
+      "rare": "金卡"
+    },
+    {
+      "petId": 5401,
+      "name": "翠绿菇",
+      "groomCrystal": 800,
+      "totalRank": 117,
+      "rankDetail": "体35+力10+强10+速15+魔37+10=117",
+      "capDetail": "体37/力12/强12/速17/魔39",
+      "rare": "银卡"
+    },
+    {
+      "petId": 5402,
+      "name": "水蓝菇",
+      "groomCrystal": 200,
+      "totalRank": 115,
+      "rankDetail": "体36+力11+强13+速13+魔32+10=115",
+      "capDetail": "体38/力13/强15/速15/魔34",
+      "rare": "普卡"
+    },
+    {
+      "petId": 5403,
+      "name": "粉红菇",
+      "groomCrystal": 200,
+      "totalRank": 115,
+      "rankDetail": "体33+力8+强13+速12+魔39+10=115",
+      "capDetail": "体35/力10/强15/速14/魔41",
+      "rare": "普卡"
+    },
+    {
+      "petId": 5404,
+      "name": "星菇",
+      "groomCrystal": 800,
+      "totalRank": 117,
+      "rankDetail": "体40+力11+强8+速11+魔37+10=117",
+      "capDetail": "体42/力13/强10/速13/魔39",
+      "rare": "银卡"
+    },
+    {
+      "petId": 501,
+      "name": "史莱姆",
+      "groomCrystal": 10,
+      "totalRank": 105,
+      "rankDetail": "体44+力24+强9+速4+魔14+10=105",
+      "capDetail": "体46/力26/强11/速6/魔16",
+      "rare": "普卡"
+    },
+    {
+      "petId": 502,
+      "name": "液态史莱姆",
+      "groomCrystal": 50,
+      "totalRank": 105,
+      "rankDetail": "体47+力22+强13+速3+魔10+10=105",
+      "capDetail": "体49/力24/强15/速5/魔12",
+      "rare": "普卡"
+    },
+    {
+      "petId": 503,
+      "name": "果冻史莱姆",
+      "groomCrystal": 640,
+      "totalRank": 107,
+      "rankDetail": "体45+力29+强4+速8+魔11+10=107",
+      "capDetail": "体47/力31/强6/速10/魔13",
+      "rare": "银卡"
+    },
+    {
+      "petId": 504,
+      "name": "布丁史莱姆",
+      "groomCrystal": 640,
+      "totalRank": 109,
+      "rankDetail": "体42+力23+强10+速6+魔18+10=109",
+      "capDetail": "体44/力25/强12/速8/魔20",
+      "rare": "银卡"
+    },
+    {
+      "petId": 511,
+      "name": "火精",
+      "groomCrystal": 2400,
+      "totalRank": 124,
+      "rankDetail": "体24+力44+强15+速24+魔7+10=124",
+      "capDetail": "体26/力46/强17/速26/魔9",
+      "rare": "金卡"
+    },
+    {
+      "petId": 512,
+      "name": "风精",
+      "groomCrystal": 2400,
+      "totalRank": 124,
+      "rankDetail": "体21+力7+强13+速29+魔44+10=124",
+      "capDetail": "体23/力9/强15/速31/魔46",
+      "rare": "金卡"
+    },
+    {
+      "petId": 513,
+      "name": "水精",
+      "groomCrystal": 2400,
+      "totalRank": 124,
+      "rankDetail": "体38+力33+强18+速17+魔8+10=124",
+      "capDetail": "体40/力35/强20/速19/魔10",
+      "rare": "金卡"
+    },
+    {
+      "petId": 514,
+      "name": "地精",
+      "groomCrystal": 2400,
+      "totalRank": 124,
+      "rankDetail": "体21+力8+强29+速16+魔40+10=124",
+      "capDetail": "体23/力10/强31/速18/魔42",
+      "rare": "金卡"
+    },
+    {
+      "petId": 521,
+      "name": "顽皮炸弹",
+      "groomCrystal": 50,
+      "totalRank": 100,
+      "rankDetail": "体13+力13+强13+速13+魔38+10=100",
+      "capDetail": "体15/力15/强15/速15/魔40",
+      "rare": "普卡"
+    },
+    {
+      "petId": 522,
+      "name": "宝贝炸弹",
+      "groomCrystal": 640,
+      "totalRank": 102,
+      "rankDetail": "体14+力9+强15+速14+魔40+10=102",
+      "capDetail": "体16/力11/强17/速16/魔42",
+      "rare": "银卡"
+    },
+    {
+      "petId": 523,
+      "name": "大炸弹",
+      "groomCrystal": 640,
+      "totalRank": 102,
+      "rankDetail": "体12+力12+强18+速12+魔38+10=102",
+      "capDetail": "体14/力14/强20/速14/魔40",
+      "rare": "银卡"
+    },
+    {
+      "petId": 524,
+      "name": "漂浮炸弹",
+      "groomCrystal": 50,
+      "totalRank": 100,
+      "rankDetail": "体14+力12+强12+速15+魔37+10=100",
+      "capDetail": "体16/力14/强14/速17/魔39",
+      "rare": "普卡"
+    },
+    {
+      "petId": 525,
+      "name": "丸子炸弹",
+      "groomCrystal": 2400,
+      "totalRank": 119,
+      "rankDetail": "体21+力7+强17+速19+魔45+10=119",
+      "capDetail": "体23/力9/强19/速21/魔47",
+      "rare": "金卡"
+    },
+    {
+      "petId": 531,
+      "name": "幻影",
+      "groomCrystal": 2400,
+      "totalRank": 124,
+      "rankDetail": "体22+力6+强22+速20+魔44+10=124",
+      "capDetail": "体24/力8/强24/速22/魔46",
+      "rare": "金卡"
+    },
+    {
+      "petId": 532,
+      "name": "旋律影子",
+      "groomCrystal": 2400,
+      "totalRank": 124,
+      "rankDetail": "体27+力6+强18+速22+魔41+10=124",
+      "capDetail": "体29/力8/强20/速24/魔43",
+      "rare": "金卡"
+    },
+    {
+      "petId": 533,
+      "name": "暗影",
+      "groomCrystal": 2400,
+      "totalRank": 124,
+      "rankDetail": "体23+力6+强13+速30+魔42+10=124",
+      "capDetail": "体25/力8/强15/速32/魔44",
+      "rare": "金卡"
+    },
+    {
+      "petId": 534,
+      "name": "阴影",
+      "groomCrystal": 2400,
+      "totalRank": 124,
+      "rankDetail": "体24+力6+强28+速16+魔40+10=124",
+      "capDetail": "体26/力8/强30/速18/魔42",
+      "rare": "金卡"
+    },
+    {
+      "petId": 5501,
+      "name": "绿烟",
+      "groomCrystal": 100,
+      "totalRank": 115,
+      "rankDetail": "体18+力13+强12+速28+魔34+10=115",
+      "capDetail": "体20/力15/强14/速30/魔36",
+      "rare": "普卡"
+    },
+    {
+      "petId": 5502,
+      "name": "烟雾",
+      "groomCrystal": 100,
+      "totalRank": 115,
+      "rankDetail": "体21+力14+强11+速28+魔31+10=115",
+      "capDetail": "体23/力16/强13/速30/魔33",
+      "rare": "普卡"
+    },
+    {
+      "petId": 5503,
+      "name": "烟罗",
+      "groomCrystal": 500,
+      "totalRank": 117,
+      "rankDetail": "体20+力15+强10+速30+魔32+10=117",
+      "capDetail": "体22/力17/强12/速32/魔34",
+      "rare": "银卡"
+    },
+    {
+      "petId": 5504,
+      "name": "棉球",
+      "groomCrystal": 500,
+      "totalRank": 117,
+      "rankDetail": "体22+力10+强10+速33+魔32+10=117",
+      "capDetail": "体24/力12/强12/速35/魔34",
+      "rare": "银卡"
+    },
+    {
+      "petId": 601,
+      "name": "血腥之刃",
+      "groomCrystal": 800,
+      "totalRank": 122,
+      "rankDetail": "体14+力32+强37+速22+魔7+10=122",
+      "capDetail": "体16/力34/强39/速24/魔9",
+      "rare": "银卡"
+    },
+    {
+      "petId": 602,
+      "name": "杀龙之刃",
+      "groomCrystal": 200,
+      "totalRank": 120,
+      "rankDetail": "体15+力34+强34+速19+魔8+10=120",
+      "capDetail": "体17/力36/强36/速21/魔10",
+      "rare": "普卡"
+    },
+    {
+      "petId": 603,
+      "name": "火焰之刃",
+      "groomCrystal": 200,
+      "totalRank": 120,
+      "rankDetail": "体10+力18+强29+速16+魔37+10=120",
+      "capDetail": "体12/力20/强31/速18/魔39",
+      "rare": "普卡"
+    },
+    {
+      "petId": 604,
+      "name": "烈风之刃",
+      "groomCrystal": 800,
+      "totalRank": 122,
+      "rankDetail": "体11+力15+强28+速23+魔35+10=122",
+      "capDetail": "体13/力17/强30/速25/魔37",
+      "rare": "银卡"
+    },
+    {
+      "petId": 611,
+      "name": "吓人箱",
+      "groomCrystal": 500,
+      "totalRank": 107,
+      "rankDetail": "体9+力19+强29+速9+魔31+10=107",
+      "capDetail": "体11/力21/强31/速11/魔33",
+      "rare": "银卡"
+    },
+    {
+      "petId": 612,
+      "name": "兔耳吓人箱",
+      "groomCrystal": 1600,
+      "totalRank": 105,
+      "rankDetail": "体7+力22+强21+速14+魔31+10=105",
+      "capDetail": "体9/力24/强23/速16/魔33",
+      "rare": "金卡"
+    },
+    {
+      "petId": 613,
+      "name": "红魔吓人箱",
+      "groomCrystal": 500,
+      "totalRank": 112,
+      "rankDetail": "体12+力14+强25+速21+魔30+10=112",
+      "capDetail": "体14/力16/强27/速23/魔32",
+      "rare": "银卡"
+    },
+    {
+      "petId": 614,
+      "name": "蓝魔吓人箱",
+      "groomCrystal": 50,
+      "totalRank": 110,
+      "rankDetail": "体13+力35+强26+速6+魔20+10=110",
+      "capDetail": "体15/力37/强28/速8/魔22",
+      "rare": "普卡"
+    },
+    {
+      "petId": 615,
+      "name": "绿蛙吓人箱",
+      "groomCrystal": 50,
+      "totalRank": 110,
+      "rankDetail": "体11+力33+强27+速8+魔21+10=110",
+      "capDetail": "体13/力35/强29/速10/魔23",
+      "rare": "普卡"
+    },
+    {
+      "petId": 616,
+      "name": "纯白吓人箱",
+      "groomCrystal": 2400,
+      "totalRank": 129,
+      "rankDetail": "体24+力7+强34+速7+魔47+10=129",
+      "capDetail": "体26/力9/强36/速9/魔49",
+      "rare": "金卡"
+    },
+    {
+      "petId": 621,
+      "name": "冰怪",
+      "groomCrystal": 100,
+      "totalRank": 115,
+      "rankDetail": "体18+力28+强44+速5+魔10+10=115",
+      "capDetail": "体20/力30/强46/速7/魔12",
+      "rare": "普卡"
+    },
+    {
+      "petId": 622,
+      "name": "石怪",
+      "groomCrystal": 100,
+      "totalRank": 115,
+      "rankDetail": "体13+力36+强41+速4+魔11+10=115",
+      "capDetail": "体15/力38/强43/速6/魔13",
+      "rare": "普卡"
+    },
+    {
+      "petId": 623,
+      "name": "银怪",
+      "groomCrystal": 640,
+      "totalRank": 117,
+      "rankDetail": "体10+力40+强46+速6+魔5+10=117",
+      "capDetail": "体12/力42/强48/速8/魔7",
+      "rare": "银卡"
+    },
+    {
+      "petId": 624,
+      "name": "金怪",
+      "groomCrystal": 640,
+      "totalRank": 117,
+      "rankDetail": "体12+力39+强38+速10+魔8+10=117",
+      "capDetail": "体14/力41/强40/速12/魔10",
+      "rare": "银卡"
+    },
+    {
+      "petId": 631,
+      "name": "恶魔螃蟹",
+      "groomCrystal": 100,
+      "totalRank": 105,
+      "rankDetail": "体14+力30+强33+速9+魔9+10=105",
+      "capDetail": "体16/力32/强35/速11/魔11",
+      "rare": "普卡"
+    },
+    {
+      "petId": 632,
+      "name": "水晶螃蟹",
+      "groomCrystal": 100,
+      "totalRank": 105,
+      "rankDetail": "体16+力29+强34+速8+魔8+10=105",
+      "capDetail": "体18/力31/强36/速10/魔10",
+      "rare": "普卡"
+    },
+    {
+      "petId": 633,
+      "name": "铁剪螃蟹",
+      "groomCrystal": 500,
+      "totalRank": 105,
+      "rankDetail": "体12+力32+强35+速10+魔6+10=105",
+      "capDetail": "体14/力34/强37/速12/魔8",
+      "rare": "银卡"
+    },
+    {
+      "petId": 634,
+      "name": "黄金螃蟹",
+      "groomCrystal": 500,
+      "totalRank": 107,
+      "rankDetail": "体20+力30+强32+速5+魔10+10=107",
+      "capDetail": "体22/力32/强34/速7/魔12",
+      "rare": "银卡"
+    },
+    {
+      "petId": 5601,
+      "name": "盾",
+      "groomCrystal": 800,
+      "totalRank": 122,
+      "rankDetail": "体13+力13+强43+速13+魔30+10=122",
+      "capDetail": "体15/力15/强45/速15/魔32",
+      "rare": "银卡"
+    },
+    {
+      "petId": 5602,
+      "name": "潜盾",
+      "groomCrystal": 200,
+      "totalRank": 120,
+      "rankDetail": "体15+力10+强45+速10+魔30+10=120",
+      "capDetail": "体17/力12/强47/速12/魔32",
+      "rare": "普卡"
+    },
+    {
+      "petId": 5603,
+      "name": "强盾",
+      "groomCrystal": 200,
+      "totalRank": 120,
+      "rankDetail": "体17+力9+强47+速11+魔26+10=120",
+      "capDetail": "体19/力11/强49/速13/魔28",
+      "rare": "普卡"
+    },
+    {
+      "petId": 5604,
+      "name": "神盾",
+      "groomCrystal": 800,
+      "totalRank": 122,
+      "rankDetail": "体14+力7+强50+速6+魔35+10=122",
+      "capDetail": "体16/力9/强52/速8/魔37",
+      "rare": "银卡"
+    },
+    {
+      "petId": 5611,
+      "name": "岩怪",
+      "groomCrystal": 500,
+      "totalRank": 112,
+      "rankDetail": "体27+力20+强40+速3+魔12+10=112",
+      "capDetail": "体29/力22/强42/速5/魔14",
+      "rare": "银卡"
+    },
+    {
+      "petId": 5612,
+      "name": "爆岩",
+      "groomCrystal": 100,
+      "totalRank": 110,
+      "rankDetail": "体28+力18+强40+速4+魔10+10=110",
+      "capDetail": "体30/力20/强42/速6/魔12",
+      "rare": "普卡"
+    },
+    {
+      "petId": 5613,
+      "name": "熔岩",
+      "groomCrystal": 500,
+      "totalRank": 112,
+      "rankDetail": "体30+力20+强37+速5+魔10+10=112",
+      "capDetail": "体32/力22/强39/速7/魔12",
+      "rare": "银卡"
+    },
+    {
+      "petId": 5614,
+      "name": "影岩",
+      "groomCrystal": 100,
+      "totalRank": 110,
+      "rankDetail": "体29+力17+强30+速10+魔14+10=110",
+      "capDetail": "体31/力19/强32/速12/魔16",
+      "rare": "普卡"
+    },
+    {
+      "petId": 701,
+      "name": "蜥蜴战士",
+      "groomCrystal": 50,
+      "totalRank": 110,
+      "rankDetail": "体20+力30+强30+速10+魔10+10=110",
+      "capDetail": "体22/力32/强32/速12/魔12",
+      "rare": "普卡"
+    },
+    {
+      "petId": 702,
+      "name": "蜥蜴斗士",
+      "groomCrystal": 500,
+      "totalRank": 112,
+      "rankDetail": "体16+力37+强35+速6+魔8+10=112",
+      "capDetail": "体18/力39/强37/速8/魔10",
+      "rare": "银卡"
+    },
+    {
+      "petId": 703,
+      "name": "蜥蜴武士",
+      "groomCrystal": 50,
+      "totalRank": 110,
+      "rankDetail": "体18+力29+强28+速13+魔12+10=110",
+      "capDetail": "体20/力31/强30/速15/魔14",
+      "rare": "普卡"
+    },
+    {
+      "petId": 704,
+      "name": "烈豹蜥蜴",
+      "groomCrystal": 500,
+      "totalRank": 112,
+      "rankDetail": "体21+力36+强26+速8+魔11+10=112",
+      "capDetail": "体23/力38/强28/速10/魔13",
+      "rare": "银卡"
+    },
+    {
+      "petId": 711,
+      "name": "大地翼龙",
+      "groomCrystal": 640,
+      "totalRank": 122,
+      "rankDetail": "体29+力26+强30+速18+魔9+10=122",
+      "capDetail": "体31/力28/强32/速20/魔11",
+      "rare": "银卡"
+    },
+    {
+      "petId": 712,
+      "name": "寒冰翼龙",
+      "groomCrystal": 100,
+      "totalRank": 120,
+      "rankDetail": "体28+力28+强29+速15+魔10+10=120",
+      "capDetail": "体30/力30/强31/速17/魔12",
+      "rare": "普卡"
+    },
+    {
+      "petId": 713,
+      "name": "火焰翼龙",
+      "groomCrystal": 100,
+      "totalRank": 120,
+      "rankDetail": "体31+力31+强23+速14+魔11+10=120",
+      "capDetail": "体33/力33/强25/速16/魔13",
+      "rare": "普卡"
+    },
+    {
+      "petId": 714,
+      "name": "烈风翼龙",
+      "groomCrystal": 640,
+      "totalRank": 122,
+      "rankDetail": "体32+力28+强21+速18+魔13+10=122",
+      "capDetail": "体34/力30/强23/速20/魔15",
+      "rare": "银卡"
+    },
+    {
+      "petId": 715,
+      "name": "翼龙",
+      "groomCrystal": 2400,
+      "totalRank": 119,
+      "rankDetail": "体35+力27+强27+速15+魔5+10=119",
+      "capDetail": "体37/力29/强29/速17/魔7",
+      "rare": "金卡"
+    },
+    {
+      "petId": 721,
+      "name": "地龙蜥",
+      "groomCrystal": 100,
+      "totalRank": 120,
+      "rankDetail": "体33+力33+强29+速8+魔7+10=120",
+      "capDetail": "体35/力35/强31/速10/魔9",
+      "rare": "普卡"
+    },
+    {
+      "petId": 722,
+      "name": "水龙蜥",
+      "groomCrystal": 100,
+      "totalRank": 120,
+      "rankDetail": "体33+力35+强31+速8+魔3+10=120",
+      "capDetail": "体35/力37/强33/速10/魔5",
+      "rare": "普卡"
+    },
+    {
+      "petId": 723,
+      "name": "火龙蜥",
+      "groomCrystal": 640,
+      "totalRank": 122,
+      "rankDetail": "体31+力37+强32+速9+魔3+10=122",
+      "capDetail": "体33/力39/强34/速11/魔5",
+      "rare": "银卡"
+    },
+    {
+      "petId": 724,
+      "name": "风龙蜥",
+      "groomCrystal": 640,
+      "totalRank": 122,
+      "rankDetail": "体30+力35+强32+速12+魔3+10=122",
+      "capDetail": "体32/力37/强34/速14/魔5",
+      "rare": "银卡"
+    },
+    {
+      "petId": 5711,
+      "name": "口袋龙",
+      "groomCrystal": 100,
+      "totalRank": 115,
+      "rankDetail": "体13+力32+强19+速23+魔18+10=115",
+      "capDetail": "体15/力34/强21/速25/魔20",
+      "rare": "普卡"
+    },
+    {
+      "petId": 5712,
+      "name": "迷你龙",
+      "groomCrystal": 500,
+      "totalRank": 117,
+      "rankDetail": "体10+力33+强21+速24+魔19+10=117",
+      "capDetail": "体12/力35/强23/速26/魔21",
+      "rare": "银卡"
+    },
+    {
+      "petId": 5713,
+      "name": "雏龙",
+      "groomCrystal": 500,
+      "totalRank": 117,
+      "rankDetail": "体12+力30+强20+速25+魔20+10=117",
+      "capDetail": "体14/力32/强22/速27/魔22",
+      "rare": "银卡"
+    },
+    {
+      "petId": 5714,
+      "name": "穴龙",
+      "groomCrystal": 100,
+      "totalRank": 115,
+      "rankDetail": "体9+力29+强18+速26+魔23+10=115",
+      "capDetail": "体11/力31/强20/速28/魔25",
+      "rare": "普卡"
+    },
+    {
+      "petId": 801,
+      "name": "哥布林",
+      "groomCrystal": 100,
+      "totalRank": 105,
+      "rankDetail": "体25+力25+强20+速15+魔10+10=105",
+      "capDetail": "体27/力27/强22/速17/魔12",
+      "rare": "普卡"
+    },
+    {
+      "petId": 802,
+      "name": "红帽哥布林",
+      "groomCrystal": 100,
+      "totalRank": 105,
+      "rankDetail": "体21+力28+强22+速17+魔7+10=105",
+      "capDetail": "体23/力30/强24/速19/魔9",
+      "rare": "普卡"
+    },
+    {
+      "petId": 803,
+      "name": "火焰哥布林",
+      "groomCrystal": 500,
+      "totalRank": 107,
+      "rankDetail": "体20+力30+强21+速16+魔10+10=107",
+      "capDetail": "体22/力32/强23/速18/魔12",
+      "rare": "银卡"
+    },
+    {
+      "petId": 804,
+      "name": "烈风哥布林",
+      "groomCrystal": 500,
+      "totalRank": 107,
+      "rankDetail": "体28+力26+强17+速19+魔7+10=107",
+      "capDetail": "体30/力28/强19/速21/魔9",
+      "rare": "银卡"
+    },
+    {
+      "petId": 811,
+      "name": "巨人",
+      "groomCrystal": 200,
+      "totalRank": 120,
+      "rankDetail": "体36+力33+强22+速12+魔7+10=120",
+      "capDetail": "体38/力35/强24/速14/魔9",
+      "rare": "普卡"
+    },
+    {
+      "petId": 812,
+      "name": "单眼巨人",
+      "groomCrystal": 640,
+      "totalRank": 122,
+      "rankDetail": "体40+力32+强18+速12+魔10+10=122",
+      "capDetail": "体42/力34/强20/速14/魔12",
+      "rare": "银卡"
+    },
+    {
+      "petId": 813,
+      "name": "泰坦巨人",
+      "groomCrystal": 200,
+      "totalRank": 120,
+      "rankDetail": "体37+力28+强26+速13+魔6+10=120",
+      "capDetail": "体39/力30/强28/速15/魔8",
+      "rare": "普卡"
+    },
+    {
+      "petId": 814,
+      "name": "亚特拉斯巨神",
+      "groomCrystal": 640,
+      "totalRank": 122,
+      "rankDetail": "体35+力37+强20+速12+魔8+10=122",
+      "capDetail": "体37/力39/强22/速14/魔10",
+      "rare": "银卡"
+    },
+    {
+      "petId": 821,
+      "name": "盗贼",
+      "groomCrystal": 100,
+      "totalRank": 115,
+      "rankDetail": "体21+力26+强19+速29+魔10+10=115",
+      "capDetail": "体23/力28/强21/速31/魔12",
+      "rare": "普卡"
+    },
+    {
+      "petId": 822,
+      "name": "山贼",
+      "groomCrystal": 100,
+      "totalRank": 115,
+      "rankDetail": "体26+力25+强22+速24+魔8+10=115",
+      "capDetail": "体28/力27/强24/速26/魔10",
+      "rare": "普卡"
+    },
+    {
+      "petId": 823,
+      "name": "海盗",
+      "groomCrystal": 640,
+      "totalRank": 117,
+      "rankDetail": "体24+力29+强21+速26+魔7+10=117",
+      "capDetail": "体26/力31/强23/速28/魔9",
+      "rare": "银卡"
+    },
+    {
+      "petId": 824,
+      "name": "破坏狂",
+      "groomCrystal": 640,
+      "totalRank": 117,
+      "rankDetail": "体27+力24+强28+速22+魔6+10=117",
+      "capDetail": "体29/力26/强30/速24/魔8",
+      "rare": "银卡"
+    },
+    {
+      "petId": 831,
+      "name": "鸟人",
+      "groomCrystal": 10,
+      "totalRank": 110,
+      "rankDetail": "体15+力15+强10+速35+魔25+10=110",
+      "capDetail": "体17/力17/强12/速37/魔27",
+      "rare": "普卡"
+    },
+    {
+      "petId": 832,
+      "name": "幻歌妖",
+      "groomCrystal": 10,
+      "totalRank": 110,
+      "rankDetail": "体16+力17+强12+速32+魔23+10=110",
+      "capDetail": "体18/力19/强14/速34/魔25",
+      "rare": "银卡"
+    },
+    {
+      "petId": 833,
+      "name": "狠毒鸟人",
+      "groomCrystal": 500,
+      "totalRank": 112,
+      "rankDetail": "体13+力16+强13+速36+魔24+10=112",
+      "capDetail": "体15/力18/强15/速38/魔26",
+      "rare": "普卡"
+    },
+    {
+      "petId": 834,
+      "name": "烈风鸟人",
+      "groomCrystal": 500,
+      "totalRank": 112,
+      "rankDetail": "体11+力18+强10+速40+魔23+10=112",
+      "capDetail": "体13/力20/强12/速42/魔25",
+      "rare": "银卡"
+    },
+    {
+      "petId": 835,
+      "name": "黑暗鸟人",
+      "groomCrystal": 1600,
+      "totalRank": 129,
+      "rankDetail": "体18+力9+强11+速45+魔36+10=129",
+      "capDetail": "体20/力11/强13/速47/魔38",
+      "rare": "金卡"
+    },
+    {
+      "petId": 5801,
+      "name": "大型半兽人",
+      "groomCrystal": 100,
+      "totalRank": 115,
+      "rankDetail": "体32+力23+强33+速8+魔9+10=115",
+      "capDetail": "体34/力25/强35/速10/魔11",
+      "rare": "普卡"
+    },
+    {
+      "petId": 5802,
+      "name": "猪鬼",
+      "groomCrystal": 500,
+      "totalRank": 117,
+      "rankDetail": "体31+力28+强31+速9+魔8+10=117",
+      "capDetail": "体33/力30/强33/速11/魔10",
+      "rare": "银卡"
+    },
+    {
+      "petId": 5803,
+      "name": "钢鬼",
+      "groomCrystal": 500,
+      "totalRank": 117,
+      "rankDetail": "体28+力30+强28+速14+魔7+10=117",
+      "capDetail": "体30/力32/强30/速16/魔9",
+      "rare": "银卡"
+    },
+    {
+      "petId": 5804,
+      "name": "半兽人",
+      "groomCrystal": 100,
+      "totalRank": 115,
+      "rankDetail": "体30+力25+强30+速10+魔10+10=115",
+      "capDetail": "体32/力27/强32/速12/魔12",
+      "rare": "普卡"
+    },
+    {
+      "petId": 480001,
+      "name": "钢铁领主",
+      "groomCrystal": 3000,
+      "totalRank": 135,
+      "rankDetail": "体44+力53+强10+速13+魔5+10=135",
+      "capDetail": "体46/力55/强12/速15/魔7",
+      "rare": "金卡"
+    },
+    {
+      "petId": 480002,
+      "name": "地狱将军",
+      "groomCrystal": 2400,
+      "totalRank": 132,
+      "rankDetail": "体28+力46+强19+速24+魔5+10=132",
+      "capDetail": "体30/力48/强21/速26/魔7",
+      "rare": "金卡"
+    },
+    {
+      "petId": 480003,
+      "name": "狂战将军",
+      "groomCrystal": 2400,
+      "totalRank": 132,
+      "rankDetail": "体19+力34+强13+速50+魔6+10=132",
+      "capDetail": "体21/力36/强15/速52/魔8",
+      "rare": "金卡"
+    },
+    {
+      "petId": 480004,
+      "name": "钢铁剑士",
+      "groomCrystal": 2400,
+      "totalRank": 132,
+      "rankDetail": "体45+力36+强28+速7+魔6+10=132",
+      "capDetail": "体47/力38/强30/速9/魔8",
+      "rare": "金卡"
+    },
+    {
+      "petId": 480005,
+      "name": "里雍（绿）",
+      "groomCrystal": 1800,
+      "totalRank": 130,
+      "rankDetail": "体36+力44+强6+速28+魔6+10=130",
+      "capDetail": "体38/力46/强8/速30/魔8",
+      "rare": "金卡"
+    },
+    {
+      "petId": 480006,
+      "name": "里雍（蓝）",
+      "groomCrystal": 1800,
+      "totalRank": 130,
+      "rankDetail": "体30+力50+强13+速22+魔5+10=130",
+      "capDetail": "体32/力52/强15/速24/魔7",
+      "rare": "金卡"
+    },
+    {
+      "petId": 480007,
+      "name": "里雍（红）",
+      "groomCrystal": 1800,
+      "totalRank": 130,
+      "rankDetail": "体36+力42+强21+速16+魔5+10=130",
+      "capDetail": "体38/力44/强23/速18/魔7",
+      "rare": "金卡"
+    },
+    {
+      "petId": 480008,
+      "name": "里雍（黄）",
+      "groomCrystal": 1800,
+      "totalRank": 130,
+      "rankDetail": "体28+力48+强10+速28+魔6+10=130",
+      "capDetail": "体30/力50/强12/速30/魔8",
+      "rare": "金卡"
+    },
+    {
+      "petId": 480009,
+      "name": "欧奴奇美拉",
+      "groomCrystal": 1800,
+      "totalRank": 129,
+      "rankDetail": "体23+力42+强14+速33+魔7+10=129",
+      "capDetail": "体25/力44/强16/速35/魔9",
+      "rare": "金卡"
+    },
+    {
+      "petId": 480010,
+      "name": "艾德奇美拉",
+      "groomCrystal": 1800,
+      "totalRank": 129,
+      "rankDetail": "体15+力45+强6+速47+魔6+10=129",
+      "capDetail": "体17/力47/强8/速49/魔8",
+      "rare": "金卡"
+    },
+    {
+      "petId": 480011,
+      "name": "依鲁特奇美拉",
+      "groomCrystal": 1800,
+      "totalRank": 129,
+      "rankDetail": "体45+力35+强30+速3+魔6+10=129",
+      "capDetail": "体47/力37/强32/速5/魔8",
+      "rare": "金卡"
+    },
+    {
+      "petId": 480012,
+      "name": "欧特奇美拉",
+      "groomCrystal": 1800,
+      "totalRank": 129,
+      "rankDetail": "体23+力42+强14+速33+魔7+10=129",
+      "capDetail": "体25/力44/强16/速35/魔9",
+      "rare": "金卡"
+    },
+    {
+      "petId": 480013,
+      "name": "樱花螳螂",
+      "groomCrystal": 800,
+      "totalRank": 120,
+      "rankDetail": "体21+力45+强12+速22+魔10+10=120",
+      "capDetail": "体23/力47/强14/速24/魔12",
+      "rare": "银卡"
+    }
+  ]
+}

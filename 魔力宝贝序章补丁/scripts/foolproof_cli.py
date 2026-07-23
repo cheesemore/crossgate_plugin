@@ -12,8 +12,7 @@ from foolproof_apply import FoolproofError, run_foolproof_patch
 def main() -> int:
     print("魔力宝贝：序章 — 傻瓜补丁（命令行）\n")
     try:
-        for line in run_foolproof_patch():
-            print(line)
+        run_foolproof_patch(on_log=lambda line: print(line, flush=True))
         try:
             input("\n按 Enter 退出…")
         except EOFError:
