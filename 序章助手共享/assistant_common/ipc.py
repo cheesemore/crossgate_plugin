@@ -654,6 +654,34 @@ def parse_char_roster(st: dict | None) -> list[dict[str, str]]:
     return chars
 
 
+def parse_npc_roster(st: dict | None) -> list[dict[str, str]]:
+    """从 state 解析 NPC 列表 [{objindex, name, x, y, type}, ...]。"""
+    if not st:
+        return []
+    objs = str(st.get("npc_objindex") or "").split("|")
+    names = str(st.get("npc_name") or "").split("|")
+    xs = str(st.get("npc_x") or "").split("|")
+    ys = str(st.get("npc_y") or "").split("|")
+    types = str(st.get("npc_type") or "").split("|")
+    n = max(len(objs), len(names), len(xs), len(ys), len(types))
+    out: list[dict[str, str]] = []
+    for i in range(n):
+        obj = objs[i].strip() if i < len(objs) else ""
+        name = names[i].strip() if i < len(names) else ""
+        if not obj or obj == "-":
+            continue
+        out.append(
+            {
+                "objindex": obj,
+                "name": name or "-",
+                "x": (xs[i].strip() if i < len(xs) else "0") or "0",
+                "y": (ys[i].strip() if i < len(ys) else "0") or "0",
+                "type": (types[i].strip() if i < len(types) else "") or "",
+            }
+        )
+    return out
+
+
 def load_char_cache(instance_id: str) -> list[dict[str, str]]:
     path = char_cache_path(instance_id)
     if not path.is_file():
@@ -768,3 +796,132 @@ def send_gem_inlay(
         uid=uid,
         opcode_name="LSSPROTO_RECIPE_FUNC",
     )
+
+
+def send_learn_skill(
+    instance_id: str,
+    *,
+    uid: str,
+    skill_slot: int,
+    npc_objindex: int,
+    skill_id: int,
+    skill_type: str = "人物学习技能",
+    pet_index: int = 0,
+) -> str:
+    """学技能：走桥接 learn_skill → SkillManager.SendSkillMessage（与游戏面板一致）。
+
+    人物：Type=人物学习技能，Petindex=0。
+    宠物：Type=宠物学习技能，Petindex=宠物 data.Index。
+    Skillindex=技能栏位；Buyindex=技能本体 ID；Objindex=NPC。
+    """
+    return send_command(
+        instance_id,
+        "learn_skill",
+        type=skill_type,
+        skill_slot=int(skill_slot),
+        npc_objindex=int(npc_objindex),
+        skill_id=int(skill_id),
+        pet_index=int(pet_index),
+        uid=uid,
+    )
+
+
+def send_learn_pet_skill(
+    instance_id: str,
+    *,
+    uid: str,
+    pet_index: int,
+    skill_slot: int,
+    npc_objindex: int,
+    skill_id: int,
+) -> str:
+    """宠物学技能（与游戏 PetLearnSkillPanel 一致）。"""
+    return send_learn_skill(
+        instance_id,
+        uid=uid,
+        skill_slot=skill_slot,
+        npc_objindex=npc_objindex,
+        skill_id=skill_id,
+        skill_type="宠物学习技能",
+        pet_index=pet_index,
+    )
+
+
+def list_seal_cards(instance_id: str, *, uid: str | None = None) -> str:
+    """扫描背包可用封印卡，结果写入实例目录 seal_cards.json。"""
+    params: dict[str, Any] = {}
+    if uid:
+        params["uid"] = uid
+    return send_command(instance_id, "list_seal_cards", **params)
+
+
+def battle_seal(
+    instance_id: str,
+    *,
+    uid: str | None = None,
+    bag_index: int = -1,
+    target_index: int = -1,
+    prefer_lv1: bool = True,
+) -> str:
+    """战斗中扔封印卡。bag_index/target_index 为 -1 时自动选第一张卡 / 优先1级怪。"""
+    params: dict[str, Any] = {
+        "bag_index": int(bag_index),
+        "target_index": int(target_index),
+        "prefer_lv1": 1 if prefer_lv1 else 0,
+    }
+    if uid:
+        params["uid"] = uid
+    return send_command(instance_id, "battle_seal", **params)
+
+
+def parse_seal_cards(instance_id: str) -> list[dict[str, str]]:
+    """读取 list_seal_cards 写出的 seal_cards.json。"""
+    path = instance_dir(instance_id) / "seal_cards.json"
+    if not path.is_file():
+        return []
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    rows = data.get("cards") if isinstance(data, dict) else None
+    if not isinstance(rows, list):
+        return []
+    out: list[dict[str, str]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        out.append(
+            {
+                "index": str(row.get("index", "")),
+                "type": str(row.get("type", "")),
+                "flg": str(row.get("flg", "")),
+                "name": str(row.get("name", "")),
+                "list_i": str(row.get("list_i", "")),
+            }
+        )
+    return out
+
+
+def parse_pet_roster(st: dict | None) -> list[dict[str, str]]:
+    """从 state 解析宠物列表 [{slot, index, name, level}, ...]。index=发包 Petindex。"""
+    if not st:
+        return []
+    slots = str(st.get("pet_slots") or "").split("|")
+    indexes = str(st.get("pet_index") or "").split("|")
+    names = str(st.get("pet_names") or "").split("|")
+    levels = str(st.get("pet_levels") or "").split("|")
+    n = max(len(slots), len(indexes), len(names), len(levels))
+    out: list[dict[str, str]] = []
+    for i in range(n):
+        idx = indexes[i].strip() if i < len(indexes) else ""
+        if not idx or idx == "-":
+            continue
+        out.append(
+            {
+                "slot": (slots[i].strip() if i < len(slots) else str(i)) or str(i),
+                "index": idx,
+                "name": (names[i].strip() if i < len(names) else "") or f"#{i + 1}",
+                "level": (levels[i].strip() if i < len(levels) else "0") or "0",
+            }
+        )
+    return out

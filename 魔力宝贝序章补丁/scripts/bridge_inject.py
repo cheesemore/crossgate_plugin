@@ -163,7 +163,10 @@ def remove_bridge_patch(game_root: Path) -> tuple[bool, str]:
 
 
 def apply_bridge_patch(game_root: Path, *, force_from_orig: bool = False) -> tuple[bool, str]:
-    """注入 SeqChapterHelperBridge（外部 DLL + hook，hotfix 体积不变）。"""
+    """注入 SeqChapterHelperBridge（外部 DLL + hook，hotfix 体积不变）。
+
+    若 hook 已正确注入，仍会走 patcher 刷新外部 DLL（逻辑更新无需重打玩法补丁）。
+    """
     hotfix = hotfix_path(game_root)
     if not hotfix.is_file():
         return _fail(game_root, "precheck", f"找不到 hotfix: {hotfix}")
@@ -172,30 +175,34 @@ def apply_bridge_patch(game_root: Path, *, force_from_orig: bool = False) -> tup
     if variant == "embedded":
         force_from_orig = True
 
+    refresh_dll_only = False
     if is_bridge_patched(game_root) and not force_from_orig:
         if variant == "binary_loadfrom":
-            return True, "助手桥接已注入（二进制 LoadFrom，跳过）"
-        if variant == "cecil_light_loadfrom":
+            refresh_dll_only = True
+        elif variant == "cecil_light_loadfrom":
             site = detect_bootstrap_site(game_root)
             if site == "quit" and _hotfix_uses_add_time_invoke(game_root):
-                return True, "助手桥接已注入（LoadFrom + AddTimeInvoke，跳过）"
-            force_from_orig = True
+                refresh_dll_only = True
+            else:
+                force_from_orig = True
         elif variant == "cecil_light_loadbytes":
             site = detect_bootstrap_site(game_root)
             if site == "pause" and _hotfix_uses_add_time_invoke(game_root):
-                return True, "助手桥接已注入（Load 字节 + ModLoader，跳过）"
-            force_from_orig = True
+                refresh_dll_only = True
+            else:
+                force_from_orig = True
         elif variant == "cecil_light":
             force_from_orig = True
         else:
-            return True, f"助手桥接已注入（{bridge_variant_label(variant)}，跳过）"
+            refresh_dll_only = True
 
     try:
         ensure_orig_backup(game_root)
     except FileNotFoundError as exc:
         return _fail(game_root, "backup", str(exc))
 
-    source = hotfix_orig(game_root) if force_from_orig else hotfix
+    # 仅刷新 DLL 时必须以当前已打补丁的 hotfix 为输入，避免从 .orig 抹掉玩法补丁。
+    source = hotfix if refresh_dll_only else (hotfix_orig(game_root) if force_from_orig else hotfix)
     args = ["helper-bridge-patch", "--hotfix", str(source), "--output", str(hotfix)]
     try:
         proc = run_patcher_capture(args)
@@ -235,15 +242,19 @@ def apply_bridge_patch(game_root: Path, *, force_from_orig: bool = False) -> tup
             returncode=proc.returncode,
         )
 
+    detail = out.strip() or "助手桥接注入成功"
+    if refresh_dll_only and "刷新" not in detail:
+        detail = "助手桥接 DLL 已刷新（hook 未改）\n" + detail
+
     _append_bridge_inject_log(
         game_root,
         ok=True,
-        stage="done",
-        detail=out.strip() or "助手桥接注入成功",
+        stage="done" if not refresh_dll_only else "refresh_dll",
+        detail=detail,
         cmd=args,
         returncode=0,
     )
-    return True, out.strip() or "助手桥接注入成功"
+    return True, detail
 
 
 def verify_hotfix_size(game_root: Path) -> None:

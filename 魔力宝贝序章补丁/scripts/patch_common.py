@@ -24,8 +24,9 @@ PARTIALCONFIG_STREAMING_REL = Path(DATA_DIR) / "StreamingAssets" / "partialconfi
 KEEP_CHANNELS = frozenset({"1100", "1102"})
 DEFAULT_CHANNEL = "1101"
 OLD_HOTFIX_SIZE = 6_879_744
-EXPECTED_SIZE = 7_077_376
+EXPECTED_SIZE = 7_077_888
 KNOWN_OLD_SIZES: dict[int, str] = {
+    7_077_376: "2026-07-24 早",
     7_075_328: "2026-07-22 ~ 2026-07-24",
     6_879_744: "2026-6-21 之前",
     6_923_264: "2026-6-21 ~ 2026-6-27",
@@ -378,6 +379,7 @@ def patcher_launcher() -> list[str]:
 def ensure_patcher() -> list[str]:
     launcher = patcher_launcher()
     if launcher:
+        ensure_external_sources_beside_patcher()
         return launcher
     if not DEV_PATCHER_CSPROJ.is_file():
         raise FileNotFoundError(
@@ -391,6 +393,7 @@ def ensure_patcher() -> list[str]:
         check=True,
     )
     if DEV_PATCHER_DLL.is_file():
+        sync_external_patch_sources(out_dir)
         return ["dotnet", str(DEV_PATCHER_DLL)]
     raise FileNotFoundError(f"编译后仍找不到: {DEV_PATCHER_DLL}")
 
@@ -538,6 +541,67 @@ def _sync_patcher_tree(src_dir: Path, dst_dir: Path) -> bool:
         return False
 
 
+# 烧卡/抓宠源码：随 HotfixPatcher.exe 旁打包，避免目标游戏目录无 tools/ 时找不到
+_EXTERNAL_PATCH_SOURCES = (
+    ("seqchapter_auto_seal", "SeqChapterAutoSeal.cs"),
+    ("seqchapter_auto_catch", "SeqChapterAutoCatch.cs"),
+)
+
+
+def sync_external_patch_sources(target_dir: Path) -> list[str]:
+    """把 tools/seqchapter_auto_* 拷到引擎目录旁（staging / 发布包 / 本机 patcher）。"""
+    messages: list[str] = []
+    target_dir.mkdir(parents=True, exist_ok=True)
+    for folder_name, cs_name in _EXTERNAL_PATCH_SOURCES:
+        src = GAME_ROOT / "tools" / folder_name
+        if not (src / cs_name).is_file():
+            continue
+        dst = target_dir / folder_name
+        try:
+            if dst.is_dir():
+                shutil.rmtree(dst, ignore_errors=True)
+            shutil.copytree(src, dst)
+            messages.append(f"已同步 {folder_name} 到补丁引擎目录")
+        except OSError as exc:
+            messages.append(f"[WARN] 同步 {folder_name} 失败: {exc}")
+    return messages
+
+
+def ensure_external_sources_beside_patcher() -> None:
+    """保证当前选用的 HotfixPatcher.exe 旁有最新烧卡/抓宠源码（缺或过期都覆盖）。"""
+    exe = resolve_patcher_exe()
+    if exe is None:
+        return
+    parent = exe.parent
+    src_root = GAME_ROOT / "tools"
+    need = False
+    for folder_name, cs_name in _EXTERNAL_PATCH_SOURCES:
+        src = src_root / folder_name / cs_name
+        dst = parent / folder_name / cs_name
+        if not src.is_file():
+            continue
+        if not dst.is_file() or dst.stat().st_mtime < src.stat().st_mtime:
+            need = True
+            break
+    if need:
+        sync_external_patch_sources(parent)
+
+
+def _decode_patcher_bytes(raw: bytes) -> str:
+    if not raw:
+        return ""
+    for enc in ("utf-8-sig", "utf-8", "gbk", "mbcs"):
+        try:
+            text = raw.decode(enc)
+        except UnicodeDecodeError:
+            continue
+        if "\ufffd" not in text:
+            return text
+        if enc in ("gbk", "mbcs"):
+            return text
+    return raw.decode("utf-8", errors="replace")
+
+
 def rebuild_patcher_engine() -> list[str]:
     messages: list[str] = []
     if _is_frozen() and resolve_patcher_exe() is not None:
@@ -584,6 +648,9 @@ def rebuild_patcher_engine() -> list[str]:
         if _sync_patcher_tree(stub_src, stub_dst):
             messages.append("已同步 ref_stubs 到补丁引擎目录")
 
+    for line in sync_external_patch_sources(build_dir):
+        messages.append(line)
+
     _remember_latest_build_dir(build_dir)
 
     try:
@@ -603,13 +670,16 @@ def rebuild_patcher_engine() -> list[str]:
             messages.append(f"已同步到 {rel}")
         except ValueError:
             messages.append(f"已同步到 {DEV_PATCHER_EXE.name}")
+        sync_external_patch_sources(DEV_PATCHER_EXE.parent)
     if _copy_file_best_effort(built, PATCHER_EXE):
         messages.append("已更新 patcher/HotfixPatcher.exe")
+        sync_external_patch_sources(PATCHER_DIR)
         new_path = PATCHER_DIR / "HotfixPatcher.exe.new"
         if new_path.is_file():
             new_path.unlink()
     elif _copy_file_best_effort(built, PATCHER_DIR / "HotfixPatcher.exe.new"):
         messages.append("patcher/HotfixPatcher.exe 占用中，已写入 HotfixPatcher.exe.new（关闭 GUI 后可手动替换）")
+        sync_external_patch_sources(PATCHER_DIR)
     elif PATCHER_EXE.is_file():
         messages.append("patcher/HotfixPatcher.exe 占用中，将使用最新编译目录内的引擎")
 
@@ -618,13 +688,18 @@ def rebuild_patcher_engine() -> list[str]:
 
 def run_patcher_capture(args: list[str]) -> subprocess.CompletedProcess:
     cmd = [*ensure_patcher(), *args]
-    return subprocess.run(
+    proc = subprocess.run(
         cmd,
         check=False,
         capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
+    )
+    stdout = _decode_patcher_bytes(proc.stdout or b"")
+    stderr = _decode_patcher_bytes(proc.stderr or b"")
+    return subprocess.CompletedProcess(
+        proc.args,
+        proc.returncode,
+        stdout,
+        stderr,
     )
 
 
@@ -884,10 +959,9 @@ def adopt_client_hotfix_update(game_root: Path | None = None) -> list[str]:
     ok, reason = _is_clean_hotfix_file(hf)
     if not ok:
         raise RuntimeError(
-            "无法自动修复：游戏内 hotfix 不是干净原版"
+            "当前客户端状态异常（hotfix 不是干净官方原版）"
             f"（{reason}）。\n\n"
-            "请先关闭游戏，用启动器「更新/修复」拉回官方 hotfix，"
-            "或从 crosscopy 等备份拷贝干净文件后再试。"
+            "请删除本客户端，复制一份干净的客户端，再重新使用补丁。"
         )
 
     messages: list[str] = []
@@ -922,7 +996,12 @@ def adopt_client_hotfix_update(game_root: Path | None = None) -> list[str]:
     save_baseline_meta(root, payload)
 
     hf_dir = hf.parent
-    for name in ("SeqChapterHelperBridge.dll.bytes", "SeqChapterNineAction.dll.bytes"):
+    for name in (
+        "SeqChapterHelperBridge.dll.bytes",
+        "SeqChapterNineAction.dll.bytes",
+        "SeqChapterAutoSeal.dll.bytes",
+        "SeqChapterAutoCatch.dll.bytes",
+    ):
         extra = hf_dir / name
         if extra.is_file():
             try:

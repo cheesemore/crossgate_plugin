@@ -26,6 +26,8 @@ public static class SeqChapterHelperBridge
     private const double LightHeartbeatSec = 0.5;
     private const double FullHeartbeatLoginSec = 1.0;
     private const double FullHeartbeatInGameSec = 3.0;
+    /// <summary>同图 NPC 重扫间隔。切图仍立即重扫；避免每 3s full 心跳都整表反射。</summary>
+    private const double NpcSameMapRescanSec = 15.0;
 
     private static readonly Dictionary<string, Type> _typeByName = new Dictionary<string, Type>(StringComparer.Ordinal);
     private static readonly HashSet<Assembly> _indexedAssemblies = new HashSet<Assembly>();
@@ -38,6 +40,15 @@ public static class SeqChapterHelperBridge
     private static MethodInfo _teamGetTeamMulitCountMethod;
     private static MethodInfo _teamIsLeaderMethod;
     private static MethodInfo _netGetZoneIdMethod;
+    private static int _lastNpcScanFloor = int.MinValue;
+    private static double _lastNpcScanAt;
+    private static string _cachedNpcObjindex = "";
+    private static string _cachedNpcName = "";
+    private static string _cachedNpcX = "";
+    private static string _cachedNpcY = "";
+    private static string _cachedNpcType = "";
+    private static int _cachedNpcCount;
+    private static int _cachedNpcFloor = int.MinValue;
     private static Type _teamMgrTypeForMethods;
 
     public static void InitFromStart()
@@ -218,6 +229,11 @@ public static class SeqChapterHelperBridge
             {
                 AppendNetworkFields(st);
             }
+            else
+            {
+                AppendNpcFields(st, forceRescan: false);
+                AppendPetFields(st);
+            }
         }
 
         st["workflow_active"] = _workflowActive;
@@ -356,6 +372,24 @@ public static class SeqChapterHelperBridge
                     GetDict(prm, "fields"),
                     GetStr(prm, "uid"),
                     GetStr(prm, "data_b64"),
+                    out msg);
+            case "learn_skill":
+                return DoLearnSkill(
+                    GetStr(prm, "type"),
+                    GetInt(prm, "skill_slot", 0),
+                    GetInt(prm, "npc_objindex", 0),
+                    GetInt(prm, "skill_id", 0),
+                    GetInt(prm, "pet_index", 0),
+                    GetStr(prm, "uid"),
+                    out msg);
+            case "list_seal_cards":
+                return DoListSealCards(GetStr(prm, "uid"), out msg);
+            case "battle_seal":
+                return DoBattleSeal(
+                    GetStr(prm, "uid"),
+                    GetInt(prm, "bag_index", -1),
+                    GetInt(prm, "target_index", -1),
+                    GetInt(prm, "prefer_lv1", 1) != 0,
                     out msg);
             case "send_gm":
                 return DoSendGm(GetStr(prm, "text"), GetStr(prm, "uid"), out msg);
@@ -1533,6 +1567,301 @@ public static class SeqChapterHelperBridge
         st["resource_uid"] = mainUid;
     }
 
+    /// <summary>
+    /// 采集场上 NPC：objindex / name / x / y / type。切图强制重扫；同图也在 full 心跳时重扫以便新刷出的 NPC 出现。
+    /// </summary>
+    private static void AppendNpcFields(Dictionary<string, object> st, bool forceRescan)
+    {
+        var floor = GetMapManagerCurrentFloor();
+        if (floor <= 0)
+        {
+            var playerData = GetStaticField("PlayerDataHolder", "playerData");
+            if (playerData != null)
+            {
+                floor = Convert.ToInt32(GetProperty(playerData, "floor") ?? 0);
+            }
+        }
+
+        var mapChanged = floor != _lastNpcScanFloor;
+        var now = Now();
+        var dueSameMap = _lastNpcScanAt <= 0 || now - _lastNpcScanAt >= NpcSameMapRescanSec;
+        if (forceRescan || mapChanged || _cachedNpcFloor == int.MinValue || dueSameMap)
+        {
+            ScanNpcsToCache(floor);
+            _lastNpcScanFloor = floor;
+            _lastNpcScanAt = now;
+        }
+
+        st["npc_map_floor"] = _cachedNpcFloor;
+        st["npc_count"] = _cachedNpcCount;
+        st["npc_objindex"] = _cachedNpcObjindex;
+        st["npc_name"] = _cachedNpcName;
+        st["npc_x"] = _cachedNpcX;
+        st["npc_y"] = _cachedNpcY;
+        st["npc_type"] = _cachedNpcType;
+        st["npc_map_changed"] = mapChanged ? 1 : 0;
+    }
+
+    private static void ScanNpcsToCache(int floor)
+    {
+        var objParts = new List<string>();
+        var nameParts = new List<string>();
+        var xParts = new List<string>();
+        var yParts = new List<string>();
+        var typeParts = new List<string>();
+        var jsonRows = new List<object>();
+
+        try
+        {
+            var dict = GetStaticProperty("EntityDataHolder", "characterDatas") as IDictionary;
+            if (dict == null)
+            {
+                dict = GetStaticField("EntityDataHolder", "<characterDatas>k__BackingField") as IDictionary;
+            }
+
+            if (dict != null)
+            {
+                var rows = new List<Dictionary<string, object>>();
+                foreach (DictionaryEntry entry in dict)
+                {
+                    var cd = entry.Value;
+                    if (cd == null)
+                    {
+                        continue;
+                    }
+
+                    if (!IsCharacterDataNpc(cd))
+                    {
+                        continue;
+                    }
+
+                    var objindex = Convert.ToInt32(GetMember(cd, "objindex") ?? 0);
+                    if (objindex < 0)
+                    {
+                        continue;
+                    }
+
+                    var name = SanitizePipe(GetMember(cd, "name")?.ToString() ?? "");
+                    var x = Convert.ToInt32(GetMember(cd, "x") ?? 0);
+                    var y = Convert.ToInt32(GetMember(cd, "y") ?? 0);
+                    var typeName = GetCharacterEntityTypeName(cd);
+                    if (string.IsNullOrEmpty(name))
+                    {
+                        name = "-";
+                    }
+
+                    rows.Add(new Dictionary<string, object>
+                    {
+                        ["objindex"] = objindex,
+                        ["name"] = name,
+                        ["x"] = x,
+                        ["y"] = y,
+                        ["type"] = typeName,
+                    });
+                }
+
+                rows.Sort((a, b) => Convert.ToInt32(a["objindex"]).CompareTo(Convert.ToInt32(b["objindex"])));
+                foreach (var row in rows)
+                {
+                    objParts.Add(row["objindex"].ToString());
+                    nameParts.Add(row["name"].ToString());
+                    xParts.Add(row["x"].ToString());
+                    yParts.Add(row["y"].ToString());
+                    typeParts.Add(SanitizePipe(row["type"]?.ToString() ?? ""));
+                    jsonRows.Add(row);
+                }
+            }
+        }
+        catch
+        {
+            // 反射失败时保留空列表，不打断心跳
+        }
+
+        _cachedNpcFloor = floor;
+        _cachedNpcCount = objParts.Count;
+        _cachedNpcObjindex = string.Join("|", objParts.ToArray());
+        _cachedNpcName = string.Join("|", nameParts.ToArray());
+        _cachedNpcX = string.Join("|", xParts.ToArray());
+        _cachedNpcY = string.Join("|", yParts.ToArray());
+        _cachedNpcType = string.Join("|", typeParts.ToArray());
+
+        try
+        {
+            if (!string.IsNullOrEmpty(_baseDir))
+            {
+                WriteJson(
+                    "npc_list.json",
+                    new Dictionary<string, object>
+                    {
+                        ["floor"] = floor,
+                        ["count"] = jsonRows.Count,
+                        ["npcs"] = jsonRows,
+                        ["ts"] = (long)Now(),
+                    });
+            }
+        }
+        catch
+        {
+        }
+    }
+
+    /// <summary>
+    /// 上报当前角色宠物列表：槽位 / Petindex(data.Index) / 名字 / 等级。学宠物技能用 Petindex。
+    /// </summary>
+    private static void AppendPetFields(Dictionary<string, object> st)
+    {
+        var slotParts = new List<string>();
+        var indexParts = new List<string>();
+        var nameParts = new List<string>();
+        var levelParts = new List<string>();
+        var uid = GetStaticString("PlayerDataHolder", "SelectPlayerUid");
+        if (string.IsNullOrEmpty(uid))
+        {
+            uid = GetStaticString("PlayerDataHolder", "MainPlayerUid");
+        }
+
+        try
+        {
+            var holder = FindType("PlayerDataHolder");
+            var method = holder?.GetMethod(
+                "GetPetDatasFromUid",
+                BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic);
+            var list = method?.Invoke(null, new object[] { uid }) as IList;
+            if (list != null)
+            {
+                for (var i = 0; i < list.Count; i++)
+                {
+                    var pet = list[i];
+                    if (pet == null)
+                    {
+                        continue;
+                    }
+
+                    var useFlag = Convert.ToInt32(GetMember(pet, "useFlag") ?? 0);
+                    if (useFlag <= 0)
+                    {
+                        continue;
+                    }
+
+                    var data = GetMember(pet, "data");
+                    if (data == null)
+                    {
+                        continue;
+                    }
+
+                    var petIndex = Convert.ToInt32(GetMember(data, "Index") ?? -1);
+                    if (petIndex < 0)
+                    {
+                        continue;
+                    }
+
+                    var name = SanitizePipe(GetMember(data, "Name")?.ToString() ?? "");
+                    if (string.IsNullOrEmpty(name))
+                    {
+                        name = "#" + (i + 1);
+                    }
+
+                    var level = Convert.ToInt32(GetMember(data, "Level") ?? 0);
+                    slotParts.Add(i.ToString());
+                    indexParts.Add(petIndex.ToString());
+                    nameParts.Add(name);
+                    levelParts.Add(level.ToString());
+                }
+            }
+        }
+        catch
+        {
+            // 反射失败不打断心跳
+        }
+
+        st["pet_uid"] = uid ?? "";
+        st["pet_count"] = slotParts.Count;
+        st["pet_slots"] = string.Join("|", slotParts.ToArray());
+        st["pet_index"] = string.Join("|", indexParts.ToArray());
+        st["pet_names"] = string.Join("|", nameParts.ToArray());
+        st["pet_levels"] = string.Join("|", levelParts.ToArray());
+    }
+
+    private static bool IsCharacterDataNpc(object cd)
+    {
+        // 游戏 CharacterData.IsNPC() 会排除 LuaNpc(56)，而学技能/宠物技能老师（如艾吉）
+        // 多为 LuaNpc，故不能直接信任 IsNPC()。按类型排除玩家/敌人/宠物/摊位即可。
+        try
+        {
+            var typeVal = Convert.ToInt32(GetMember(cd, "charEntityType") ?? 0);
+            if (typeVal == 0)
+            {
+                return false;
+            }
+
+            // 1=Player 2=Enemy 3=Pet 997=PlayerNpc 998=PlayerPetNpc 999=Vender
+            if (typeVal == 1 || typeVal == 2 || typeVal == 3
+                || typeVal == 997 || typeVal == 998 || typeVal == 999)
+            {
+                return false;
+            }
+
+            return true;
+        }
+        catch
+        {
+        }
+
+        try
+        {
+            var m = cd.GetType().GetMethod(
+                "IsNPC",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            if (m != null)
+            {
+                return Convert.ToBoolean(m.Invoke(cd, null));
+            }
+        }
+        catch
+        {
+        }
+
+        return false;
+    }
+
+    private static string GetCharacterEntityTypeName(object cd)
+    {
+        try
+        {
+            var raw = GetMember(cd, "charEntityType");
+            if (raw == null)
+            {
+                return "";
+            }
+
+            return raw.ToString() ?? "";
+        }
+        catch
+        {
+            return "";
+        }
+    }
+
+    private static object GetMember(object obj, string name)
+    {
+        if (obj == null)
+        {
+            return null;
+        }
+
+        return GetProperty(obj, name) ?? GetInstanceField(obj, name);
+    }
+
+    private static string SanitizePipe(string s)
+    {
+        if (string.IsNullOrEmpty(s))
+        {
+            return s ?? "";
+        }
+
+        return s.Replace("|", "/").Replace("\r", " ").Replace("\n", " ");
+    }
+
     private static void AppendPositionFields(Dictionary<string, object> st)
     {
         var playerData = GetStaticField("PlayerDataHolder", "playerData");
@@ -2348,9 +2677,688 @@ public static class SeqChapterHelperBridge
             return false;
         }
 
-        var send = netMgr.GetType().GetMethod(
-            "SendMessage",
-            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        // 不走永久缓存的失效 Instance：再取一次最新 Instance
+        netMgr = RefreshManagerInstance("NetManager") ?? netMgr;
+        if (!TryInvokeNetSendMessage(netMgr, opcode, proto, out msg))
+        {
+            return false;
+        }
+
+        var opcodeLabel = !string.IsNullOrWhiteSpace(opcodeName)
+            ? opcodeName.Trim()
+            : opcodeInt.ToString();
+        msg = "sent " + opcodeLabel + " " + protoTypeName;
+        return true;
+    }
+
+    /// <summary>
+    /// 与游戏 PlayerLearnSkillPanel / PetLearnSkillPanel 一致：走 SkillManager.SendSkillMessage。
+    /// 避免通用 send_proto 反射 NetManager 时踩到失效 m_Client。
+    /// </summary>
+    private static bool DoLearnSkill(
+        string skillType,
+        int skillSlot,
+        int npcObjindex,
+        int skillId,
+        int petIndex,
+        string uid,
+        out string msg)
+    {
+        msg = "";
+        if (string.IsNullOrWhiteSpace(skillType))
+        {
+            skillType = petIndex > 0 ? "宠物学习技能" : "人物学习技能";
+        }
+
+        if (npcObjindex < 0)
+        {
+            msg = "npc_objindex invalid";
+            return false;
+        }
+
+        if (skillSlot < 0)
+        {
+            msg = "skill_slot invalid";
+            return false;
+        }
+
+        if (!string.IsNullOrEmpty(uid))
+        {
+            TrySelectUid(uid);
+        }
+
+        var skillMgr = RefreshManagerInstance("SkillManager");
+        if (skillMgr == null)
+        {
+            msg = "SkillManager missing";
+            return false;
+        }
+
+        // 序章现网签名（含 KUid）：
+        // SendSkillMessage(string type, int skillIndex, int objIndex, int buyIndex, int petIndex, string uid)
+        MethodInfo sendLearn = null;
+        MethodInfo sendFallback = null;
+        foreach (var m in skillMgr.GetType().GetMethods(
+                     BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+        {
+            if (m.Name != "SendSkillMessage")
+            {
+                continue;
+            }
+
+            var ps = m.GetParameters();
+            if (ps.Length == 6
+                && IsStringParam(ps[0])
+                && IsIntParam(ps[1])
+                && IsIntParam(ps[2])
+                && IsIntParam(ps[3])
+                && IsIntParam(ps[4])
+                && IsStringParam(ps[5]))
+            {
+                sendLearn = m;
+                break;
+            }
+
+            // 旧版无 uid： (type, skillIndex, objIndex, buyIndex, petIndex)
+            if (ps.Length == 5
+                && IsStringParam(ps[0])
+                && IsIntParam(ps[1])
+                && IsIntParam(ps[2])
+                && IsIntParam(ps[3])
+                && IsIntParam(ps[4]))
+            {
+                sendFallback = m;
+            }
+        }
+
+        if (sendLearn == null && sendFallback == null)
+        {
+            msg = "SendSkillMessage learn overload missing";
+            return false;
+        }
+
+        if (string.IsNullOrEmpty(uid))
+        {
+            uid = GetStaticString("PlayerDataHolder", "SelectPlayerUid");
+        }
+
+        try
+        {
+            if (sendLearn != null)
+            {
+                sendLearn.Invoke(
+                    skillMgr,
+                    new object[]
+                    {
+                        skillType.Trim(),
+                        skillSlot,
+                        npcObjindex,
+                        skillId,
+                        petIndex,
+                        uid ?? "",
+                    });
+            }
+            else
+            {
+                sendFallback.Invoke(
+                    skillMgr,
+                    new object[] { skillType.Trim(), skillSlot, npcObjindex, skillId, petIndex });
+            }
+        }
+        catch (Exception ex)
+        {
+            msg = "SendSkillMessage: " + (ex.InnerException?.Message ?? ex.Message);
+            return false;
+        }
+
+        msg = "sent SkillManager " + skillType.Trim()
+              + " slot=" + skillSlot
+              + " skill=" + skillId
+              + " npc=" + npcObjindex
+              + " pet=" + petIndex
+              + " uid=" + (uid ?? "");
+        return true;
+    }
+
+    private const int SealItemFlagMask = 0x100;
+
+    /// <summary>扫描背包封印卡（Type≥23 且 IS_SEAL/名称含封印，且 CanUseInBattle）。写入 seal_cards.json。</summary>
+    private static bool DoListSealCards(string uid, out string msg)
+    {
+        msg = "";
+        if (string.IsNullOrEmpty(uid))
+        {
+            uid = GetStaticString("PlayerDataHolder", "SelectPlayerUid");
+            if (string.IsNullOrEmpty(uid))
+            {
+                uid = GetStaticString("PlayerDataHolder", "MainPlayerUid");
+            }
+        }
+
+        if (string.IsNullOrEmpty(uid))
+        {
+            msg = "uid empty";
+            return false;
+        }
+
+        List<Dictionary<string, object>> cards;
+        string err;
+        if (!TryCollectSealCards(uid, out cards, out err))
+        {
+            msg = err;
+            return false;
+        }
+
+        try
+        {
+            WriteJson(
+                "seal_cards.json",
+                new Dictionary<string, object>
+                {
+                    ["uid"] = uid,
+                    ["count"] = cards.Count,
+                    ["cards"] = cards.Cast<object>().ToList(),
+                    ["ts"] = (long)Now(),
+                });
+        }
+        catch
+        {
+        }
+
+        msg = "seal_cards count=" + cards.Count + " uid=" + uid;
+        if (cards.Count > 0)
+        {
+            var parts = new List<string>();
+            for (var i = 0; i < cards.Count && i < 8; i++)
+            {
+                parts.Add(
+                    "idx=" + cards[i]["index"]
+                    + " type=" + cards[i]["type"]
+                    + " " + cards[i]["name"]);
+            }
+
+            msg += " | " + string.Join("; ", parts.ToArray());
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// 战斗中扔封印卡：I|{bagIndex:X}|{targetIndex:X} → BattleManager.SendBattleCommond。
+    /// bag_index&lt;0 时取第一张可用封印卡；target_index&lt;0 时优先存活 LevelOneFlag，否则敌方第一个活人。
+    /// </summary>
+    private static bool DoBattleSeal(string uid, int bagIndex, int targetIndex, bool preferLv1, out string msg)
+    {
+        msg = "";
+        var inBattle = false;
+        try
+        {
+            var v = GetStaticProperty("BattleDataHolder", "IsInBattle");
+            if (v == null)
+            {
+                v = GetStaticField("BattleDataHolder", "IsInBattle");
+            }
+
+            inBattle = Convert.ToBoolean(v ?? false);
+        }
+        catch
+        {
+            inBattle = false;
+        }
+
+        if (!inBattle)
+        {
+            msg = "not in battle";
+            return false;
+        }
+
+        if (string.IsNullOrEmpty(uid))
+        {
+            uid = GetStaticString("PlayerDataHolder", "SelectPlayerUid");
+            if (string.IsNullOrEmpty(uid))
+            {
+                uid = GetStaticString("BattleDataHolder", "CurrentAccount");
+            }
+        }
+
+        if (string.IsNullOrEmpty(uid))
+        {
+            msg = "uid empty";
+            return false;
+        }
+
+        TrySelectUid(uid);
+
+        List<Dictionary<string, object>> cards;
+        string err;
+        if (!TryCollectSealCards(uid, out cards, out err))
+        {
+            msg = err;
+            return false;
+        }
+
+        Dictionary<string, object> chosen = null;
+        if (bagIndex >= 0)
+        {
+            foreach (var c in cards)
+            {
+                if (Convert.ToInt32(c["index"]) == bagIndex)
+                {
+                    chosen = c;
+                    break;
+                }
+            }
+
+            if (chosen == null)
+            {
+                msg = "bag_index " + bagIndex + " 不是可用封印卡（共 " + cards.Count + " 张）";
+                return false;
+            }
+        }
+        else
+        {
+            if (cards.Count == 0)
+            {
+                msg = "背包无可用封印卡（Type≥23 + IS_SEAL/名称封印 且 CanUseInBattle）";
+                return false;
+            }
+
+            chosen = cards[0];
+            bagIndex = Convert.ToInt32(chosen["index"]);
+        }
+
+        if (targetIndex < 0)
+        {
+            targetIndex = FindBattleSealTargetIndex(preferLv1);
+            if (targetIndex < 0)
+            {
+                msg = "找不到可扔的敌方目标";
+                return false;
+            }
+        }
+
+        var itemType = Convert.ToInt32(chosen["type"]);
+        string cmd;
+        if (itemType >= 23)
+        {
+            cmd = "I|" + bagIndex.ToString("X") + "|" + targetIndex.ToString("X");
+        }
+        else if (bagIndex >= 8)
+        {
+            cmd = "Q|" + bagIndex.ToString("X");
+        }
+        else
+        {
+            cmd = "Q|FF";
+        }
+
+        if (!TrySendBattleCommand(cmd, uid, out err))
+        {
+            msg = err;
+            return false;
+        }
+
+        msg = "battle_seal cmd=" + cmd
+              + " bag=" + bagIndex
+              + " target=" + targetIndex
+              + " name=" + (chosen["name"] ?? "")
+              + " uid=" + uid;
+        return true;
+    }
+
+    private static bool TryCollectSealCards(
+        string uid,
+        out List<Dictionary<string, object>> cards,
+        out string err)
+    {
+        cards = new List<Dictionary<string, object>>();
+        err = "";
+        try
+        {
+            var holder = FindType("PlayerDataHolder");
+            var getItems = holder?.GetMethod(
+                "GetItemDatasFromUid",
+                BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic);
+            if (getItems == null)
+            {
+                err = "GetItemDatasFromUid missing";
+                return false;
+            }
+
+            var list = getItems.Invoke(null, new object[] { uid }) as IList;
+            if (list == null)
+            {
+                err = "item list null";
+                return false;
+            }
+
+            var itemMgr = RefreshManagerInstance("ItemManager");
+            MethodInfo canUse = null;
+            if (itemMgr != null)
+            {
+                foreach (var m in itemMgr.GetType().GetMethods(
+                             BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+                {
+                    if (m.Name != "CanUseInBattle" || m.GetParameters().Length != 2)
+                    {
+                        continue;
+                    }
+
+                    canUse = m;
+                    break;
+                }
+            }
+
+            for (var i = 0; i < list.Count; i++)
+            {
+                var item = list[i];
+                if (item == null)
+                {
+                    continue;
+                }
+
+                var useFlag = Convert.ToInt32(GetMember(item, "useFlag") ?? 0);
+                if (useFlag != 1)
+                {
+                    continue;
+                }
+
+                var data = GetMember(item, "data");
+                if (data == null)
+                {
+                    continue;
+                }
+
+                var typeVal = Convert.ToInt32(GetMember(data, "Type") ?? 0);
+                // Type<23 是装备换装(Q|)，不是扔卡(I|)；旧 Type4–6 会误选武器。
+                if (typeVal < 23)
+                {
+                    continue;
+                }
+
+                var flg = Convert.ToInt32(GetMember(data, "Flg") ?? 0);
+                var name = GetMember(data, "Name")?.ToString()
+                           ?? GetMember(data, "name")?.ToString()
+                           ?? "";
+                var nameHit = name.IndexOf("封印", StringComparison.Ordinal) >= 0;
+                var isSealFlg = (flg & SealItemFlagMask) != 0;
+                if (!isSealFlg && !nameHit)
+                {
+                    continue;
+                }
+
+                if (canUse != null)
+                {
+                    try
+                    {
+                        var ok = Convert.ToBoolean(canUse.Invoke(itemMgr, new object[] { data, uid }));
+                        if (!ok)
+                        {
+                            continue;
+                        }
+                    }
+                    catch
+                    {
+                        // CanUse 反射失败则仍列入，由服务器校验
+                    }
+                }
+
+                var index = Convert.ToInt32(GetMember(data, "Index") ?? i);
+                if (string.IsNullOrEmpty(name))
+                {
+                    name = "#" + index;
+                }
+                cards.Add(
+                    new Dictionary<string, object>
+                    {
+                        ["list_i"] = i,
+                        ["index"] = index,
+                        ["type"] = typeVal,
+                        ["flg"] = flg,
+                        ["name"] = SanitizePipe(name),
+                    });
+            }
+
+            cards.Sort((a, b) => Convert.ToInt32(a["index"]).CompareTo(Convert.ToInt32(b["index"])));
+            return true;
+        }
+        catch (Exception ex)
+        {
+            err = "collect seal: " + ex.Message;
+            return false;
+        }
+    }
+
+    private static int FindBattleSealTargetIndex(bool preferLv1)
+    {
+        try
+        {
+            var dic = GetStaticField("BattleRoleContainer", "BattleRoleDic") as IDictionary;
+            if (dic == null)
+            {
+                return -1;
+            }
+
+            var playerIndex = Convert.ToInt32(
+                GetStaticProperty("BattleDataHolder", "battlePlayerIndex")
+                ?? GetStaticField("BattleDataHolder", "battlePlayerIndex")
+                ?? 0);
+            // 己方 <10 → 敌方 10–19；己方 >=10 → 敌方 0–9
+            var enemyLo = playerIndex < 10 ? 10 : 0;
+            var enemyHi = playerIndex < 10 ? 20 : 10;
+
+            var lv1 = -1;
+            var any = -1;
+            foreach (DictionaryEntry entry in dic)
+            {
+                var idx = Convert.ToInt32(entry.Key);
+                if (idx < enemyLo || idx >= enemyHi)
+                {
+                    continue;
+                }
+
+                var role = entry.Value;
+                if (role == null)
+                {
+                    continue;
+                }
+
+                var dead = Convert.ToBoolean(GetMember(role, "IsDead") ?? false);
+                if (dead)
+                {
+                    continue;
+                }
+
+                if (any < 0)
+                {
+                    any = idx;
+                }
+
+                if (preferLv1)
+                {
+                    var roleData = GetMember(role, "RoleData") ?? GetMember(role, "roleData");
+                    var lv1Flag = false;
+                    if (roleData != null)
+                    {
+                        lv1Flag = Convert.ToBoolean(GetMember(roleData, "LevelOneFlag") ?? false);
+                    }
+
+                    if (lv1Flag && lv1 < 0)
+                    {
+                        lv1 = idx;
+                    }
+                }
+            }
+
+            if (preferLv1 && lv1 >= 0)
+            {
+                return lv1;
+            }
+
+            return any;
+        }
+        catch
+        {
+            return -1;
+        }
+    }
+
+    private static bool TrySendBattleCommand(string cmd, string uid, out string err)
+    {
+        err = "";
+        var battleMgr = RefreshManagerInstance("BattleManager");
+        if (battleMgr == null)
+        {
+            err = "BattleManager missing";
+            return false;
+        }
+
+        try
+        {
+            SetStaticField("BattleDataHolder", "skillUsed", true);
+        }
+        catch
+        {
+        }
+
+        try
+        {
+            var pam = GetInstanceField(battleMgr, "PlayerActionMagics")
+                      ?? GetProperty(battleMgr, "PlayerActionMagics");
+            if (pam is IDictionary dict && !string.IsNullOrEmpty(uid))
+            {
+                dict[uid] = true;
+            }
+        }
+        catch
+        {
+        }
+
+        MethodInfo send = null;
+        foreach (var m in battleMgr.GetType().GetMethods(
+                     BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+        {
+            if (m.Name != "SendBattleCommond" && m.Name != "SendBattleCommand")
+            {
+                continue;
+            }
+
+            var ps = m.GetParameters();
+            if (ps.Length == 1 && IsStringParam(ps[0]))
+            {
+                send = m;
+                break;
+            }
+        }
+
+        if (send == null)
+        {
+            err = "SendBattleCommond missing";
+            return false;
+        }
+
+        try
+        {
+            send.Invoke(battleMgr, new object[] { cmd });
+        }
+        catch (Exception ex)
+        {
+            err = "SendBattleCommond: " + (ex.InnerException?.Message ?? ex.Message);
+            return false;
+        }
+
+        return true;
+    }
+
+    private static bool IsStringParam(ParameterInfo p)
+    {
+        var t = p.ParameterType;
+        return t == typeof(string) || t.FullName == "System.String";
+    }
+
+    private static bool IsIntParam(ParameterInfo p)
+    {
+        var t = p.ParameterType;
+        return t == typeof(int) || t.FullName == "System.Int32";
+    }
+
+    private static void TrySelectUid(string uid)
+    {
+        if (string.IsNullOrEmpty(uid))
+        {
+            return;
+        }
+
+        var current = GetStaticString("PlayerDataHolder", "SelectPlayerUid");
+        if (string.Equals(current, uid, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        SetStaticField("PlayerDataHolder", "SelectPlayerUid", uid);
+    }
+
+    private static bool TryInvokeNetSendMessage(object netMgr, object opcode, object proto, out string msg)
+    {
+        msg = "";
+        if (netMgr == null)
+        {
+            msg = "NetManager missing";
+            return false;
+        }
+
+        // 失效缓存常见表现：Instance 还在但 m_Client 已空 → SendMessage NRE
+        var client = GetInstanceField(netMgr, "m_Client") ?? GetProperty(netMgr, "m_Client");
+        if (client == null)
+        {
+            _managerCache.Remove("NetManager");
+            netMgr = RefreshManagerInstance("NetManager");
+            if (netMgr == null)
+            {
+                msg = "NetManager missing after refresh";
+                return false;
+            }
+
+            client = GetInstanceField(netMgr, "m_Client") ?? GetProperty(netMgr, "m_Client");
+            if (client == null)
+            {
+                msg = "NetManager.m_Client null（未连上或正在重连）";
+                return false;
+            }
+        }
+
+        var lssType = FindType("LSSPROTO") ?? opcode?.GetType();
+        var iMessageType = FindType("IMessage");
+        MethodInfo send = null;
+        if (lssType != null && iMessageType != null)
+        {
+            send = netMgr.GetType().GetMethod(
+                "SendMessage",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+                null,
+                new[] { lssType, iMessageType },
+                null);
+        }
+
+        if (send == null)
+        {
+            foreach (var m in netMgr.GetType().GetMethods(
+                         BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+            {
+                if (m.Name != "SendMessage")
+                {
+                    continue;
+                }
+
+                var ps = m.GetParameters();
+                if (ps.Length == 2)
+                {
+                    send = m;
+                    break;
+                }
+            }
+        }
+
         if (send == null)
         {
             msg = "SendMessage missing";
@@ -2367,10 +3375,6 @@ public static class SeqChapterHelperBridge
             return false;
         }
 
-        var opcodeLabel = !string.IsNullOrWhiteSpace(opcodeName)
-            ? opcodeName.Trim()
-            : opcodeInt.ToString();
-        msg = "sent " + opcodeLabel + " " + protoTypeName;
         return true;
     }
 
@@ -3452,10 +4456,21 @@ public static class SeqChapterHelperBridge
 
     private static object GetManagerInstance(string managerName)
     {
-        if (_managerCache.TryGetValue(managerName, out var cached))
+        if (_managerCache.TryGetValue(managerName, out var cached) && cached != null)
         {
-            return cached;
+            // NetManager 可能被 Destroy 后 Instance 重建；缓存失效会导致 SendMessage NRE
+            if (!string.Equals(managerName, "NetManager", StringComparison.Ordinal))
+            {
+                return cached;
+            }
         }
+
+        return RefreshManagerInstance(managerName);
+    }
+
+    private static object RefreshManagerInstance(string managerName)
+    {
+        _managerCache.Remove(managerName);
 
         var mgrType = FindType(managerName);
         if (mgrType != null)

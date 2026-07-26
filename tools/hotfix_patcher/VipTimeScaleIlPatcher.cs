@@ -6,12 +6,15 @@ namespace CrossgateMod.Patcher;
 /// <summary>
 /// VIP 加速：改 get_BattleTimeScale 中 ldc.r4 1.5 → 3/5/10；可选 --non-vip 将默认 1.0 改为同倍速。
 /// 心跳 Echo.Speed 固定按 1.5 倍上报。
+/// 同步：KickOff 打飞速度 MoveSpeed×4 → ×(4×倍速)，如 5x → 20。
 /// </summary>
 internal static class VipTimeScaleIlPatcher
 {
     private const float OriginalVipScale = 1.5f;
     private const float EchoReportScale = 1.5f;
+    private const float OriginalKickOffMul = 4f;
     private static readonly float[] AllowedScales = { 3f, 5f, 10f };
+    private static readonly float[] KnownKickOffMuls = { 4f, 12f, 20f, 40f };
 
     public static int Run(string[] args)
     {
@@ -82,6 +85,8 @@ internal static class VipTimeScaleIlPatcher
             throw new InvalidOperationException($"战斗倍速须为 3、5 或 10，实际: {battleScale}");
         }
 
+        var kickOffTarget = OriginalKickOffMul * battleScale;
+
         var origBytes = File.ReadAllBytes(sourcePath);
         var expectedSize = HotfixSize.Require(origBytes);
         var data = (byte[])origBytes.Clone();
@@ -102,17 +107,22 @@ internal static class VipTimeScaleIlPatcher
         var netMgr = asm.MainModule.Types.First(t => t.Name == "NetManager");
         var update = netMgr.Methods.First(m => m.Name == "update" && m.HasBody);
         var getBattleTimeScale = getScale;
+        var kickOffMethod = FindKickOffSpeedMethod(asm.MainModule)
+            ?? throw new InvalidOperationException("未找到 KickOff 打飞速度方法 BaseAction/<KickOff>b__*");
 
         var getScaleBody = ReadMethodBodyFromPe(origBytes, getScale.RVA);
         var updateBody = ReadMethodBodyFromPe(origBytes, update.RVA);
+        var kickOffBody = ReadMethodBodyFromPe(origBytes, kickOffMethod.RVA);
 
         var vipDone = !patchVipBranch || !ContainsLdcR4(getScaleBody, OriginalVipScale);
         var echoDone = !patchVipBranch || IsEchoPatched(updateBody);
         var defaultDone = !patchDefaultBranch || !ContainsLdcR4(getScaleBody, OriginalDefaultScale);
+        var kickOffDone = ContainsLdcR4(kickOffBody, kickOffTarget)
+            && !ContainsLdcR4(kickOffBody, OriginalKickOffMul);
 
-        if (vipDone && echoDone && defaultDone)
+        if (vipDone && echoDone && defaultDone && kickOffDone)
         {
-            throw new InvalidOperationException("VIP 倍速补丁可能已打过（BattleTimeScale + Echo.Speed）");
+            throw new InvalidOperationException("VIP 倍速补丁可能已打过（BattleTimeScale + Echo.Speed + KickOff）");
         }
 
         if (patchVipBranch && !PatchBattleTimeScaleInPlace(getScaleBody, battleScale))
@@ -141,6 +151,18 @@ internal static class VipTimeScaleIlPatcher
             }
         }
 
+        var wroteKickOff = false;
+        if (!kickOffDone)
+        {
+            if (!PatchKickOffMulInPlace(kickOffBody, kickOffTarget))
+            {
+                throw new InvalidOperationException(
+                    $"未找到 KickOff 的 ldc.r4 打飞倍率（期望原版 {OriginalKickOffMul} 或已知档位）");
+            }
+
+            wroteKickOff = true;
+        }
+
         var wroteScale = false;
         var wroteEcho = false;
 
@@ -156,22 +178,35 @@ internal static class VipTimeScaleIlPatcher
             wroteEcho = true;
         }
 
-        if (!wroteScale && !wroteEcho)
+        if (wroteKickOff)
         {
-            throw new InvalidOperationException("VIP 倍速补丁可能已打过（BattleTimeScale + Echo.Speed）");
+            BinaryPeWriter.ReplaceMethodBody(data, kickOffMethod.RVA, kickOffBody, kickOffBody);
+        }
+
+        if (!wroteScale && !wroteEcho && !wroteKickOff)
+        {
+            throw new InvalidOperationException("VIP 倍速补丁可能已打过（BattleTimeScale + Echo.Speed + KickOff）");
         }
 
         HotfixSize.EnsureUnchanged(data, expectedSize);
 
         File.WriteAllBytes(outputPath, data);
-        if (patchVipBranch)
+        if (patchVipBranch && !vipDone)
         {
             Console.WriteLine($"[PATCH] BattleTimeScale VIP 1.5 -> {battleScale}");
         }
+        else if (patchVipBranch)
+        {
+            Console.WriteLine($"[PATCH] BattleTimeScale VIP 已是 {battleScale}（跳过）");
+        }
 
-        if (patchDefaultBranch)
+        if (patchDefaultBranch && !defaultDone)
         {
             Console.WriteLine($"[PATCH] BattleTimeScale 默认 1.0 -> {battleScale}");
+        }
+        else if (patchDefaultBranch)
+        {
+            Console.WriteLine($"[PATCH] BattleTimeScale 默认 已是 {battleScale}（跳过）");
         }
 
         if (patchVipBranch)
@@ -179,7 +214,88 @@ internal static class VipTimeScaleIlPatcher
             Console.WriteLine($"[PATCH] Echo.Speed 固定上报: {EchoReportScale} x 100 = {(int)(EchoReportScale * 100)}");
         }
 
+        if (wroteKickOff)
+        {
+            Console.WriteLine($"[PATCH] KickOff 打飞速度 ×{OriginalKickOffMul} -> ×{kickOffTarget}（随战斗 {battleScale}x）");
+        }
+        else
+        {
+            Console.WriteLine($"[PATCH] KickOff 打飞速度 已是 ×{kickOffTarget}（跳过）");
+        }
+
         Console.WriteLine($"[OK] 文件大小不变: {data.Length} 字节");
+    }
+
+    private static MethodDefinition? FindKickOffSpeedMethod(ModuleDefinition module)
+    {
+        var baseAction = module.Types.FirstOrDefault(t => t.Name == "BaseAction");
+        if (baseAction == null)
+        {
+            return null;
+        }
+
+        foreach (var nested in baseAction.NestedTypes)
+        {
+            // 编译器生成：<>c__DisplayClass28_0.<KickOff>b__1
+            if (!nested.Name.Contains("DisplayClass", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            foreach (var method in nested.Methods.Where(m => m.HasBody && m.Name.Contains("KickOff", StringComparison.Ordinal)))
+            {
+                var insns = method.Body.Instructions;
+                for (var i = 0; i < insns.Count; i++)
+                {
+                    if (insns[i].OpCode != OpCodes.Callvirt
+                        || insns[i].Operand is not MethodReference mr
+                        || mr.Name != "get_MoveSpeed")
+                    {
+                        continue;
+                    }
+
+                    // get_MoveSpeed → Vector3.op_Multiply → ldc.r4 N
+                    for (var j = i + 1; j < Math.Min(insns.Count, i + 4); j++)
+                    {
+                        if (insns[j].OpCode == OpCodes.Ldc_R4
+                            && insns[j].Operand is float f
+                            && KnownKickOffMuls.Any(m => Math.Abs(m - f) < 0.001f))
+                        {
+                            return method;
+                        }
+                    }
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>把 KickOff 中 MoveSpeed 后的倍率改为 target（可从原版 4 或已知 12/20/40 改写）。</summary>
+    private static bool PatchKickOffMulInPlace(byte[] methodBody, float target)
+    {
+        var codeOffset = GetCodeOffset(methodBody);
+        var codeSize = GetCodeSize(methodBody);
+        var targetBytes = BitConverter.GetBytes(target);
+
+        for (var i = codeOffset; i <= codeOffset + codeSize - 5; i++)
+        {
+            if (methodBody[i] != (byte)OpCodes.Ldc_R4.Value)
+            {
+                continue;
+            }
+
+            var value = BitConverter.ToSingle(methodBody, i + 1);
+            if (!KnownKickOffMuls.Any(m => Math.Abs(m - value) < 0.001f))
+            {
+                continue;
+            }
+
+            targetBytes.CopyTo(methodBody, i + 1);
+            return true;
+        }
+
+        return false;
     }
 
     private static float ParseScale(string raw)

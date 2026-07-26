@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <DefaultItemExcludes>$(DefaultItemExcludes);ref_stubs\**;ilrepack\**;_roundtrip\**;LoadTest\**;DumpIl\**;_pereader_test\**;_inject_launch_test.py;cecil_roundtrip_test.py</DefaultItemExcludes>
+    <DefaultItemExcludes>$(DefaultItemExcludes);ref_stubs\**;ilrepack\**;_roundtrip\**;LoadTest\**;DumpIl\**;_pereader_test\**;_title_probe\**;_level_check\**;_*\**;_inject_launch_test.py;cecil_roundtrip_test.py</DefaultItemExcludes>
     <OutputType>Exe</OutputType>
     <TargetFramework>net8.0</TargetFramework>
     <Nullable>enable</Nullable>

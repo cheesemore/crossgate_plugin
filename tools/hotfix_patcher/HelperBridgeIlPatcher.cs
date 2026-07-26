@@ -279,17 +279,6 @@ internal static class HelperBridgeIlPatcher
 
     public static void Apply(string sourcePath, string outputPath)
     {
-        if (IsPatched(sourcePath))
-        {
-            Console.WriteLine("[SKIP] 助手桥接 hook 已存在，跳过");
-            if (!string.Equals(sourcePath, outputPath, StringComparison.OrdinalIgnoreCase))
-            {
-                File.Copy(sourcePath, outputPath, overwrite: true);
-            }
-
-            return;
-        }
-
         var origPath = sourcePath.EndsWith(".orig", StringComparison.OrdinalIgnoreCase)
             ? sourcePath
             : sourcePath + ".orig";
@@ -308,15 +297,34 @@ internal static class HelperBridgeIlPatcher
             ? origPath[..^5]
             : sourcePath;
 
-        var origBytes = File.ReadAllBytes(origPath);
-        var expectedSize = HotfixSize.Require(origBytes);
-
+        // 无论 hook 是否已在，都重编并部署外部桥接 DLL（逻辑更新无需重打 hotfix）。
         var bridgeDll = BuildBridgeDll(hotfixPath);
         try
         {
             File.Copy(bridgeDll, BridgeAssetPath(hotfixPath), overwrite: true);
             Console.WriteLine("[DEPLOY] " + BridgeAssetPath(hotfixPath));
+        }
+        finally
+        {
+            try { File.Delete(bridgeDll); } catch { }
+        }
 
+        if (IsPatched(sourcePath))
+        {
+            Console.WriteLine("[SKIP] 助手桥接 hook 已存在，仅刷新 DLL");
+            if (!string.Equals(sourcePath, outputPath, StringComparison.OrdinalIgnoreCase))
+            {
+                File.Copy(sourcePath, outputPath, overwrite: true);
+            }
+
+            return;
+        }
+
+        var origBytes = File.ReadAllBytes(origPath);
+        var expectedSize = HotfixSize.Require(origBytes);
+
+        try
+        {
             var sourceBytes = File.ReadAllBytes(sourcePath);
             var sourceIsClean = sourceBytes.AsSpan().SequenceEqual(origBytes.AsSpan());
             if (sourceIsClean)
@@ -329,9 +337,9 @@ internal static class HelperBridgeIlPatcher
                 ApplyViaOrigTemplate(sourcePath, outputPath, origPath, origBytes, expectedSize);
             }
         }
-        finally
+        catch
         {
-            try { File.Delete(bridgeDll); } catch { }
+            throw;
         }
     }
 

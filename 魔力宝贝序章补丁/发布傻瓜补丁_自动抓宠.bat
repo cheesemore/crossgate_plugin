@@ -1,8 +1,8 @@
 @echo off
 chcp 65001 >nul
 cd /d "%~dp0"
-echo [BUILD] 傻瓜补丁 exe ...
-python scripts\publish_foolproof.py
+echo [BUILD] 傻瓜补丁·烧卡/抓宠（兼容：旧「自动抓宠」入口） ...
+python scripts\publish_foolproof.py --seal-catch
 if errorlevel 1 (
   echo [FAIL]
   pause

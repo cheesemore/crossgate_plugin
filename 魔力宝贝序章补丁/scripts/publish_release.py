@@ -23,6 +23,27 @@ FULL_NAME = "完整补丁"
 SIMPLE_NAME = "简单补丁"
 
 
+def _cleanup_named_zips(release_dir: Path, names: list[str]) -> None:
+    """发布前删除同系列旧 zip（固定名 + 带时间戳后缀）。"""
+    import re
+
+    stamp = re.compile(r"^\d{8}_\d{6}$")
+    if not release_dir.is_dir():
+        return
+    for zip_path in sorted(release_dir.glob("*.zip")):
+        stem = zip_path.stem
+        for name in names:
+            if stem == name or (
+                stem.startswith(name + "_") and stamp.fullmatch(stem[len(name) + 1 :])
+            ):
+                try:
+                    zip_path.unlink()
+                    print(f"[CLEAN] 删除旧包 {zip_path.name}")
+                except OSError as exc:
+                    print(f"[WARN] 无法删除 {zip_path.name}: {exc}")
+                break
+
+
 def _run(cmd: list[str], *, cwd: Path | None = None) -> None:
     print("[CMD]", " ".join(cmd))
     proc = subprocess.run(cmd, cwd=cwd, text=True, encoding="utf-8", errors="replace")
@@ -145,6 +166,8 @@ def main() -> int:
     DIST_DIR.mkdir(parents=True, exist_ok=True)
 
     print(f"=== 发布构建 {stamp} ===\n")
+    print("[CLEAN] 清理同系列旧发布物…")
+    _cleanup_named_zips(RELEASE_DIR, [FULL_NAME, SIMPLE_NAME])
     _ensure_pyinstaller()
     publish_patcher_engine()
 

@@ -74,6 +74,194 @@ internal static class BridgeLoaderIlBuilder
         quitMethod.Body.MaxStackSize = 8;
     }
 
+    /// <summary>
+    /// <summary>
+    /// 点击入口：LoadBytes→Assembly.Load→Invoke。
+    /// 若 tipOn/tipOff 非空：期望 Invoke 返回 bool，并用原版 NotifyManager.Tip 提示（与「暂未开放」同路径）。
+    /// 加载失败时 Tip(tipFail)。tempDllSuffix 保留兼容，已不再落盘 LoadFrom。
+    /// </summary>
+    public static void BuildLoadAndAlwaysInvokeBody(
+        MethodDefinition method,
+        ModuleDefinition module,
+        string dllAssetPath,
+        string typeName,
+        string invokeName,
+        string tempDllSuffix,
+        string? tipOn = null,
+        string? tipOff = null,
+        string? tipFail = null)
+    {
+        _ = tempDllSuffix;
+        var useNativeTip = !string.IsNullOrEmpty(tipOn) && !string.IsNullOrEmpty(tipOff);
+        MethodReference? getNotify = null;
+        MethodReference? tip = null;
+        if (useNativeTip)
+        {
+            getNotify = FindManagerInstanceGetter(module, "NotifyManager")
+                ?? throw new InvalidOperationException("未找到 Manager<NotifyManager>.get_Instance");
+            tip = FindNotifyTip(module)
+                ?? throw new InvalidOperationException("未找到 NotifyManager.Tip(string,bool)");
+            tipFail ??= "补丁加载失败";
+        }
+
+        method.Body.Instructions.Clear();
+        method.Body.Variables.Clear();
+        method.Body.ExceptionHandlers.Clear();
+        method.Body.InitLocals = true;
+
+        var body = method.Body;
+        var getTypeStatic = ImportTypeGetTypeStatic(module);
+        var typeVar = new VariableDefinition(getTypeStatic.ReturnType);
+        body.Variables.Add(typeVar);
+
+        var bytesVar = new VariableDefinition(new ArrayType(module.TypeSystem.Byte));
+        body.Variables.Add(bytesVar);
+        VariableDefinition? enabledVar = null;
+        if (useNativeTip)
+        {
+            enabledVar = new VariableDefinition(module.TypeSystem.Boolean);
+            body.Variables.Add(enabledVar);
+        }
+
+        var il = body.GetILProcessor();
+        var loadBytes = ImportFileUtilLoadBytes(module);
+        var assemblyLoad = ImportAssemblyLoad(module);
+        var getType = ImportAssemblyGetType(module);
+        var getMethod = ImportTypeGetMethod(module);
+        var invoke = ImportMethodInvoke(module);
+
+        var haveType = il.Create(OpCodes.Nop);
+        var doInvoke = il.Create(OpCodes.Nop);
+        var failRet = il.Create(OpCodes.Nop);
+        var ret = il.Create(OpCodes.Ret);
+
+        // type = Type.GetType("TypeName, TypeName")
+        il.Append(il.Create(OpCodes.Ldstr, typeName + ", " + typeName));
+        il.Append(il.Create(OpCodes.Call, getTypeStatic));
+        il.Append(il.Create(OpCodes.Stloc, typeVar));
+        il.Append(il.Create(OpCodes.Ldloc, typeVar));
+        il.Append(il.Create(OpCodes.Brtrue, haveType));
+
+        // load: FileUtil.LoadBytes → Assembly.Load(byte[])（与助手桥接相同，HybridCLR 可用）
+        il.Append(il.Create(OpCodes.Ldstr, dllAssetPath));
+        il.Append(il.Create(OpCodes.Call, loadBytes));
+        il.Append(il.Create(OpCodes.Stloc, bytesVar));
+        il.Append(il.Create(OpCodes.Ldloc, bytesVar));
+        il.Append(il.Create(OpCodes.Brfalse, failRet));
+        il.Append(il.Create(OpCodes.Ldloc, bytesVar));
+        il.Append(il.Create(OpCodes.Call, assemblyLoad));
+        il.Append(il.Create(OpCodes.Dup));
+        il.Append(il.Create(OpCodes.Brfalse, failRet));
+        il.Append(il.Create(OpCodes.Ldstr, typeName));
+        il.Append(il.Create(OpCodes.Callvirt, getType));
+        il.Append(il.Create(OpCodes.Stloc, typeVar));
+        il.Append(il.Create(OpCodes.Ldloc, typeVar));
+        il.Append(il.Create(OpCodes.Brfalse, failRet));
+        il.Append(il.Create(OpCodes.Br, doInvoke));
+
+        il.Append(haveType);
+        il.Append(doInvoke);
+        il.Append(il.Create(OpCodes.Ldloc, typeVar));
+        il.Append(il.Create(OpCodes.Ldstr, invokeName));
+        il.Append(il.Create(OpCodes.Callvirt, getMethod));
+        il.Append(il.Create(OpCodes.Dup));
+        il.Append(il.Create(OpCodes.Brfalse, failRet));
+        il.Append(il.Create(OpCodes.Ldnull));
+        il.Append(il.Create(OpCodes.Ldnull));
+        il.Append(il.Create(OpCodes.Callvirt, invoke));
+
+        if (useNativeTip)
+        {
+            // object → bool → Tip(开启/关闭)
+            il.Append(il.Create(OpCodes.Dup));
+            il.Append(il.Create(OpCodes.Brfalse, failRet));
+            il.Append(il.Create(OpCodes.Unbox_Any, module.TypeSystem.Boolean));
+            il.Append(il.Create(OpCodes.Stloc, enabledVar));
+            il.Append(il.Create(OpCodes.Call, getNotify));
+            il.Append(il.Create(OpCodes.Ldloc, enabledVar));
+            var tipOnLbl = il.Create(OpCodes.Nop);
+            var doTip = il.Create(OpCodes.Nop);
+            il.Append(il.Create(OpCodes.Brtrue, tipOnLbl));
+            il.Append(il.Create(OpCodes.Ldstr, tipOff));
+            il.Append(il.Create(OpCodes.Br, doTip));
+            il.Append(tipOnLbl);
+            il.Append(il.Create(OpCodes.Ldstr, tipOn));
+            il.Append(doTip);
+            il.Append(il.Create(OpCodes.Ldc_I4_0));
+            il.Append(il.Create(OpCodes.Callvirt, tip));
+            il.Append(il.Create(OpCodes.Br, ret));
+
+            il.Append(failRet);
+            il.Append(il.Create(OpCodes.Call, getNotify));
+            il.Append(il.Create(OpCodes.Ldstr, tipFail));
+            il.Append(il.Create(OpCodes.Ldc_I4_0));
+            il.Append(il.Create(OpCodes.Callvirt, tip));
+            il.Append(ret);
+        }
+        else
+        {
+            il.Append(il.Create(OpCodes.Pop));
+            il.Append(il.Create(OpCodes.Br, ret));
+            il.Append(failRet);
+            il.Append(ret);
+        }
+
+        IlSerializer.RecalculateOffsets(body);
+        body.MaxStackSize = 16;
+    }
+
+    private static MethodReference? FindNotifyTip(ModuleDefinition module)
+    {
+        foreach (var m in module.Types.SelectMany(t => t.Methods))
+        {
+            if (!m.HasBody)
+            {
+                continue;
+            }
+
+            foreach (var insn in m.Body.Instructions)
+            {
+                if (insn.Operand is MethodReference mr
+                    && mr.DeclaringType?.Name == "NotifyManager"
+                    && mr.Name == "Tip"
+                    && mr.Parameters.Count == 2)
+                {
+                    return module.ImportReference(mr);
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private static MethodReference? FindManagerInstanceGetter(ModuleDefinition module, string managerName)
+    {
+        foreach (var m in module.Types.SelectMany(t => t.Methods))
+        {
+            if (!m.HasBody)
+            {
+                continue;
+            }
+
+            foreach (var insn in m.Body.Instructions)
+            {
+                if (insn.OpCode != OpCodes.Call || insn.Operand is not MethodReference mr)
+                {
+                    continue;
+                }
+
+                if (mr.Name == "get_Instance"
+                    && mr.DeclaringType.Name.StartsWith("Manager`1", StringComparison.Ordinal)
+                    && mr.DeclaringType.FullName.Contains(managerName, StringComparison.Ordinal))
+                {
+                    return module.ImportReference(mr);
+                }
+            }
+        }
+
+        return null;
+    }
+
     public static byte[] BuildLoaderBody(
         MethodDefinition method,
         ModuleDefinition module,
@@ -146,8 +334,17 @@ internal static class BridgeLoaderIlBuilder
         MethodDefinition method,
         ModuleDefinition module,
         UserStringHeap userStrings,
-        bool skipIfTypeLoaded = false)
+        bool skipIfTypeLoaded = false,
+        string? dllAssetPath = null,
+        string? typeName = null,
+        string? bootstrapName = null,
+        string? tempDllSuffix = null)
     {
+        dllAssetPath ??= BridgeDllAssetPath;
+        typeName ??= BridgeTypeName;
+        bootstrapName ??= BridgeBootstrapName;
+        tempDllSuffix ??= BridgeTempDllSuffix;
+
         method.Body.Instructions.Clear();
         method.Body.Variables.Clear();
         method.Body.ExceptionHandlers.Clear();
@@ -174,34 +371,39 @@ internal static class BridgeLoaderIlBuilder
         if (skipIfTypeLoaded)
         {
             skipRet = il.Create(OpCodes.Ret);
-            il.Append(il.Create(OpCodes.Ldstr, BridgeTypeName + ", " + BridgeTypeName));
+            il.Append(il.Create(OpCodes.Ldstr, typeName + ", " + typeName));
             il.Append(il.Create(OpCodes.Call, getTypeStatic));
             il.Append(il.Create(OpCodes.Brtrue_S, skipRet));
         }
 
-        il.Append(il.Create(OpCodes.Ldstr, BridgeDllAssetPath));
+        il.Append(il.Create(OpCodes.Ldstr, dllAssetPath));
         il.Append(il.Create(OpCodes.Call, loadBytes));
         il.Append(il.Create(OpCodes.Stloc, bytesVar));
+        // bytes == null → ret（避免过早加载时 dataPath 未就绪）
+        il.Append(il.Create(OpCodes.Ldloc, bytesVar));
+        var afterNullCheck = il.Create(OpCodes.Nop);
+        var failRet = il.Create(OpCodes.Ret);
+        il.Append(il.Create(OpCodes.Brtrue_S, afterNullCheck));
+        il.Append(il.Create(OpCodes.Br, failRet));
+        il.Append(afterNullCheck);
+
         il.Append(il.Create(OpCodes.Ldsfld, tempPath));
-        il.Append(il.Create(OpCodes.Ldstr, BridgeTempDllSuffix));
+        il.Append(il.Create(OpCodes.Ldstr, tempDllSuffix));
         il.Append(il.Create(OpCodes.Call, stringConcat));
         il.Append(il.Create(OpCodes.Stloc, pathVar));
         il.Append(il.Create(OpCodes.Ldloc, pathVar));
         il.Append(il.Create(OpCodes.Ldloc, bytesVar));
         il.Append(il.Create(OpCodes.Call, writeAllBytes));
-        il.Append(il.Create(OpCodes.Ldloc, pathVar));
-        il.Append(il.Create(OpCodes.Ldnull));
-        il.Append(il.Create(OpCodes.Call, assemblyLoadFrom));
-        var failRet = il.Create(OpCodes.Ret);
+        EmitAssemblyLoadFrom(il, assemblyLoadFrom, pathVar);
         il.Append(il.Create(OpCodes.Dup));
         il.Append(il.Create(OpCodes.Brfalse_S, failRet));
         il.Append(il.Create(OpCodes.Dup));
-        il.Append(il.Create(OpCodes.Ldstr, BridgeTypeName));
+        il.Append(il.Create(OpCodes.Ldstr, typeName));
         il.Append(il.Create(OpCodes.Callvirt, getType));
         il.Append(il.Create(OpCodes.Dup));
         il.Append(il.Create(OpCodes.Brfalse_S, failRet));
         il.Append(il.Create(OpCodes.Dup));
-        il.Append(il.Create(OpCodes.Ldstr, BridgeBootstrapName));
+        il.Append(il.Create(OpCodes.Ldstr, bootstrapName));
         il.Append(il.Create(OpCodes.Callvirt, getMethod));
         il.Append(il.Create(OpCodes.Ldnull));
         il.Append(il.Create(OpCodes.Ldnull));
@@ -531,6 +733,18 @@ internal static class BridgeLoaderIlBuilder
         var corlib = ResolveCorlib(module);
         var asmType = corlib.MainModule.Types.First(t =>
             t.FullName == "System.Reflection.Assembly");
+        // 优先 LoadFrom(string)：HybridCLR 对 LoadFrom(string, Evidence) 更不稳定
+        var oneArg = asmType.Methods.FirstOrDefault(m =>
+            m.Name == "LoadFrom"
+            && m.IsStatic
+            && m.HasParameters
+            && m.Parameters.Count == 1
+            && m.Parameters[0].ParameterType.Name == "String");
+        if (oneArg != null)
+        {
+            return module.ImportReference(oneArg);
+        }
+
         var method = asmType.Methods.FirstOrDefault(m =>
             m.Name == "LoadFrom"
             && m.IsStatic
@@ -543,5 +757,19 @@ internal static class BridgeLoaderIlBuilder
                 && m.HasParameters
                 && m.Parameters.Count == 2);
         return module.ImportReference(method);
+    }
+
+    private static void EmitAssemblyLoadFrom(
+        ILProcessor il,
+        MethodReference assemblyLoadFrom,
+        VariableDefinition pathVar)
+    {
+        il.Append(il.Create(OpCodes.Ldloc, pathVar));
+        if (assemblyLoadFrom.Parameters.Count >= 2)
+        {
+            il.Append(il.Create(OpCodes.Ldnull));
+        }
+
+        il.Append(il.Create(OpCodes.Call, assemblyLoadFrom));
     }
 }

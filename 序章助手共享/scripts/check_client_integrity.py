@@ -56,8 +56,10 @@ def main() -> int:
     else:
         print("hotfixdata 日期一致")
 
-    if hotfix_size == 7_077_376:
-        print(f"hotfix 体积: {hotfix_size:,}（2026-07-24 新版）")
+    if hotfix_size == 7_077_888:
+        print(f"hotfix 体积: {hotfix_size:,}（2026-07-24 晚 当前）")
+    elif hotfix_size == 7_077_376:
+        print(f"hotfix 体积: {hotfix_size:,}（2026-07-24 早）")
     elif hotfix_size == 7_075_328:
         print(f"hotfix 体积: {hotfix_size:,}（2026-07-22 ~ 2026-07-24）")
     elif hotfix_size == 7_068_160:

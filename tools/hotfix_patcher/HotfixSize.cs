@@ -1,8 +1,8 @@
-﻿namespace CrossgateMod.Patcher;
+namespace CrossgateMod.Patcher;
 
 internal static class HotfixSize
 {
-    public const int Expected = 7_077_376;
+    public const int Expected = 7_077_888;
 
     public static int Require(byte[] data, string label = "源文件")
     {

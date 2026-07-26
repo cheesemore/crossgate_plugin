@@ -70,7 +70,7 @@ def apply_vip(
         parts.append(f"VIP {scale}x")
     if non_vip:
         parts.append(f"非VIP {scale}x")
-    return True, "战斗倍速：" + "、".join(parts)
+    return True, "战斗倍速：" + "、".join(parts) + f"（打飞×{int(scale) * 4}）"
 
 
 MAP_SPRINT_SCALES = (8, 10, 12)
@@ -128,6 +128,42 @@ def apply_customer_gm(hotfix: Path, mode: str = "autoskill") -> tuple[bool, str]
     return True, f"客服按钮：{label}"
 
 
+def apply_wiki_download_res(hotfix: Path) -> tuple[bool, str]:
+    proc = run_patcher_capture(
+        [
+            "wiki-download-res-patch",
+            "--hotfix",
+            str(hotfix),
+            "--output",
+            str(hotfix),
+        ]
+    )
+    out = (proc.stdout or "") + (proc.stderr or "")
+    if proc.returncode != 0:
+        return False, out.strip() or "百科→资源下载补丁失败"
+    if "[SKIP]" in out:
+        return True, "百科按钮：已是资源下载面板（跳过）"
+    return True, "百科按钮：打开资源下载面板"
+
+
+def apply_wiki_label(hotfix: Path, source: Path) -> tuple[bool, str]:
+    """侧栏百科点击后按钮文字改为「百科1」。"""
+    proc = run_patcher_capture(
+        [
+            "wiki-label-patch",
+            "--hotfix",
+            str(source),
+            "--output",
+            str(hotfix),
+        ]
+    )
+    out = (proc.stdout or "") + (proc.stderr or "")
+    if proc.returncode != 0:
+        return False, out.strip() or "百科文字→百科1 补丁失败"
+    if "[SKIP]" in out:
+        return True, "百科按钮：已是「百科1」（跳过）"
+    return True, "百科按钮：点击后文字变为「百科1」"
+
 def apply_skill_effect_speed(hotfix: Path, source: Path, scale: float = 1.5) -> tuple[bool, str]:
     if scale not in SKILL_EFFECT_SCALES:
         return False, f"无效技能特效倍速: {scale}"
@@ -175,6 +211,27 @@ def apply_battle_longpress(hotfix: Path, source: Path) -> tuple[bool, str]:
     if "[SKIP]" in out:
         return True, "战斗长按详情：已是补丁状态（跳过）"
     return True, "战斗长按：任意战斗类型可查看单位详情"
+
+
+def apply_level_one_include_all(hotfix: Path, source: Path) -> tuple[bool, str]:
+    """遇敌一级停止：不再排除哥布林/迷你蝙蝠（排除常量→999999）。"""
+    proc = run_patcher_capture(
+        [
+            "level-one-include-all-patch",
+            "--hotfix",
+            str(source),
+            "--output",
+            str(hotfix),
+        ]
+    )
+    out = (proc.stdout or "") + (proc.stderr or "")
+    if proc.returncode != 0:
+        if "[SKIP]" in out or "已改为无效值" in out:
+            return True, "遇敌一级：已含哥布林/迷你蝙蝠（跳过）"
+        return False, out.strip() or "遇敌一级含全部宠物补丁失败"
+    if "[SKIP]" in out:
+        return True, "遇敌一级：已含哥布林/迷你蝙蝠（跳过）"
+    return True, "遇敌一级停止：哥布林/迷你蝙蝠也会计入（不再排除）"
 
 
 def apply_transition_speed(hotfix: Path, source: Path, scale: float = 0.4) -> tuple[bool, str]:
@@ -247,6 +304,44 @@ def apply_battle_nine_external(hotfix: Path, source: Path) -> tuple[bool, str]:
     return True, "神奇九动·DLL版：已部署 DLL + 加载钩 + Magics"
 
 
+def apply_auto_seal_external(hotfix: Path, source: Path) -> tuple[bool, str]:
+    """自动烧卡·DLL版：SeqChapterAutoSeal.dll.bytes + Player 钩 + 百科开关。"""
+    proc = run_patcher_capture(
+        [
+            "auto-seal-external-patch",
+            "--hotfix",
+            str(source),
+            "--output",
+            str(hotfix),
+        ]
+    )
+    out = (proc.stdout or "") + (proc.stderr or "")
+    if proc.returncode != 0:
+        return False, out.strip() or "自动烧卡·DLL版补丁失败"
+    if "[SKIP]" in out and "自动" in out:
+        return True, "自动烧卡·DLL版：已是补丁状态（跳过）"
+    return True, "自动烧卡·DLL版：已部署 DLL + 战斗钩 + 百科开关"
+
+
+def apply_auto_catch_external(hotfix: Path, source: Path) -> tuple[bool, str]:
+    """自动抓宠·DLL版：SeqChapterAutoCatch.dll.bytes + Player/Pet 钩 + 百科开关。"""
+    proc = run_patcher_capture(
+        [
+            "auto-catch-external-patch",
+            "--hotfix",
+            str(source),
+            "--output",
+            str(hotfix),
+        ]
+    )
+    out = (proc.stdout or "") + (proc.stderr or "")
+    if proc.returncode != 0:
+        return False, out.strip() or "自动抓宠·DLL版补丁失败"
+    if "[SKIP]" in out and "自动抓宠" in out:
+        return True, "自动抓宠·DLL版：已是补丁状态（跳过）"
+    return True, "自动抓宠·DLL版：已部署 DLL + 战斗钩 + 百科开关"
+
+
 def _emit_combo(messages: list[str], on_log, text: str) -> None:
     messages.append(text)
     if on_log is None:
@@ -264,16 +359,21 @@ def _apply_gameplay_patches(
     vip_non_vip: bool,
     battle_nine_action: bool,
     battle_nine_external: bool,
+    auto_seal_external: bool,
+    auto_catch_external: bool,
     customer_gm: bool,
     customer_gm_mode: str,
     map_sprint: bool,
     map_sprint_scale: int,
     battle_longpress: bool,
+    level_one_include_all: bool,
     transition_speed: bool,
     transition_speed_scale: float,
     skill_effect_speed: bool,
     skill_effect_scale: float,
     pet_equip_unlock: bool,
+    wiki_download_res: bool,
+    wiki_label: bool = False,
     on_log=None,
 ) -> tuple[list[str], Path]:
     """在现有 hotfix 上叠加玩法补丁（不还原 .orig）。返回 (messages, work_path)。"""
@@ -334,6 +434,14 @@ def _apply_gameplay_patches(
         _emit_combo(messages, on_log, msg)
         work = hotfix
 
+    if level_one_include_all:
+        _emit_combo(messages, on_log, "正在打：遇敌一级含哥布林/迷你蝙蝠…")
+        ok, msg = apply_level_one_include_all(hotfix, work)
+        if not ok:
+            raise RuntimeError(msg)
+        _emit_combo(messages, on_log, msg)
+        work = hotfix
+
     if transition_speed:
         if transition_speed_scale not in TRANSITION_SPEED_SCALES:
             raise ValueError("transition_speed_scale 须为 0.4、0.2 或 0.1")
@@ -354,6 +462,36 @@ def _apply_gameplay_patches(
         _emit_combo(messages, on_log, msg)
         work = hotfix
 
+    if wiki_download_res:
+        _emit_combo(messages, on_log, "正在打：百科→资源下载…")
+        ok, msg = apply_wiki_download_res(hotfix)
+        if not ok:
+            raise RuntimeError(msg)
+        _emit_combo(messages, on_log, msg)
+
+    # 自动烧卡/抓宠/百科文字最后打：Cecil 改方法体，避免挡在二进制补丁前面
+    if auto_seal_external:
+        _emit_combo(messages, on_log, "正在打：自动烧卡·DLL版…")
+        ok, msg = apply_auto_seal_external(hotfix, work)
+        if not ok:
+            raise RuntimeError(msg)
+        _emit_combo(messages, on_log, msg)
+        work = hotfix
+    if auto_catch_external:
+        _emit_combo(messages, on_log, "正在打：自动抓宠·DLL版…")
+        ok, msg = apply_auto_catch_external(hotfix, work)
+        if not ok:
+            raise RuntimeError(msg)
+        _emit_combo(messages, on_log, msg)
+        work = hotfix
+    if wiki_label:
+        _emit_combo(messages, on_log, "正在打：百科文字→百科1…")
+        ok, msg = apply_wiki_label(hotfix, work)
+        if not ok:
+            raise RuntimeError(msg)
+        _emit_combo(messages, on_log, msg)
+        work = hotfix
+
     if pet_equip_unlock:
         raise RuntimeError("宠物四装备孔补丁已停用（会导致宠物界面崩溃）")
 
@@ -368,16 +506,21 @@ def apply_combo(
     vip_non_vip: bool = False,
     battle_nine_action: bool = False,
     battle_nine_external: bool = False,
+    auto_seal_external: bool = False,
+    auto_catch_external: bool = False,
     customer_gm: bool = False,
     customer_gm_mode: str = "autoskill",
     map_sprint: bool = False,
     map_sprint_scale: int = 8,
     battle_longpress: bool = False,
+    level_one_include_all: bool = True,
     transition_speed: bool = False,
     transition_speed_scale: float = 0.4,
     skill_effect_speed: bool = False,
     skill_effect_scale: float = 2.0,
     pet_equip_unlock: bool = False,
+    wiki_download_res: bool = False,
+    wiki_label: bool = False,
     inject_bridge: bool = False,
     from_orig: bool = False,
     game_root: Path | None = None,
@@ -401,9 +544,30 @@ def apply_combo(
 
     if battle_nine_action and battle_nine_external:
         raise RuntimeError("神奇九动 IL原版 与 DLL版 不能同时启用，请只选一项。")
-    if inject_bridge and (battle_nine_action or battle_nine_external):
+
+    if wiki_download_res and wiki_label:
+        raise RuntimeError("百科→资源下载 与 百科文字→百科1 不能同时启用。")
+
+    if auto_catch_external and wiki_download_res:
+        raise RuntimeError("自动抓宠·DLL 已占用侧栏百科按钮，不能同时启用百科→资源下载。")
+
+    if auto_catch_external and wiki_label:
+        raise RuntimeError("自动抓宠·DLL 已占用侧栏百科按钮，不能同时启用百科文字→百科1。")
+
+    # 战斗扩展互斥四选一：神奇九动 / 自动烧卡·DLL / 自动抓宠·DLL / 注入桥接·DLL
+    exclusive_flags = [
+        ("神奇九动·IL", battle_nine_action),
+        ("神奇九动·DLL", battle_nine_external),
+        ("自动烧卡·DLL", auto_seal_external),
+        ("自动抓宠·DLL", auto_catch_external),
+        ("注入桥接·DLL", inject_bridge),
+    ]
+    exclusive_on = [name for name, on in exclusive_flags if on]
+    if len(exclusive_on) > 1:
         raise RuntimeError(
-            "九动与助手桥接不能同时启用（共用 OnApplicationPause / .text 余量），请二选一。"
+            "战斗扩展互斥四选一（只能勾一类）："
+            "神奇九动（IL或DLL） / 自动烧卡·DLL / 自动抓宠·DLL / 注入桥接·DLL。\n"
+            f"当前同时勾选了：{'、'.join(exclusive_on)}"
         )
 
     _emit_combo(messages, on_log, "正在做组合余量校验…")
@@ -413,9 +577,12 @@ def apply_combo(
         vip_non_vip=vip_non_vip,
         battle_nine_action=battle_nine_action,
         battle_nine_external=battle_nine_external,
+        auto_seal_external=auto_seal_external,
+        auto_catch_external=auto_catch_external,
         customer_gm=customer_gm,
         map_sprint=map_sprint,
         battle_longpress=battle_longpress,
+        level_one_include_all=level_one_include_all,
         transition_speed=transition_speed,
         skill_effect_speed=skill_effect_speed,
         inject_bridge=inject_bridge,
@@ -430,12 +597,17 @@ def apply_combo(
         or vip_non_vip
         or battle_nine_action
         or battle_nine_external
+        or auto_seal_external
+        or auto_catch_external
         or customer_gm
         or map_sprint
         or battle_longpress
+        or level_one_include_all
         or transition_speed
         or skill_effect_speed
         or pet_equip_unlock
+        or wiki_download_res
+        or wiki_label
     )
 
     patch_kwargs = dict(
@@ -444,16 +616,21 @@ def apply_combo(
         vip_non_vip=vip_non_vip,
         battle_nine_action=battle_nine_action,
         battle_nine_external=battle_nine_external,
+        auto_seal_external=auto_seal_external,
+        auto_catch_external=auto_catch_external,
         customer_gm=customer_gm,
         customer_gm_mode=customer_gm_mode,
         map_sprint=map_sprint,
         map_sprint_scale=map_sprint_scale,
         battle_longpress=battle_longpress,
+        level_one_include_all=level_one_include_all,
         transition_speed=transition_speed,
         transition_speed_scale=transition_speed_scale,
         skill_effect_speed=skill_effect_speed,
         skill_effect_scale=skill_effect_scale,
         pet_equip_unlock=pet_equip_unlock,
+        wiki_download_res=wiki_download_res,
+        wiki_label=wiki_label,
         on_log=on_log,
     )
 
@@ -482,16 +659,21 @@ def apply_combo(
         "vip_scale": vip_scale,
         "battle_nine_action": battle_nine_action,
         "battle_nine_external": battle_nine_external,
+        "auto_seal_external": auto_seal_external,
+        "auto_catch_external": auto_catch_external,
         "customer_gm": customer_gm,
         "customer_gm_mode": customer_gm_mode if customer_gm else "",
         "map_sprint": map_sprint,
         "map_sprint_scale": map_sprint_scale if map_sprint else 0,
         "battle_longpress": battle_longpress,
+        "level_one_include_all": level_one_include_all,
         "transition_speed": transition_speed,
         "transition_speed_scale": transition_speed_scale if transition_speed else 0,
         "skill_effect_speed": skill_effect_speed,
         "skill_effect_scale": skill_effect_scale if skill_effect_speed else 0,
         "pet_equip_unlock": pet_equip_unlock,
+        "wiki_download_res": wiki_download_res,
+        "wiki_label": wiki_label,
         "inject_bridge": inject_bridge,
         "bridge_patched": is_bridge_patched(game_root),
         "bridge_variant": detect_bridge_variant(game_root),
@@ -575,6 +757,11 @@ def main() -> int:
         help="任意战斗类型长按单位可打开 BattleMessageTips 详情",
     )
     parser.add_argument(
+        "--level-one-include-all",
+        action="store_true",
+        help="遇敌一级停止：哥布林/迷你蝙蝠也计入（排除常量改为无效 ID）",
+    )
+    parser.add_argument(
         "--transition-speed",
         action="store_true",
         help="加速过场：进出战斗 CrossBlocks 0.4/0.2/0.1s",
@@ -606,6 +793,16 @@ def main() -> int:
         "--pet-equip-unlock",
         action="store_true",
         help=argparse.SUPPRESS,
+    )
+    parser.add_argument(
+        "--wiki-download-res",
+        action="store_true",
+        help=argparse.SUPPRESS,
+    )
+    parser.add_argument(
+        "--wiki-label",
+        action="store_true",
+        help="侧栏百科点击后按钮文字变为「百科1」",
     )
     parser.add_argument("--sniff-gm", action="store_true", help="嗅探 GM 面板与客服入口")
     parser.add_argument("--restore", action="store_true")
@@ -640,11 +837,14 @@ def main() -> int:
             map_sprint=args.map_sprint,
             map_sprint_scale=args.map_sprint_scale,
             battle_longpress=args.battle_longpress,
+            level_one_include_all=args.level_one_include_all,
             transition_speed=args.transition_speed,
             transition_speed_scale=args.transition_speed_scale,
             skill_effect_speed=args.skill_effect_speed,
             skill_effect_scale=args.skill_effect_scale,
             pet_equip_unlock=args.pet_equip_unlock,
+            wiki_download_res=args.wiki_download_res,
+            wiki_label=args.wiki_label,
             inject_bridge=args.inject_bridge,
             from_orig=args.from_orig,
         )

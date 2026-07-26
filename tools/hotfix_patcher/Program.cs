@@ -10,6 +10,16 @@ internal static class Program
 
     public static int Main(string[] args)
     {
+        try
+        {
+            Console.OutputEncoding = System.Text.Encoding.UTF8;
+            Console.InputEncoding = System.Text.Encoding.UTF8;
+        }
+        catch
+        {
+            // 部分宿主不支持改控制台编码，忽略
+        }
+
         if (args.Length > 0 && args[0] == "ildump")
         {
             return IlDump.Run(args.Skip(1).ToArray());
@@ -45,6 +55,11 @@ internal static class Program
             return BattleLongPressIlPatcher.Run(args.Skip(1).ToArray());
         }
 
+        if (args.Length > 0 && args[0] == "level-one-include-all-patch")
+        {
+            return LevelOneIncludeAllIlPatcher.Run(args.Skip(1).ToArray());
+        }
+
         if (args.Length > 0 && args[0] == "battle-nine-external-patch")
         {
             return BattleNineActionExternalIlPatcher.Run(args.Skip(1).ToArray());
@@ -53,6 +68,16 @@ internal static class Program
         if (args.Length > 0 && args[0] == "battle-nine-action-patch")
         {
             return BattleNineActionIlPatcher.Run(args.Skip(1).ToArray());
+        }
+
+        if (args.Length > 0 && args[0] == "auto-seal-external-patch")
+        {
+            return AutoSealExternalIlPatcher.Run(args.Skip(1).ToArray());
+        }
+
+        if (args.Length > 0 && args[0] == "auto-catch-external-patch")
+        {
+            return AutoCatchExternalIlPatcher.Run(args.Skip(1).ToArray());
         }
 
         if (args.Length > 0 && args[0] == "auto-seal-patch")
@@ -138,6 +163,22 @@ internal static class Program
         if (args.Length > 0 && args[0] == "pet-recycle-show-patch")
         {
             return PetRecycleShowIlPatcher.Run(args.Skip(1).ToArray());
+        }
+
+        if (args.Length > 0 && args[0] == "wiki-download-res-patch")
+        {
+            return WikiOpenDownloadResIlPatcher.Run(args.Skip(1).ToArray());
+        }
+
+        if (args.Length > 0 && args[0] == "wiki-label-patch")
+        {
+            return WikiLabelIlPatcher.Run(args.Skip(1).ToArray());
+        }
+
+        // 兼容旧名：百科聊天测试已废弃，转发到文字改「百科1」
+        if (args.Length > 0 && args[0] == "wiki-chat-test-patch")
+        {
+            return WikiLabelIlPatcher.Run(args.Skip(1).ToArray());
         }
 
         if (args.Length > 0 && args[0] == "metadata-gaps")

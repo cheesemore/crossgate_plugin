@@ -47,8 +47,8 @@ class ComboPatchApp:
     def __init__(self) -> None:
         self.root = tk.Tk()
         self.root.title("魔力宝贝：序章 — 热补丁")
-        self.root.geometry("620x720")
-        self.root.minsize(560, 640)
+        self.root.geometry("620x640")
+        self.root.minsize(560, 560)
         self.action_buttons: list[tk.Widget] = []
 
         outer = ttk.Frame(self.root, padding=12)
@@ -86,16 +86,6 @@ class ComboPatchApp:
             btn_row,
             ttk.Button(btn_row, text="启动游戏", command=self.on_launch_game, width=10),
         ).pack(side=tk.LEFT, padx=(6, 0))
-
-        apply_frm = ttk.Frame(outer)
-        apply_frm.pack(side=tk.BOTTOM, fill=tk.X, pady=(0, 4))
-        self.inject_bridge_var = tk.BooleanVar(value=False)
-        ttk.Checkbutton(
-            apply_frm,
-            text="注入桥接（序章助手连接所需；与神奇九动互斥，不能共存）",
-            variable=self.inject_bridge_var,
-            command=self._on_inject_bridge_toggle,
-        ).pack(anchor=tk.W)
 
         self.status_var = tk.StringVar()
         ttk.Label(outer, textvariable=self.status_var, font=("Microsoft YaHei UI", 9)).pack(
@@ -136,15 +126,39 @@ class ComboPatchApp:
         ttk.Entry(row, textvariable=self.path_var).pack(side=tk.LEFT, fill=tk.X, expand=True)
         ttk.Button(row, text="浏览…", command=self.pick_game_dir, width=8).pack(side=tk.LEFT, padx=(6, 0))
 
-        opt_frm = ttk.LabelFrame(body, text="补丁选项", padding=8)
-        opt_frm.pack(fill=tk.BOTH, expand=True, pady=(0, 8))
         self.vip_var = tk.BooleanVar(value=True)
         self.vip_non_vip_var = tk.BooleanVar(value=True)
         self.vip_scale_var = tk.StringVar(value="5")
         self._patch_toggle_guard = False
         self.battle_nine_action_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(opt_frm, text="VIP 战斗倍速", variable=self.vip_var).pack(anchor=tk.W)
-        vip_row = ttk.Frame(opt_frm)
+        self.battle_nine_external_var = tk.BooleanVar(value=False)
+        self.auto_seal_external_var = tk.BooleanVar(value=False)
+        self.auto_catch_external_var = tk.BooleanVar(value=False)
+        self.inject_bridge_var = tk.BooleanVar(value=False)
+        self.customer_gm_var = tk.BooleanVar(value=True)
+        self.customer_gm_mode_var = tk.StringVar(value="autoskill")
+        self.map_sprint_var = tk.BooleanVar(value=True)
+        self.map_sprint_scale_var = tk.StringVar(value="8")
+        self.battle_longpress_var = tk.BooleanVar(value=True)
+        self.level_one_include_all_var = tk.BooleanVar(value=True)
+        self.transition_speed_var = tk.BooleanVar(value=False)
+        self.transition_speed_scale_var = tk.StringVar(value="0.4")
+        self.skill_effect_speed_var = tk.BooleanVar(value=True)
+        self.skill_effect_scale_var = tk.StringVar(value="2")
+
+        notebook = ttk.Notebook(body)
+        notebook.pack(fill=tk.BOTH, expand=True, pady=(0, 8))
+
+        tab_common = ttk.Frame(notebook, padding=8)
+        tab_battle = ttk.Frame(notebook, padding=8)
+        notebook.add(tab_common, text="常用")
+        notebook.add(tab_battle, text="战斗扩展")
+
+        # --- 常用 ---
+        ttk.Checkbutton(tab_common, text="VIP 战斗倍速（含打飞加速：倍速N→打飞×4N）", variable=self.vip_var).pack(
+            anchor=tk.W
+        )
+        vip_row = ttk.Frame(tab_common)
         vip_row.pack(anchor=tk.W, padx=(18, 0), pady=(4, 0))
         ttk.Label(vip_row, text="倍速:").pack(side=tk.LEFT)
         for scale in ("3", "5", "10"):
@@ -155,29 +169,13 @@ class ComboPatchApp:
                 value=scale,
             ).pack(side=tk.LEFT, padx=(0, 8))
         ttk.Checkbutton(
-            opt_frm,
+            tab_common,
             text="非VIP同样倍速",
             variable=self.vip_non_vip_var,
         ).pack(anchor=tk.W, padx=(18, 0), pady=(4, 0))
 
         ttk.Checkbutton(
-            opt_frm,
-            text="神奇九动·IL原版（默认；需足够间隙；与 DLL版/桥接互斥）",
-            variable=self.battle_nine_action_var,
-            command=self._on_battle_nine_action_toggle,
-        ).pack(anchor=tk.W, pady=(8, 0))
-        self.battle_nine_external_var = tk.BooleanVar(value=False)
-        ttk.Checkbutton(
-            opt_frm,
-            text="神奇九动·DLL版（与 IL原版/桥接互斥）",
-            variable=self.battle_nine_external_var,
-            command=self._on_battle_nine_external_toggle,
-        ).pack(anchor=tk.W, pady=(4, 0))
-
-        self.customer_gm_var = tk.BooleanVar(value=True)
-        self.customer_gm_mode_var = tk.StringVar(value="autoskill")
-        ttk.Checkbutton(
-            opt_frm,
+            tab_common,
             text="侧栏客服改开功能",
             variable=self.customer_gm_var,
         ).pack(anchor=tk.W, pady=(8, 0))
@@ -189,11 +187,9 @@ class ComboPatchApp:
                 ("bravetrial", "试炼3047"),
                 ("crystal", "水晶阁"),
             ),
-            (
-                ("autoskill", "自动技能"),
-            ),
+            (("autoskill", "自动技能"),),
         ):
-            gm_row = ttk.Frame(opt_frm)
+            gm_row = ttk.Frame(tab_common)
             gm_row.pack(anchor=tk.W, padx=(18, 0), pady=(4, 0))
             for mode, text in row_modes:
                 ttk.Radiobutton(
@@ -203,12 +199,10 @@ class ComboPatchApp:
                     value=mode,
                 ).pack(side=tk.LEFT, padx=(0, 8))
 
-        self.map_sprint_var = tk.BooleanVar(value=True)
-        self.map_sprint_scale_var = tk.StringVar(value="8")
-        ttk.Checkbutton(opt_frm, text="Sprint 跑速", variable=self.map_sprint_var).pack(
+        ttk.Checkbutton(tab_common, text="Sprint 跑速", variable=self.map_sprint_var).pack(
             anchor=tk.W, pady=(8, 0)
         )
-        sprint_row = ttk.Frame(opt_frm)
+        sprint_row = ttk.Frame(tab_common)
         sprint_row.pack(anchor=tk.W, padx=(18, 0), pady=(4, 0))
         for scale, text in (("8", "快"), ("10", "很快"), ("12", "飞快")):
             ttk.Radiobutton(
@@ -218,21 +212,18 @@ class ComboPatchApp:
                 value=scale,
             ).pack(side=tk.LEFT, padx=(0, 8))
 
-        self.battle_longpress_var = tk.BooleanVar(value=True)
         ttk.Checkbutton(
-            opt_frm,
+            tab_common,
             text="战斗内长按单位显示详情（解除 PVE 模式限制）",
             variable=self.battle_longpress_var,
         ).pack(anchor=tk.W, pady=(8, 0))
 
-        self.transition_speed_var = tk.BooleanVar(value=True)
-        self.transition_speed_scale_var = tk.StringVar(value="0.4")
         ttk.Checkbutton(
-            opt_frm,
+            tab_common,
             text="加速过场（进出战斗十字格；不影响协议 8 退场回执）",
             variable=self.transition_speed_var,
         ).pack(anchor=tk.W, pady=(8, 0))
-        transition_row = ttk.Frame(opt_frm)
+        transition_row = ttk.Frame(tab_common)
         transition_row.pack(anchor=tk.W, padx=(18, 0), pady=(4, 0))
         for scale, text in (("0.4", "快"), ("0.2", "很快"), ("0.1", "飞快")):
             ttk.Radiobutton(
@@ -242,14 +233,12 @@ class ComboPatchApp:
                 value=scale,
             ).pack(side=tk.LEFT, padx=(0, 8))
 
-        self.skill_effect_speed_var = tk.BooleanVar(value=True)
-        self.skill_effect_scale_var = tk.StringVar(value="2")
         ttk.Checkbutton(
-            opt_frm,
+            tab_common,
             text="战斗技能特效加速（火球/爆炸等帧动画，不影响回合读秒）",
             variable=self.skill_effect_speed_var,
         ).pack(anchor=tk.W, pady=(8, 0))
-        effect_row = ttk.Frame(opt_frm)
+        effect_row = ttk.Frame(tab_common)
         effect_row.pack(anchor=tk.W, padx=(18, 0), pady=(4, 0))
         ttk.Label(effect_row, text="倍速:").pack(side=tk.LEFT)
         for scale, text in (("1.5", "1.5x"), ("2", "2x"), ("3", "3x"), ("5", "5x")):
@@ -259,6 +248,79 @@ class ComboPatchApp:
                 variable=self.skill_effect_scale_var,
                 value=scale,
             ).pack(side=tk.LEFT, padx=(0, 8))
+
+        # --- 战斗扩展 ---
+        ttk.Label(
+            tab_battle,
+            text="互斥四选一（只能勾一类）：神奇九动 / 自动烧卡·DLL / 自动抓宠·DLL / 注入桥接·DLL",
+            wraplength=520,
+            foreground="#555555",
+        ).pack(anchor=tk.W, pady=(0, 8))
+
+        ttk.Checkbutton(
+            tab_battle,
+            text="神奇九动·IL原版（默认；需足够 .text 间隙）",
+            variable=self.battle_nine_action_var,
+            command=lambda: self._on_battle_exclusive_toggle("nine_il"),
+        ).pack(anchor=tk.W)
+        ttk.Checkbutton(
+            tab_battle,
+            text="神奇九动·DLL版（间隙不足时用；算「神奇九动」这一类）",
+            variable=self.battle_nine_external_var,
+            command=lambda: self._on_battle_exclusive_toggle("nine_dll"),
+        ).pack(anchor=tk.W, pady=(4, 0))
+        ttk.Checkbutton(
+            tab_battle,
+            text="自动烧卡·DLL版（有封印卡就扔；点百科 Tip 开关）",
+            variable=self.auto_seal_external_var,
+            command=lambda: self._on_battle_exclusive_toggle("seal"),
+        ).pack(anchor=tk.W, pady=(8, 0))
+        ttk.Label(
+            tab_battle,
+            text="默认关闭。点侧栏百科：Tip「自动烧卡已开启」/「自动烧卡已关闭」。仅队长本机回合烧队长背包；队员不烧。与抓宠互斥。",
+            wraplength=500,
+            foreground="#666666",
+            font=("Microsoft YaHei UI", 8),
+        ).pack(anchor=tk.W, padx=(18, 0), pady=(2, 0))
+        ttk.Checkbutton(
+            tab_battle,
+            text="自动抓宠·DLL版（自动封印：一级非迷你蝙蝠；点百科 Tip 开关）",
+            variable=self.auto_catch_external_var,
+            command=lambda: self._on_battle_exclusive_toggle("catch"),
+        ).pack(anchor=tk.W, pady=(8, 0))
+        ttk.Label(
+            tab_battle,
+            text="默认关闭。点侧栏百科：Tip「自动封印已开启」/「自动封印已关闭」。P1 扔卡 · P2 一号技能。与烧卡互斥。",
+            wraplength=500,
+            foreground="#666666",
+            font=("Microsoft YaHei UI", 8),
+        ).pack(anchor=tk.W, padx=(18, 0), pady=(2, 0))
+        ttk.Checkbutton(
+            tab_battle,
+            text="注入桥接·DLL版（序章助手连接所需）",
+            variable=self.inject_bridge_var,
+            command=lambda: self._on_battle_exclusive_toggle("bridge"),
+        ).pack(anchor=tk.W, pady=(8, 0))
+        ttk.Label(
+            tab_battle,
+            text="与九动/封印/抓宠互斥（共用 OnApplicationPause 加载器）。",
+            wraplength=500,
+            foreground="#666666",
+            font=("Microsoft YaHei UI", 8),
+        ).pack(anchor=tk.W, padx=(18, 0), pady=(2, 0))
+
+        ttk.Checkbutton(
+            tab_battle,
+            text="遇敌一级停止也含哥布林/迷你蝙蝠（取消原版排除）",
+            variable=self.level_one_include_all_var,
+        ).pack(anchor=tk.W, pady=(12, 0))
+        ttk.Label(
+            tab_battle,
+            text="原版会排除 AnimationId 101800/101242；补丁将比较常量改为无效 ID，体积不变。",
+            wraplength=500,
+            foreground="#666666",
+            font=("Microsoft YaHei UI", 8),
+        ).pack(anchor=tk.W, padx=(18, 0), pady=(2, 0))
 
         self.load_saved_path()
         self.refresh_status()
@@ -274,35 +336,25 @@ class ComboPatchApp:
             else:
                 button.configure(state=tk.NORMAL if enabled else tk.DISABLED)
 
-    def _on_battle_nine_action_toggle(self) -> None:
-        if self._patch_toggle_guard or not self.battle_nine_action_var.get():
+    def _on_battle_exclusive_toggle(self, which: str) -> None:
+        """战斗扩展互斥：神奇九动(IL/DLL) / 自动烧卡 / 自动抓宠 / 注入桥接，四类只能勾一类。"""
+        if self._patch_toggle_guard:
+            return
+        var_map = {
+            "nine_il": self.battle_nine_action_var,
+            "nine_dll": self.battle_nine_external_var,
+            "seal": self.auto_seal_external_var,
+            "catch": self.auto_catch_external_var,
+            "bridge": self.inject_bridge_var,
+        }
+        active = var_map.get(which)
+        if active is None or not active.get():
             return
         self._patch_toggle_guard = True
         try:
-            self.battle_nine_external_var.set(False)
-            if self.inject_bridge_var.get():
-                self.inject_bridge_var.set(False)
-        finally:
-            self._patch_toggle_guard = False
-
-    def _on_battle_nine_external_toggle(self) -> None:
-        if self._patch_toggle_guard or not self.battle_nine_external_var.get():
-            return
-        self._patch_toggle_guard = True
-        try:
-            self.battle_nine_action_var.set(False)
-            if self.inject_bridge_var.get():
-                self.inject_bridge_var.set(False)
-        finally:
-            self._patch_toggle_guard = False
-
-    def _on_inject_bridge_toggle(self) -> None:
-        if self._patch_toggle_guard or not self.inject_bridge_var.get():
-            return
-        self._patch_toggle_guard = True
-        try:
-            self.battle_nine_action_var.set(False)
-            self.battle_nine_external_var.set(False)
+            for key, var in var_map.items():
+                if key != which:
+                    var.set(False)
         finally:
             self._patch_toggle_guard = False
 
@@ -475,8 +527,8 @@ class ComboPatchApp:
         dirty_note = ""
         if drift.get("reason") == "content_changed_dirty":
             dirty_note = (
-                "\n\n注意：当前 hotfix 看起来已含补丁。若自动修复失败，"
-                "请先用启动器「更新/修复」拉回官方原版。"
+                "\n\n注意：当前 hotfix 看起来不是干净原版。"
+                "若自动修复失败，请删除本客户端，复制干净客户端后再打补丁。"
             )
         if not messagebox.askyesno(
             "检测到游戏有更新",
@@ -537,9 +589,12 @@ class ComboPatchApp:
                 vip_non_vip=self.vip_non_vip_var.get(),
                 battle_nine_action=self.battle_nine_action_var.get(),
                 battle_nine_external=self.battle_nine_external_var.get(),
+                auto_seal_external=self.auto_seal_external_var.get(),
+                auto_catch_external=self.auto_catch_external_var.get(),
                 customer_gm=self.customer_gm_var.get(),
                 map_sprint=self.map_sprint_var.get(),
                 battle_longpress=self.battle_longpress_var.get(),
+                level_one_include_all=self.level_one_include_all_var.get(),
                 transition_speed=self.transition_speed_var.get(),
                 skill_effect_speed=self.skill_effect_speed_var.get(),
                 inject_bridge=self.inject_bridge_var.get(),
@@ -586,24 +641,31 @@ class ComboPatchApp:
                 or self.vip_non_vip_var.get()
                 or self.battle_nine_action_var.get()
                 or self.battle_nine_external_var.get()
+                or self.auto_seal_external_var.get()
+                or self.auto_catch_external_var.get()
                 or self.customer_gm_var.get()
                 or self.map_sprint_var.get()
                 or self.battle_longpress_var.get()
+                or self.level_one_include_all_var.get()
                 or self.transition_speed_var.get()
                 or self.skill_effect_speed_var.get()
                 or self.inject_bridge_var.get()
             ):
-                messagebox.showwarning("未选择", "请至少勾选一项补丁，或勾选「注入桥接」")
+                messagebox.showwarning("未选择", "请至少勾选一项补丁")
                 return
-            if self.battle_nine_action_var.get() and self.battle_nine_external_var.get():
-                messagebox.showwarning("冲突", "IL原版与 DLL版 不能同时启用。")
-                return
-            if self.inject_bridge_var.get() and (
-                self.battle_nine_action_var.get() or self.battle_nine_external_var.get()
-            ):
+            exclusive = [
+                self.battle_nine_action_var.get(),
+                self.battle_nine_external_var.get(),
+                self.auto_seal_external_var.get(),
+                self.auto_catch_external_var.get(),
+                self.inject_bridge_var.get(),
+            ]
+            if sum(1 for x in exclusive if x) > 1:
                 messagebox.showwarning(
                     "冲突",
-                    "九动与注入桥接不能同时启用，请只保留其中一项。",
+                    "战斗扩展互斥四选一：\n"
+                    "神奇九动（IL 或 DLL） / 自动烧卡·DLL / 自动抓宠·DLL / 注入桥接·DLL\n"
+                    "请只保留一类。",
                 )
                 return
             apply_combo(
@@ -612,11 +674,14 @@ class ComboPatchApp:
                 vip_scale=int(self.vip_scale_var.get()),
                 battle_nine_action=self.battle_nine_action_var.get(),
                 battle_nine_external=self.battle_nine_external_var.get(),
+                auto_seal_external=self.auto_seal_external_var.get(),
+                auto_catch_external=self.auto_catch_external_var.get(),
                 customer_gm=self.customer_gm_var.get(),
                 customer_gm_mode=self.customer_gm_mode_var.get(),
                 map_sprint=self.map_sprint_var.get(),
                 map_sprint_scale=int(self.map_sprint_scale_var.get()),
                 battle_longpress=self.battle_longpress_var.get(),
+                level_one_include_all=self.level_one_include_all_var.get(),
                 transition_speed=self.transition_speed_var.get(),
                 transition_speed_scale=float(self.transition_speed_scale_var.get()),
                 skill_effect_speed=self.skill_effect_speed_var.get(),

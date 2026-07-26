@@ -108,7 +108,7 @@ internal static class AutoSealIlBuilder
         var failNotMain = ReserveFail("[AutoSeal] 跳过：非账号1(MainPlayerUid)");
         var failNotAuto = ReserveFail("[AutoSeal] 跳过：未开启自动战斗");
         var failNoBag = ReserveFail("[AutoSeal] 无法封印：背包数据为空(CurrentAccount)");
-        var noSealCard = ReserveFail("[AutoSeal] 无法封印：背包无可用封印卡（Type4-6/IS_SEAL 且 CanUseInBattle）");
+        var noSealCard = ReserveFail("[AutoSeal] 无法封印：背包无可用封印卡（Type≥23 + IS_SEAL 且 CanUseInBattle）");
 
         il.Append(il.Create(OpCodes.Call, module.ImportReference(getIsInBattle)));
         il.Append(il.Create(OpCodes.Brfalse, failNotInBattle));
@@ -181,25 +181,16 @@ internal static class AutoSealIlBuilder
         il.Append(il.Create(OpCodes.Ldloc, V(3)));
         il.Append(il.Create(OpCodes.Brfalse, itemLoop));
 
+        // Type≥23 且 IS_SEAL(0x100)；不再把 Type4–6 装备当封印卡
         il.Append(il.Create(OpCodes.Ldloc, V(3)));
         il.Append(il.Create(OpCodes.Callvirt, module.ImportReference(getProtoTypeGet)));
-        var checkFlg = il.Create(OpCodes.Nop);
-        il.Append(il.Create(OpCodes.Dup));
-        il.Append(il.Create(OpCodes.Ldc_I4_4));
-        il.Append(il.Create(OpCodes.Blt, checkFlg));
-        il.Append(il.Create(OpCodes.Ldc_I4_6));
-        il.Append(il.Create(OpCodes.Bgt, checkFlg));
-        var sealTypeOk = il.Create(OpCodes.Nop);
-        il.Append(il.Create(OpCodes.Br, sealTypeOk));
-        il.Append(checkFlg);
-        il.Append(il.Create(OpCodes.Pop));
+        il.Append(il.Create(OpCodes.Ldc_I4_S, (sbyte)23));
+        il.Append(il.Create(OpCodes.Blt, itemLoop));
         il.Append(il.Create(OpCodes.Ldloc, V(3)));
         il.Append(il.Create(OpCodes.Callvirt, module.ImportReference(getProtoFlgGet)));
         il.Append(il.Create(OpCodes.Ldc_I4, SealFlagMask));
         il.Append(il.Create(OpCodes.And));
         il.Append(il.Create(OpCodes.Brfalse, itemLoop));
-        il.Append(sealTypeOk);
-        il.Append(il.Create(OpCodes.Pop));
 
         il.Append(il.Create(OpCodes.Call, itemInst));
         il.Append(il.Create(OpCodes.Ldloc, V(3)));

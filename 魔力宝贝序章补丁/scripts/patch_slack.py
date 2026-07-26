@@ -78,9 +78,12 @@ def combo_check_ids(
     vip_non_vip: bool = False,
     battle_nine_action: bool = False,
     battle_nine_external: bool = False,
+    auto_seal_external: bool = False,
+    auto_catch_external: bool = False,
     customer_gm: bool = False,
     map_sprint: bool = False,
     battle_longpress: bool = False,
+    level_one_include_all: bool = False,
     transition_speed: bool = False,
     skill_effect_speed: bool = False,
     inject_bridge: bool = False,
@@ -92,12 +95,18 @@ def combo_check_ids(
         ids.append("nine")
     if battle_nine_external:
         ids.append("nine_external")
+    if auto_seal_external:
+        ids.append("auto_seal_external")
+    if auto_catch_external:
+        ids.append("auto_catch_external")
     if customer_gm:
         ids.append("customer_gm")
     if map_sprint:
         ids.append("sprint")
     if battle_longpress:
         ids.append("longpress")
+    if level_one_include_all:
+        ids.append("level_one_include_all")
     if transition_speed:
         ids.append("transition")
     if skill_effect_speed:
@@ -114,9 +123,12 @@ def assert_combo_slack_ok(
     vip_non_vip: bool = False,
     battle_nine_action: bool = False,
     battle_nine_external: bool = False,
+    auto_seal_external: bool = False,
+    auto_catch_external: bool = False,
     customer_gm: bool = False,
     map_sprint: bool = False,
     battle_longpress: bool = False,
+    level_one_include_all: bool = False,
     transition_speed: bool = False,
     skill_effect_speed: bool = False,
     inject_bridge: bool = False,
@@ -130,9 +142,12 @@ def assert_combo_slack_ok(
         vip_non_vip=vip_non_vip,
         battle_nine_action=battle_nine_action,
         battle_nine_external=battle_nine_external,
+        auto_seal_external=auto_seal_external,
+        auto_catch_external=auto_catch_external,
         customer_gm=customer_gm,
         map_sprint=map_sprint,
         battle_longpress=battle_longpress,
+        level_one_include_all=level_one_include_all,
         transition_speed=transition_speed,
         skill_effect_speed=skill_effect_speed,
         inject_bridge=inject_bridge,

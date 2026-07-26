@@ -39,7 +39,7 @@ internal static class SlackReport
         {
             Console.WriteLine(
                 "用法: HotfixPatcher slack-report --hotfix <hotfix.dll.bytes> [--json] [--check id1,id2,...]\n" +
-                "常见 id: vip, sprint, longpress, customer_gm, skill_effect, bridge, nine, nine_queue, nine_magics, nine_external");
+                "常见 id: vip, sprint, longpress, level_one_include_all, customer_gm, skill_effect, bridge, nine, nine_queue, nine_magics, nine_external, auto_seal_external, auto_catch_external");
             return 1;
         }
 
@@ -164,6 +164,13 @@ internal static class SlackReport
         list.Add(new PatchSlackProfile("vip", "战斗倍速", 0, "inplace", false, "改 ldc.r4，不占 VA 间隙"));
         list.Add(new PatchSlackProfile("sprint", "Sprint 跑速", 0, "inplace", false, "改 float，不占 VA 间隙"));
         list.Add(new PatchSlackProfile("longpress", "战斗长按", 0, "inplace", false, "beq.s→br.s，不占 VA 间隙"));
+        list.Add(new PatchSlackProfile(
+            "level_one_include_all",
+            "遇敌一级含哥布林/蝙蝠",
+            0,
+            "inplace",
+            false,
+            "RefreshData 排除常量 101800/101242→999999，不占间隙"));
         list.Add(new PatchSlackProfile("transition", "加速过场", 0, "inplace", false, "CrossBlocks 0.8→0.4/0.2/0.1，不占 VA 间隙"));
         list.Add(new PatchSlackProfile("customer_gm", "客服入口", 0, "inplace", false, "Compact 回调，通常变小"));
 
@@ -181,6 +188,22 @@ internal static class SlackReport
             "append",
             false,
             "Pause 加载器+Magics；与 IL原版/桥接互斥"));
+
+        list.Add(new PatchSlackProfile(
+            "auto_seal_external",
+            "自动烧卡·DLL版",
+            220,
+            "append",
+            false,
+            "Pause 加载器 + Player 钩 + 百科 Tip 开关；与桥接/九动DLL/抓宠互斥，可与 IL 九动共存"));
+
+        list.Add(new PatchSlackProfile(
+            "auto_catch_external",
+            "自动抓宠·DLL版",
+            280,
+            "append",
+            false,
+            "Pause 加载器 + Player/Pet 钩 + 百科 Tip 开关；与烧卡/桥接/九动DLL互斥，可与 IL 九动共存"));
 
         var nine = EstimateNineGrowth(asm, pe);
         list.Add(new PatchSlackProfile(
