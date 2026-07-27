@@ -11,7 +11,7 @@
   战斗倍速 10x、特效 5x（最高档）。
 
 自动抓宠版（FOOLPROOF_AUTO_CATCH_COMBO_KWARGS）：同上 + 自动抓宠·DLL版，仍无九动；
-  有一级：P1 扔卡 / P2 一号技 / 其余防御；退战存仓/无卡停挂机。
+  有一级：P1 扔卡 / P2 一号技 / 其余人物 G / 宠物固定防御 W|0；退战存仓/无卡停挂机。
 
 带九动包：run_foolproof_patch(enable_nine=True) 时运行时择优 IL/DLL。
 GUI / 简单补丁默认「加速过场」关闭（见 DEFAULT_COMBO_KWARGS）。

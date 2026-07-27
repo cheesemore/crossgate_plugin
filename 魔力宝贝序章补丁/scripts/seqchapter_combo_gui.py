@@ -290,7 +290,7 @@ class ComboPatchApp:
         ).pack(anchor=tk.W, pady=(8, 0))
         ttk.Label(
             tab_battle,
-            text="默认关闭。点侧栏百科：Tip「自动封印已开启」/「自动封印已关闭」。P1 扔卡 · P2 一号技能。与烧卡互斥。",
+            text="默认关闭。点百科 Tip 开关。有一级：P1 扔卡 · P2 一号技能 · 其余人物 G · 宠物固定防御 W|0（SkillId74，不检技能栏）。与烧卡互斥。",
             wraplength=500,
             foreground="#666666",
             font=("Microsoft YaHei UI", 8),
