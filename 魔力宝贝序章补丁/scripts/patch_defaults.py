@@ -41,15 +41,15 @@ FOOLPROOF_NO_NINE_COMBO_KWARGS = {
     **FOOLPROOF_COMBO_KWARGS,
 }
 
-# 傻瓜补丁·自动烧卡：无九动 + 自动烧卡；战斗倍速/特效取中档（5x / 2x）
+# 傻瓜补丁·自动烧卡：无九动 + 自动烧卡；战斗倍速/特效取最高（10x / 5x）
 FOOLPROOF_BURN_SEAL_COMBO_KWARGS = {
     **FOOLPROOF_NO_NINE_COMBO_KWARGS,
     "auto_seal_external": True,
     "auto_catch_external": False,
     "level_one_include_all": True,
-    "vip_scale": 5,
+    "vip_scale": 10,
     "skill_effect_speed": True,
-    "skill_effect_scale": 2.0,
+    "skill_effect_scale": 5.0,
 }
 
 # 傻瓜补丁·自动抓宠：无九动 + 自动抓宠（与自动烧卡互斥）

@@ -7,7 +7,7 @@ using System.Reflection;
 /// Pause 延迟加载后 Bootstrap；AutoFight_PlayerAction 入口调 TryPlayerAutoSeal。
 /// 侧栏百科 = 手动开关：默认 PipelineEnabled=false；点百科 Tip 切换开/关。
 /// 开启后：仅队长（本机 MainPlayerUid 且队序 0）回合，从其背包扔封印卡；队员不烧卡。
-/// 关闭后不走烧卡逻辑。
+/// 开启时窗口标题追加「 ★自动烧卡中★」。关闭后不走烧卡逻辑。
 /// </summary>
 public static class SeqChapterAutoSeal
 {
@@ -46,7 +46,114 @@ public static class SeqChapterAutoSeal
         Bootstrap();
         var enable = !IsPipelineActive();
         SetPipelineEnabledAllCopies(enable);
+        RefreshWindowTitle();
         return enable;
+    }
+
+    /// <summary>
+    /// 与游戏一致：{产品名} {服务器} {角色} Lv.{等级}；
+    /// 烧卡开启时追加「 ★自动烧卡中★」。
+    /// </summary>
+    private static void RefreshWindowTitle()
+    {
+        try
+        {
+            var product = GetUnityProductName();
+            if (string.IsNullOrEmpty(product))
+            {
+                return;
+            }
+
+            var server = "";
+            var serverInfo = GetStaticMember("PlayerDataHolder", "currentServerInfo");
+            if (serverInfo != null)
+            {
+                server = Convert.ToString(GetMember(serverInfo, "name") ?? "") ?? "";
+            }
+
+            var player = GetStaticMember("PlayerDataHolder", "playerData");
+            var roleName = "";
+            var level = 0;
+            if (player != null)
+            {
+                roleName = Convert.ToString(GetMember(player, "name") ?? "") ?? "";
+                level = Convert.ToInt32(GetMember(player, "level") ?? 0);
+            }
+
+            var title = string.IsNullOrEmpty(roleName)
+                ? product
+                : string.Format("{0} {1} {2} Lv.{3}", product, server, roleName, level);
+
+            if (IsPipelineActive())
+            {
+                title = title + " ★自动烧卡中★";
+            }
+
+            var appMgr = FindType("AppManager");
+            MethodInfo setTitle = null;
+            if (appMgr != null)
+            {
+                foreach (var m in appMgr.GetMethods(
+                    BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic))
+                {
+                    if (m.Name != "SetWindowTitle")
+                    {
+                        continue;
+                    }
+
+                    var ps = m.GetParameters();
+                    if (ps.Length == 1 && ps[0].ParameterType.FullName == "System.String")
+                    {
+                        setTitle = m;
+                        break;
+                    }
+                }
+            }
+
+            setTitle?.Invoke(null, new object[] { title });
+        }
+        catch
+        {
+            // ignore
+        }
+    }
+
+    private static string GetUnityProductName()
+    {
+        try
+        {
+            foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+            {
+                Type t = null;
+                try
+                {
+                    t = asm.GetType("UnityEngine.Application", false, false);
+                }
+                catch
+                {
+                    continue;
+                }
+
+                if (t == null)
+                {
+                    continue;
+                }
+
+                var p = t.GetProperty(
+                    "productName",
+                    BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic);
+                if (p != null)
+                {
+                    return Convert.ToString(p.GetValue(null, null) ?? "") ?? "";
+                }
+            }
+        }
+        catch
+        {
+            // ignore
+        }
+
+        return "";
     }
 
     private static void SetPipelineEnabledAllCopies(bool enabled)

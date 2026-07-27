@@ -8,7 +8,7 @@
   · 技能特效 2x · 遇敌一级含哥布林/迷你蝙蝠 · 无九动 · 无桥接 · 无自动烧卡/抓宠
 
 自动烧卡版（FOOLPROOF_BURN_SEAL_COMBO_KWARGS）：同上 + 自动烧卡·DLL版，仍无九动；
-  战斗倍速 5x、特效 2x（中档）。
+  战斗倍速 10x、特效 5x（最高档）。
 
 自动抓宠版（FOOLPROOF_AUTO_CATCH_COMBO_KWARGS）：同上 + 自动抓宠·DLL版，仍无九动；
   有一级：P1 扔卡 / P2 一号技 / 其余防御；退战存仓/无卡停挂机。
@@ -328,13 +328,16 @@ def run_foolproof_patch(
     _ensure_clean_baseline(root, messages, on_log=on_log)
 
     if burn_seal:
-        _emit(messages, on_log, "预设：自动烧卡（点百科 Tip 开关 · 无九动 · 倍速/特效中档 · 一级含蝙蝠/哥布林）")
+        _emit(messages, on_log, "预设：自动烧卡（点百科 Tip 开关 · 无九动 · 倍速10x/特效5x · 一级含蝙蝠/哥布林）")
         kwargs = dict(FOOLPROOF_BURN_SEAL_COMBO_KWARGS)
         kwargs["battle_nine_action"] = False
         kwargs["battle_nine_external"] = False
         kwargs["auto_seal_external"] = True
         kwargs["auto_catch_external"] = False
         kwargs["level_one_include_all"] = True
+        kwargs["vip_scale"] = 10
+        kwargs["skill_effect_speed"] = True
+        kwargs["skill_effect_scale"] = 5.0
         nine_label = "无"
         nine_checks: list[str] = []
         extra_checks = ["auto_seal_external", "level_one_include_all"]

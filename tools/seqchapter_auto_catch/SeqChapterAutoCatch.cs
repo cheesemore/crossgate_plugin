@@ -13,16 +13,18 @@ using System.Threading;
 ///   P2(队序1) 放 1 号技能（Config[0] 的 Skillindex/Techindex，即位置编号非 SkillId）；
 ///   其余人物防御 G；所有宠物防御（PetSkills 中 SkillId=74）。
 /// 无「可抓一级」则走原自动。
-/// 退战后（仅队长，且 PipelineEnabled）：仅「仍在挂机且宠满 5」才走退战流水线
-/// （停挂机→存仓→终检）；手动停/受伤停等已停挂机时不触发。无卡仅停挂机不存仓。
-/// 各发包环节间隔 1 秒。与烧封印 / 桥接 / 九动 DLL 互斥。
+/// 退战后（仅队长，且 PipelineEnabled）：
+///   1) 需停挂机时立刻发「停止挂机」；
+///   2) 扫背包：仅 1 级未正确标记 → #档位，单项随机≥6 才加 @N（满档 #满 / #满@N）；
+///   3) 满 5 宠 → 存仓→终检；未满无卡已停挂机；已停挂机则不做存仓。
+/// 其余发包间隔 1 秒。与烧封印 / 桥接 / 九动 DLL 互斥。
 /// </summary>
 public static class SeqChapterAutoCatch
 {
     public const string AssetPath = "hotfixdata/SeqChapterAutoCatch.dll.bytes";
 
     /// <summary>
-    /// 流水线总开关。false 时：战斗内抓宠、退战存仓/挂机、以及后续任何新环节均不触发。
+    /// 流水线总开关。false 时：战斗内抓宠、退战改名/存仓/挂机、以及后续任何新环节均不触发。
     /// 默认关闭；点侧栏百科切换开/关。
     /// </summary>
     public static volatile bool PipelineEnabled = false;
@@ -37,6 +39,8 @@ public static class SeqChapterAutoCatch
     private const int StorePetLevel = 1;
     /// <summary>退战流水线相邻发包间隔。</summary>
     private const int ProtocolGapMs = 1000;
+    /// <summary>随机档单项 ≥ 此值才在名字里加 @N；否则仅 #档位 / #满。</summary>
+    private const int MinRandomSuffix = 6;
 
     private static bool _bootstrapped;
     private static bool _exitHooked;
@@ -44,7 +48,7 @@ public static class SeqChapterAutoCatch
     private static int _exitPipelineRunning;
     private static bool _exitNeedProtocolGap;
 
-    /// <summary>开启抓宠后窗口标题 ★ 后的遇一级计数；关闭时清零。</summary>
+    /// <summary>开启抓宠后标题「★自动中★遇到1级N只」中的遇一级计数；关闭时清零。</summary>
     private static int _levelOneMeetCount;
     /// <summary>本场战斗是否已计过一次一级（避免每回合重复 +1）。</summary>
     private static bool _countedLevelOneThisBattle;
@@ -84,7 +88,7 @@ public static class SeqChapterAutoCatch
         return enable;
     }
 
-    /// <summary>本场首次发现可抓一级时 +1，并刷新标题 ★数字。</summary>
+    /// <summary>本场首次发现可抓一级时 +1，并刷新标题 ★自动中★遇到1级N只。</summary>
     private static void NoteLevelOneEncounterOnce()
     {
         if (!IsPipelineActive() || _countedLevelOneThisBattle)
@@ -99,7 +103,7 @@ public static class SeqChapterAutoCatch
 
     /// <summary>
     /// 与游戏一致：{产品名} {服务器} {角色} Lv.{等级}；
-    /// 抓宠开启时追加「 ★{遇一级次数}」。
+    /// 抓宠开启时追加「 ★自动中★遇到1级{次数}只」。
     /// </summary>
     private static void RefreshWindowTitle()
     {
@@ -133,7 +137,7 @@ public static class SeqChapterAutoCatch
 
             if (IsPipelineActive())
             {
-                title = title + " ★" + _levelOneMeetCount;
+                title = title + " ★自动中★遇到1级" + _levelOneMeetCount + "只";
             }
 
             var appMgr = FindType("AppManager");
@@ -524,11 +528,11 @@ public static class SeqChapterAutoCatch
     }
 
     /// <summary>
-    /// 退战入口（后台线程，发包间隔 1 秒）：
-    /// · 挂机已停（手动停 / 受伤停等非满宠原因）→ 整段跳过，不存仓不开挂机；
-    /// · 仍在挂机且满 5 宠 → 停挂机 → 存仓休息+1级 → 终检（有空位且有卡才开）；
-    /// · 仍在挂机但未满、无封印卡 → 只停挂机，不存仓；
-    /// · 仍在挂机、未满、有卡 → 什么都不做。
+    /// 退战入口（后台线程）：
+    /// · 需停挂机时立刻发「停止挂机」（不等 1 秒间隔、也不等改名轮询）；
+    /// · 再标记未改名 1 级宠（#档 / #档@随机≥6 / #满 / #满@随机≥6）；
+    /// · 仍在挂机且满 5 宠 → 存仓休息+1级 → 终检；
+    /// · 未满、无封印卡 → 仅停挂机；未满有卡 → 不停挂机。
     /// </summary>
     private static void RunExitPipeline(string uid)
     {
@@ -537,30 +541,464 @@ public static class SeqChapterAutoCatch
             return;
         }
 
-        // 手动停 / 受伤停等：挂机已停 → 不走退战逻辑
-        if (!IsEncounterActive(uid))
-        {
-            return;
-        }
-
         _exitNeedProtocolGap = false;
 
-        var petFull = HavePetCount(uid) >= 5;
-        if (!petFull)
-        {
-            // 非满宠：仅无卡时停挂机，保证不进战斗；不做存仓流水线
-            if (!TryFindSealCard(uid, out _, out _))
-            {
-                RunProtocolStep(() => TrySendAutoBattle("停止挂机", uid));
-            }
+        var encounterActive = IsEncounterActive(uid);
+        var petFull = encounterActive && HavePetCount(uid) >= 5;
 
+        if (encounterActive)
+        {
+            // 满宠 或 无卡：立刻停挂机（不走 RunProtocolStep，避免被间隔/改名拖住）
+            if (petFull || !TryFindSealCard(uid, out _, out _))
+            {
+                try
+                {
+                    TrySendAutoBattle("停止挂机", uid);
+                }
+                catch
+                {
+                    // ignore
+                }
+
+                _exitNeedProtocolGap = true;
+            }
+        }
+
+        // 抓宠开启时：每次队长退战都扫未标记宠并改名（停挂机之后、存仓之前）
+        TryRenameUnmarkedBagPets(uid);
+
+        if (!encounterActive || !petFull)
+        {
             return;
         }
 
-        // 仅满宠：完整退战流水线
-        RunProtocolStep(() => TrySendAutoBattle("停止挂机", uid));
         StoreCaptainRestLevelOnePets(uid);
         FinalizeEncounterState(uid);
+    }
+
+    /// <summary>
+    /// 仅 1 级、未正确标记的宠：#档位；单项随机档 ≥6 时追加 @N（满档 #满 / #满@N）。
+    /// 随机档 = ResetBaseInfo 的 Vital/Str/Tgh/Quick/Magic base 最大值。
+    /// </summary>
+    private static void TryRenameUnmarkedBagPets(string uid)
+    {
+        if (!IsPipelineActive() || string.IsNullOrEmpty(uid))
+        {
+            return;
+        }
+
+        try
+        {
+            // RESETBASE_INFO 可能略晚于进包
+            WaitForLevelOnePetResetBaseSync(uid);
+
+            if (!IsPipelineActive())
+            {
+                return;
+            }
+
+            var pets = GetPetList(uid);
+            if (pets == null || pets.Count == 0)
+            {
+                return;
+            }
+
+            var petMgr = GetManagerInstance("PetManager");
+            if (petMgr == null)
+            {
+                return;
+            }
+
+            var sendChange = FindSendChangePetName(petMgr);
+            if (sendChange == null)
+            {
+                return;
+            }
+
+            MethodInfo getFileValue = null;
+            foreach (var m in petMgr.GetType().GetMethods(
+                         BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+            {
+                if (m.Name != "GetPetFileValue")
+                {
+                    continue;
+                }
+
+                var ps = m.GetParameters();
+                if (ps.Length == 1)
+                {
+                    getFileValue = m;
+                    break;
+                }
+            }
+
+            for (var i = 0; i < pets.Count && i < 5; i++)
+            {
+                if (!IsPipelineActive())
+                {
+                    return;
+                }
+
+                var pet = pets[i];
+                if (pet == null)
+                {
+                    continue;
+                }
+
+                if (Convert.ToInt32(GetMember(pet, "useFlag") ?? 0) != 1)
+                {
+                    continue;
+                }
+
+                var data = GetMember(pet, "data");
+                if (data == null)
+                {
+                    continue;
+                }
+
+                var level = ReadIntMember(data, "Level");
+                if (level != StorePetLevel)
+                {
+                    continue;
+                }
+
+                if (!TryGetMaxResetBaseRandom(data, out var maxRand))
+                {
+                    // ResetBaseInfo 未到：不改名
+                    continue;
+                }
+
+                var grade = 0;
+                var perfect = IsPerfectPet(pet, data);
+                if (!perfect)
+                {
+                    grade = GetPetGradeValue(petMgr, getFileValue, data);
+                    if (grade < 0)
+                    {
+                        grade = 0;
+                    }
+                }
+
+                var newName = FormatPetMarkName(perfect, grade, maxRand);
+                var display = GetDisplayPetName(data);
+                if (!NeedsPetRenameMark(display, newName, maxRand))
+                {
+                    continue;
+                }
+
+                var index = Convert.ToInt32(GetMember(data, "Index") ?? i);
+                var nameLocal = newName;
+                var indexLocal = index;
+                var mgrLocal = petMgr;
+                var sendLocal = sendChange;
+                RunProtocolStep(() =>
+                {
+                    sendLocal.Invoke(mgrLocal, new object[] { uid, indexLocal, nameLocal });
+                });
+            }
+        }
+        catch
+        {
+            // ignore
+        }
+    }
+
+    /// <summary>#档位 或 #满；仅当 maxRand ≥ MinRandomSuffix 时追加 @N。</summary>
+    private static string FormatPetMarkName(bool perfect, int grade, int maxRand)
+    {
+        var head = perfect ? "#满" : "#" + grade;
+        if (maxRand >= MinRandomSuffix)
+        {
+            return head + "@" + maxRand;
+        }
+
+        return head;
+    }
+
+    /// <summary>
+    /// 无 # → 标记；已 # 仅修正：误标 @0/@&lt;6，或漏掉的 ≥6 @后缀。
+    /// </summary>
+    private static bool NeedsPetRenameMark(string display, string newName, int maxRand)
+    {
+        if (string.IsNullOrEmpty(display) || string.IsNullOrEmpty(newName))
+        {
+            return false;
+        }
+
+        if (string.Equals(display, newName, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        if (!display.StartsWith("#", StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        var at = display.LastIndexOf('@');
+        if (at > 0 && at < display.Length - 1)
+        {
+            if (int.TryParse(display.Substring(at + 1), out var tagged)
+                && tagged < MinRandomSuffix)
+            {
+                // #13@5 / #13@0 → 去掉低随机或改成正确名
+                return true;
+            }
+        }
+        else if (maxRand >= MinRandomSuffix)
+        {
+            // #13 但实际有 ≥6 随机 → 补 @N
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>轮询至多 ~2.5s：等「可能需要改名」的 1 级宠 ResetBaseInfo 到位。</summary>
+    private static void WaitForLevelOnePetResetBaseSync(string uid)
+    {
+        const int attempts = 13;
+        const int gapMs = 200;
+        for (var n = 0; n < attempts; n++)
+        {
+            if (!IsPipelineActive())
+            {
+                return;
+            }
+
+            try
+            {
+                var pets = GetPetList(uid);
+                if (pets != null)
+                {
+                    var pending = 0;
+                    var ready = 0;
+                    for (var i = 0; i < pets.Count && i < 5; i++)
+                    {
+                        var pet = pets[i];
+                        if (pet == null || Convert.ToInt32(GetMember(pet, "useFlag") ?? 0) != 1)
+                        {
+                            continue;
+                        }
+
+                        var data = GetMember(pet, "data");
+                        if (data == null || ReadIntMember(data, "Level") != StorePetLevel)
+                        {
+                            continue;
+                        }
+
+                        var display = GetDisplayPetName(data);
+                        if (!MightNeedPetRename(display))
+                        {
+                            continue;
+                        }
+
+                        pending++;
+                        if (TryGetMaxResetBaseRandom(data, out _))
+                        {
+                            ready++;
+                        }
+                    }
+
+                    if (pending == 0 || ready >= pending)
+                    {
+                        return;
+                    }
+                }
+            }
+            catch
+            {
+                // keep waiting
+            }
+
+            try
+            {
+                Thread.Sleep(gapMs);
+            }
+            catch
+            {
+                return;
+            }
+        }
+    }
+
+    /// <summary>无 #，或已有 # 但带 @&lt;6（含 @0）——需要等数据再决定最终名。</summary>
+    private static bool MightNeedPetRename(string display)
+    {
+        if (string.IsNullOrEmpty(display))
+        {
+            return false;
+        }
+
+        if (!display.StartsWith("#", StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        var at = display.LastIndexOf('@');
+        if (at > 0 && at < display.Length - 1
+            && int.TryParse(display.Substring(at + 1), out var tagged)
+            && tagged < MinRandomSuffix)
+        {
+            return true;
+        }
+
+        return false;
+    }
+
+    private static MethodInfo FindSendChangePetName(object petMgr)
+    {
+        if (petMgr == null)
+        {
+            return null;
+        }
+
+        foreach (var m in petMgr.GetType().GetMethods(
+                     BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+        {
+            if (m.Name != "SendChangePetName")
+            {
+                continue;
+            }
+
+            var ps = m.GetParameters();
+            if (ps.Length == 3
+                && ps[0].ParameterType == typeof(string)
+                && (ps[1].ParameterType == typeof(int) || ps[1].ParameterType == typeof(short))
+                && ps[2].ParameterType == typeof(string))
+            {
+                return m;
+            }
+        }
+
+        return null;
+    }
+
+    private static string GetDisplayPetName(object petInfo)
+    {
+        var free = Convert.ToString(GetMember(petInfo, "FreeName") ?? "") ?? "";
+        if (!string.IsNullOrEmpty(free))
+        {
+            return free;
+        }
+
+        return Convert.ToString(GetMember(petInfo, "Name") ?? "") ?? "";
+    }
+
+    private static bool IsPerfectPet(object petData, object petInfo)
+    {
+        try
+        {
+            var flag = GetMember(petData, "isPrefectPet");
+            if (flag is bool b)
+            {
+                return b;
+            }
+        }
+        catch
+        {
+            // fall through
+        }
+
+        try
+        {
+            return Convert.ToInt32(GetMember(petInfo, "Nowvitalbase") ?? 0)
+                   >= Convert.ToInt32(GetMember(petInfo, "Maxvitalbase") ?? 0)
+                   && Convert.ToInt32(GetMember(petInfo, "Nowstrbase") ?? 0)
+                   >= Convert.ToInt32(GetMember(petInfo, "Maxstrbase") ?? 0)
+                   && Convert.ToInt32(GetMember(petInfo, "Nowtghbase") ?? 0)
+                   >= Convert.ToInt32(GetMember(petInfo, "Maxtghbase") ?? 0)
+                   && Convert.ToInt32(GetMember(petInfo, "Nowquickbase") ?? 0)
+                   >= Convert.ToInt32(GetMember(petInfo, "Maxquickbase") ?? 0)
+                   && Convert.ToInt32(GetMember(petInfo, "Nowmagicbase") ?? 0)
+                   >= Convert.ToInt32(GetMember(petInfo, "Maxmagicbase") ?? 0);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>差档（与 PetManager.GetPetFileValue 一致）：各维 Max*base 之和 − Now*base 之和。</summary>
+    private static int GetPetGradeValue(object petMgr, MethodInfo getFileValue, object petInfo)
+    {
+        if (petMgr != null && getFileValue != null)
+        {
+            try
+            {
+                return Convert.ToInt32(getFileValue.Invoke(petMgr, new object[] { petInfo }) ?? 0);
+            }
+            catch
+            {
+                // fall through
+            }
+        }
+
+        try
+        {
+            var maxSum = Convert.ToInt32(GetMember(petInfo, "Maxvitalbase") ?? 0)
+                         + Convert.ToInt32(GetMember(petInfo, "Maxstrbase") ?? 0)
+                         + Convert.ToInt32(GetMember(petInfo, "Maxtghbase") ?? 0)
+                         + Convert.ToInt32(GetMember(petInfo, "Maxquickbase") ?? 0)
+                         + Convert.ToInt32(GetMember(petInfo, "Maxmagicbase") ?? 0);
+            var nowSum = Convert.ToInt32(GetMember(petInfo, "Nowvitalbase") ?? 0)
+                         + Convert.ToInt32(GetMember(petInfo, "Nowstrbase") ?? 0)
+                         + Convert.ToInt32(GetMember(petInfo, "Nowtghbase") ?? 0)
+                         + Convert.ToInt32(GetMember(petInfo, "Nowquickbase") ?? 0)
+                         + Convert.ToInt32(GetMember(petInfo, "Nowmagicbase") ?? 0);
+            return maxSum - nowSum;
+        }
+        catch
+        {
+            return 0;
+        }
+    }
+
+    /// <summary>
+    /// 洗随机页当前五项：ResetBaseInfo.Vital/Str/Tgh/Quick/Magic + base。
+    /// 与 Com_RefRandomItem（selfData）一致。无 ResetBaseInfo 返回 false。
+    /// </summary>
+    private static bool TryGetMaxResetBaseRandom(object petInfo, out int maxRand)
+    {
+        maxRand = 0;
+        var reset = GetMember(petInfo, "ResetBaseInfo");
+        if (reset == null)
+        {
+            return false;
+        }
+
+        foreach (var name in new[]
+                 {
+                     "Vitalbase", "Strbase", "Tghbase", "Quickbase", "Magicbase",
+                     "vitalbase_", "strbase_", "tghbase_", "quickbase_", "magicbase_"
+                 })
+        {
+            var v = ReadIntMember(reset, name);
+            if (v > maxRand)
+            {
+                maxRand = v;
+            }
+        }
+
+        return true;
+    }
+
+    private static int ReadIntMember(object obj, string name)
+    {
+        try
+        {
+            var v = GetMember(obj, name);
+            if (v == null || v is bool)
+            {
+                return 0;
+            }
+
+            return Convert.ToInt32(v);
+        }
+        catch
+        {
+            return 0;
+        }
     }
 
     /// <summary>当前是否仍在自动遇敌/挂机中（false = 已停，含手动/受伤等）。</summary>
@@ -1287,8 +1725,41 @@ public static class SeqChapterAutoCatch
 
     private static bool TryFindSealCard(string uid, out int itemIndex, out string itemName)
     {
-        itemIndex = -1;
-        itemName = "";
+        var foundIndex = -1;
+        var foundName = "";
+        var found = EnumerateSealCards(uid, (index, name, _) =>
+        {
+            foundIndex = index;
+            foundName = name;
+            return false; // 只要第一张
+        });
+        itemIndex = foundIndex;
+        itemName = foundName;
+        return found;
+    }
+
+    /// <summary>背包封印卡总张数（各格 Pile 之和；与战斗用卡判定一致）。</summary>
+    private static int CountSealCardsInBag(string uid)
+    {
+        var total = 0;
+        EnumerateSealCards(uid, (_, __, pile) =>
+        {
+            total += pile > 0 ? pile : 1;
+            return true; // 继续扫
+        });
+        return total;
+    }
+
+    /// <summary>
+    /// 遍历背包封印卡。onFound 返回 true 继续，false 停止。
+    /// 有找到过至少一张则整体返回 true。
+    /// </summary>
+    private static bool EnumerateSealCards(string uid, Func<int, string, int, bool> onFound)
+    {
+        if (string.IsNullOrEmpty(uid) || onFound == null)
+        {
+            return false;
+        }
 
         var holder = FindType("PlayerDataHolder");
         var getItems = holder?.GetMethod(
@@ -1320,6 +1791,7 @@ public static class SeqChapterAutoCatch
             }
         }
 
+        var foundAny = false;
         for (var i = 8; i < list.Count; i++)
         {
             var item = list[i];
@@ -1376,12 +1848,16 @@ public static class SeqChapterAutoCatch
                 rawIndex = i;
             }
 
-            itemIndex = rawIndex;
-            itemName = string.IsNullOrEmpty(name) ? ("#" + rawIndex) : name;
-            return true;
+            var pile = ReadIntMember(data, "Pile");
+            var itemName = string.IsNullOrEmpty(name) ? ("#" + rawIndex) : name;
+            foundAny = true;
+            if (!onFound(rawIndex, itemName, pile))
+            {
+                return true;
+            }
         }
 
-        return false;
+        return foundAny;
     }
 
     private static bool SendBattleCmd(object battleMgr, string uid, string cmd, bool setMagic)
