@@ -361,6 +361,25 @@ def apply_auto_sell_external(hotfix: Path, source: Path) -> tuple[bool, str]:
     return True, "盗贼辅助·DLL版：已部署 DLL + 百科开关"
 
 
+def apply_plugin_host(hotfix: Path, source: Path) -> tuple[bool, str]:
+    """插件 Host：SeqChapterPluginHost.dll.bytes + Pause 加载 + 百科开自绘面板。"""
+    proc = run_patcher_capture(
+        [
+            "plugin-host-patch",
+            "--hotfix",
+            str(source),
+            "--output",
+            str(hotfix),
+        ]
+    )
+    out = (proc.stdout or "") + (proc.stderr or "")
+    if proc.returncode != 0:
+        return False, out.strip() or "插件 Host 补丁失败"
+    if "[SKIP]" in out and "Host" in out:
+        return True, "插件 Host：已是补丁状态（跳过）"
+    return True, "插件 Host：已部署 DLL + Pause 加载 + 百科开面板"
+
+
 def _emit_combo(messages: list[str], on_log, text: str) -> None:
     messages.append(text)
     if on_log is None:
@@ -381,6 +400,7 @@ def _apply_gameplay_patches(
     auto_seal_external: bool,
     auto_catch_external: bool,
     auto_sell_external: bool,
+    plugin_host: bool,
     customer_gm: bool,
     customer_gm_mode: str,
     map_sprint: bool,
@@ -511,6 +531,13 @@ def _apply_gameplay_patches(
             raise RuntimeError(msg)
         _emit_combo(messages, on_log, msg)
         work = hotfix
+    if plugin_host:
+        _emit_combo(messages, on_log, "正在打：插件 Host（百科面板）…")
+        ok, msg = apply_plugin_host(hotfix, work)
+        if not ok:
+            raise RuntimeError(msg)
+        _emit_combo(messages, on_log, msg)
+        work = hotfix
     if wiki_label:
         _emit_combo(messages, on_log, "正在打：百科文字→百科1…")
         ok, msg = apply_wiki_label(hotfix, work)
@@ -536,6 +563,7 @@ def apply_combo(
     auto_seal_external: bool = False,
     auto_catch_external: bool = False,
     auto_sell_external: bool = False,
+    plugin_host: bool = False,
     customer_gm: bool = False,
     customer_gm_mode: str = "autoskill",
     map_sprint: bool = False,
@@ -594,21 +622,28 @@ def apply_combo(
     if auto_sell_external and wiki_label:
         raise RuntimeError("盗贼辅助·DLL 已占用侧栏百科按钮，不能同时启用百科文字→百科1。")
 
-    # DLL 互斥（共用 OnApplicationPause）：九动DLL / 烧卡 / 抓宠 / 盗贼辅助 / 桥接
+    if plugin_host and wiki_download_res:
+        raise RuntimeError("插件 Host 已占用侧栏百科按钮，不能同时启用百科→资源下载。")
+
+    if plugin_host and wiki_label:
+        raise RuntimeError("插件 Host 已占用侧栏百科按钮，不能同时启用百科文字→百科1。")
+
+    # DLL 互斥（共用 OnApplicationPause）：九动DLL / 烧卡 / 抓宠 / 盗贼辅助 / 桥接 / Host
     # IL 九动仅与九动DLL互斥（上方已检），可与盗贼辅助等 DLL 共存
     exclusive_flags = [
         ("神奇九动·DLL", battle_nine_external),
         ("自动烧卡·DLL", auto_seal_external),
         ("自动抓宠·DLL", auto_catch_external),
         ("盗贼辅助·DLL", auto_sell_external),
+        ("插件 Host", plugin_host),
         ("注入桥接·DLL", inject_bridge),
     ]
     exclusive_on = [name for name, on in exclusive_flags if on]
     if len(exclusive_on) > 1:
         raise RuntimeError(
             "战斗扩展 DLL 互斥（只能勾一类）："
-            "神奇九动·DLL / 自动烧卡·DLL / 自动抓宠·DLL / 盗贼辅助·DLL / 注入桥接·DLL。\n"
-            "（IL 九动可与盗贼辅助等同打）\n"
+            "神奇九动·DLL / 自动烧卡·DLL / 自动抓宠·DLL / 盗贼辅助·DLL / 插件 Host / 注入桥接·DLL。\n"
+            "（IL 九动可与盗贼辅助等同打；Host 一期暂与其它扩展 DLL 互斥）\n"
             f"当前同时勾选了：{'、'.join(exclusive_on)}"
         )
 
@@ -643,6 +678,7 @@ def apply_combo(
         or auto_seal_external
         or auto_catch_external
         or auto_sell_external
+        or plugin_host
         or customer_gm
         or map_sprint
         or battle_longpress
@@ -663,6 +699,7 @@ def apply_combo(
         auto_seal_external=auto_seal_external,
         auto_catch_external=auto_catch_external,
         auto_sell_external=auto_sell_external,
+        plugin_host=plugin_host,
         customer_gm=customer_gm,
         customer_gm_mode=customer_gm_mode,
         map_sprint=map_sprint,
@@ -707,6 +744,7 @@ def apply_combo(
         "auto_seal_external": auto_seal_external,
         "auto_catch_external": auto_catch_external,
         "auto_sell_external": auto_sell_external,
+        "plugin_host": plugin_host,
         "customer_gm": customer_gm,
         "customer_gm_mode": customer_gm_mode if customer_gm else "",
         "map_sprint": map_sprint,

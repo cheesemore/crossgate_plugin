@@ -365,8 +365,18 @@ internal static class BattleNineActionExternalIlPatcher
     private static string ResolveNineSourceDir(string hotfixPath)
     {
         var hotfixDir = Path.GetDirectoryName(hotfixPath)!;
+        // 单文件发布时 BaseDirectory 在临时解压目录；ProcessPath 才是 exe 真实目录
+        var exeDir = Path.GetDirectoryName(Environment.ProcessPath ?? "")
+            ?? AppContext.BaseDirectory;
         var candidates = new List<string>
         {
+            // 傻瓜包：HotfixPatcher.exe 同级 / 上一级 tools/
+            Path.GetFullPath(Path.Combine(exeDir, "seqchapter_nine_action")),
+            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "seqchapter_nine_action")),
+            Path.GetFullPath(Path.Combine(exeDir, "..", "tools", "seqchapter_nine_action")),
+            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "tools", "seqchapter_nine_action")),
+            Path.GetFullPath(Path.Combine(exeDir, "..", "..", "seqchapter_nine_action")),
+            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "seqchapter_nine_action")),
             Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "seqchapter_nine_action")),
             Path.GetFullPath(Path.Combine(hotfixDir, "..", "..", "..", "tools", "seqchapter_nine_action")),
         };
@@ -384,7 +394,15 @@ internal static class BattleNineActionExternalIlPatcher
                 candidates.Add(probe);
             }
 
-            if (Directory.Exists(Path.Combine(dir, "cg37_Data")))
+            var repoProbe = Path.Combine(dir, "crossgate_plugin", "tools", "seqchapter_nine_action");
+            if (!candidates.Contains(repoProbe, StringComparer.OrdinalIgnoreCase))
+            {
+                candidates.Add(repoProbe);
+            }
+
+            // 源码常在游戏目录并列的 crossgate_plugin 下，勿在 cg37 根提前停
+            var parent = Path.GetDirectoryName(dir);
+            if (string.IsNullOrEmpty(parent))
             {
                 break;
             }
@@ -398,6 +416,7 @@ internal static class BattleNineActionExternalIlPatcher
             }
         }
 
-        throw new DirectoryNotFoundException("找不到 tools/seqchapter_nine_action 目录");
+        throw new DirectoryNotFoundException(
+            "找不到 tools/seqchapter_nine_action 目录（请把 seqchapter_nine_action 放在 HotfixPatcher.exe 同级，或游戏根目录 tools/ 下）");
     }
 }

@@ -57,7 +57,11 @@ def format_slack_summary(data: dict[str, Any]) -> str:
             else (
                 "可打"
                 if p.get("can_apply")
-                else ("需DLL版" if p.get("mode") == "external_dll" else "不够")
+                else (
+                    "需DLL版"
+                    if p.get("mode") in ("external_dll", "cecil_rewrite")
+                    else "不够"
+                )
             )
         )
         note = p.get("note") or ""
@@ -172,9 +176,16 @@ def assert_combo_slack_ok(
             continue
         pid = p.get("id")
         growth = int(p.get("growth_bytes") or 0)
+        mode = (p.get("mode") or "").strip()
+        # Cecil 外置 DLL：整包重写，不占 raw 追加；预检不应硬失败
+        if mode == "cecil_rewrite":
+            warnings.append(
+                f"{p.get('name')}({pid}): Cecil 重写（估算方法体 +{growth}B），不计入 raw 追加余量。"
+            )
+            continue
         # IL 九动：slack-report 的 usable 常受 raw_slack 限制偏紧；
         # BinaryPeWriter 可从 .reloc/.rsrc 压缩腾 raw，只要 VA 间隙够即可。
-        if pid in ("nine", "nine_queue") and p.get("mode") != "external_dll":
+        if pid in ("nine", "nine_queue") and mode != "external_dll":
             if growth > 0 and va_gap >= growth:
                 warnings.append(
                     f"神奇九动(IL) 测算 usable={usable}B < {growth}B，但 va_gap={va_gap}B 足够，"
@@ -186,7 +197,7 @@ def assert_combo_slack_ok(
                 f"请改用「神奇九动·DLL版」，或等客户端 .text 余量增大后再用 IL 版。"
             )
             continue
-        if pid in ("nine", "nine_queue") and p.get("mode") == "external_dll":
+        if pid in ("nine", "nine_queue") and mode == "external_dll":
             hard_fail.append(
                 f"神奇九动(IL) 间隙不足（需 {p.get('growth_bytes')}B，可用 {usable}B）。"
                 f"请改用「神奇九动·DLL版」，或等客户端 .text 余量增大后再用 IL 版。"

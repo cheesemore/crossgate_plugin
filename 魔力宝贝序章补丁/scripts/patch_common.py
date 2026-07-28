@@ -542,11 +542,13 @@ def _sync_patcher_tree(src_dir: Path, dst_dir: Path) -> bool:
         return False
 
 
-# 烧卡/抓宠源码：随 HotfixPatcher.exe 旁打包，避免目标游戏目录无 tools/ 时找不到
+# 外置 DLL 源码：随 HotfixPatcher.exe 旁打包，避免目标游戏目录无 tools/ 时找不到
 _EXTERNAL_PATCH_SOURCES = (
     ("seqchapter_auto_seal", "SeqChapterAutoSeal.cs"),
     ("seqchapter_auto_catch", "SeqChapterAutoCatch.cs"),
     ("seqchapter_auto_sell", "SeqChapterAutoSell.cs"),
+    ("seqchapter_nine_action", "SeqChapterNineAction.cs"),
+    ("seqchapter_plugin_host", "SeqChapterPluginHost.cs"),
 )
 
 

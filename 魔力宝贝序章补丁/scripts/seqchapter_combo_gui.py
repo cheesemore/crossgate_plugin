@@ -135,6 +135,7 @@ class ComboPatchApp:
         self.auto_seal_external_var = tk.BooleanVar(value=False)
         self.auto_catch_external_var = tk.BooleanVar(value=False)
         self.auto_sell_external_var = tk.BooleanVar(value=False)
+        self.plugin_host_var = tk.BooleanVar(value=False)
         self.inject_bridge_var = tk.BooleanVar(value=False)
         self.customer_gm_var = tk.BooleanVar(value=True)
         self.customer_gm_mode_var = tk.StringVar(value="autoskill")
@@ -253,7 +254,7 @@ class ComboPatchApp:
         # --- 战斗扩展 ---
         ttk.Label(
             tab_battle,
-            text="DLL 互斥（只能勾一类）：神奇九动·DLL / 烧卡 / 抓宠 / 盗贼辅助 / 桥接；IL 九动可与盗贼辅助等同打",
+            text="DLL 互斥（只能勾一类）：神奇九动·DLL / 烧卡 / 抓宠 / 盗贼辅助 / 插件 Host / 桥接；IL 九动可与盗贼辅助等同打",
             wraplength=520,
             foreground="#555555",
         ).pack(anchor=tk.W, pady=(0, 8))
@@ -305,6 +306,19 @@ class ComboPatchApp:
         ttk.Label(
             tab_battle,
             text="默认关闭。点百科 Tip「盗贼辅助已开启/关闭」。开启后标题「★盗贼辅助★N次战斗后出售」；每 10 次退战给全部角色远程出售魔石（需月卡）。可与 IL 九动同打。",
+            wraplength=500,
+            foreground="#666666",
+            font=("Microsoft YaHei UI", 8),
+        ).pack(anchor=tk.W, padx=(18, 0), pady=(2, 0))
+        ttk.Checkbutton(
+            tab_battle,
+            text="插件 Host·实验（百科打开自绘面板；一期仅骨架，功能二期接入）",
+            variable=self.plugin_host_var,
+            command=lambda: self._on_battle_exclusive_toggle("host"),
+        ).pack(anchor=tk.W, pady=(8, 0))
+        ttk.Label(
+            tab_battle,
+            text="点侧栏百科打开最高层级面板；烧卡/抓宠/盗贼在面板内互斥勾选（一期为占位）。与其它扩展 DLL 暂互斥。",
             wraplength=500,
             foreground="#666666",
             font=("Microsoft YaHei UI", 8),
@@ -371,6 +385,7 @@ class ComboPatchApp:
             "seal": self.auto_seal_external_var,
             "catch": self.auto_catch_external_var,
             "sell": self.auto_sell_external_var,
+            "host": self.plugin_host_var,
             "bridge": self.inject_bridge_var,
         }
         active = var_map.get(which)
@@ -673,6 +688,7 @@ class ComboPatchApp:
                 or self.auto_seal_external_var.get()
                 or self.auto_catch_external_var.get()
                 or self.auto_sell_external_var.get()
+                or self.plugin_host_var.get()
                 or self.customer_gm_var.get()
                 or self.map_sprint_var.get()
                 or self.battle_longpress_var.get()
@@ -688,13 +704,14 @@ class ComboPatchApp:
                 self.auto_seal_external_var.get(),
                 self.auto_catch_external_var.get(),
                 self.auto_sell_external_var.get(),
+                self.plugin_host_var.get(),
                 self.inject_bridge_var.get(),
             ]
             if sum(1 for x in dll_exclusive if x) > 1:
                 messagebox.showerror(
                     "互斥冲突",
-                    "DLL 扩展只能勾一类：神奇九动·DLL / 烧卡 / 抓宠 / 盗贼辅助 / 桥接。\n"
-                    "（IL 九动可与盗贼辅助等同打）",
+                    "DLL 扩展只能勾一类：神奇九动·DLL / 烧卡 / 抓宠 / 盗贼辅助 / 插件 Host / 桥接。\n"
+                    "（IL 九动可与盗贼辅助等同打；Host 一期暂与其它扩展 DLL 互斥）",
                 )
                 return
             if self.battle_nine_action_var.get() and self.battle_nine_external_var.get():
@@ -710,6 +727,7 @@ class ComboPatchApp:
                 auto_seal_external=self.auto_seal_external_var.get(),
                 auto_catch_external=self.auto_catch_external_var.get(),
                 auto_sell_external=self.auto_sell_external_var.get(),
+                plugin_host=self.plugin_host_var.get(),
                 customer_gm=self.customer_gm_var.get(),
                 customer_gm_mode=self.customer_gm_mode_var.get(),
                 map_sprint=self.map_sprint_var.get(),
