@@ -134,6 +134,7 @@ class ComboPatchApp:
         self.battle_nine_external_var = tk.BooleanVar(value=False)
         self.auto_seal_external_var = tk.BooleanVar(value=False)
         self.auto_catch_external_var = tk.BooleanVar(value=False)
+        self.auto_sell_external_var = tk.BooleanVar(value=False)
         self.inject_bridge_var = tk.BooleanVar(value=False)
         self.customer_gm_var = tk.BooleanVar(value=True)
         self.customer_gm_mode_var = tk.StringVar(value="autoskill")
@@ -252,7 +253,7 @@ class ComboPatchApp:
         # --- 战斗扩展 ---
         ttk.Label(
             tab_battle,
-            text="互斥四选一（只能勾一类）：神奇九动 / 自动烧卡·DLL / 自动抓宠·DLL / 注入桥接·DLL",
+            text="DLL 互斥（只能勾一类）：神奇九动·DLL / 烧卡 / 抓宠 / 盗贼辅助 / 桥接；IL 九动可与盗贼辅助等同打",
             wraplength=520,
             foreground="#555555",
         ).pack(anchor=tk.W, pady=(0, 8))
@@ -261,11 +262,11 @@ class ComboPatchApp:
             tab_battle,
             text="神奇九动·IL原版（默认；需足够 .text 间隙）",
             variable=self.battle_nine_action_var,
-            command=lambda: self._on_battle_exclusive_toggle("nine_il"),
+            command=lambda: self._on_nine_il_toggle(),
         ).pack(anchor=tk.W)
         ttk.Checkbutton(
             tab_battle,
-            text="神奇九动·DLL版（间隙不足时用；算「神奇九动」这一类）",
+            text="神奇九动·DLL版（间隙不足时用；与其它 DLL 互斥）",
             variable=self.battle_nine_external_var,
             command=lambda: self._on_battle_exclusive_toggle("nine_dll"),
         ).pack(anchor=tk.W, pady=(4, 0))
@@ -277,7 +278,7 @@ class ComboPatchApp:
         ).pack(anchor=tk.W, pady=(8, 0))
         ttk.Label(
             tab_battle,
-            text="默认关闭。点侧栏百科：Tip「自动烧卡已开启」/「自动烧卡已关闭」。仅队长本机回合烧队长背包；队员不烧。与抓宠互斥。",
+            text="默认关闭。点侧栏百科：Tip「自动烧卡已开启」/「自动烧卡已关闭」。仅队长本机回合烧队长背包；队员不烧。与抓宠/盗贼辅助互斥。",
             wraplength=500,
             foreground="#666666",
             font=("Microsoft YaHei UI", 8),
@@ -290,7 +291,20 @@ class ComboPatchApp:
         ).pack(anchor=tk.W, pady=(8, 0))
         ttk.Label(
             tab_battle,
-            text="默认关闭。点百科 Tip 开关。有一级：P1 扔卡 · P2 一号技能 · 其余人物 G · 宠物固定防御 W|0（SkillId74，不检技能栏）。与烧卡互斥。",
+            text="默认关闭。点百科 Tip 开关。有一级：P1 扔卡 · P2 一号技能 · 其余人物 G · 宠物固定防御 W|0（SkillId74，不检技能栏）。与烧卡/盗贼辅助互斥。",
+            wraplength=500,
+            foreground="#666666",
+            font=("Microsoft YaHei UI", 8),
+        ).pack(anchor=tk.W, padx=(18, 0), pady=(2, 0))
+        ttk.Checkbutton(
+            tab_battle,
+            text="盗贼辅助·DLL版（远程出售魔石；点百科 Tip 开关；不进傻瓜补丁）",
+            variable=self.auto_sell_external_var,
+            command=lambda: self._on_battle_exclusive_toggle("sell"),
+        ).pack(anchor=tk.W, pady=(8, 0))
+        ttk.Label(
+            tab_battle,
+            text="默认关闭。点百科 Tip「盗贼辅助已开启/关闭」。开启后标题「★盗贼辅助★N次战斗后出售」；每 10 次退战给全部角色远程出售魔石（需月卡）。可与 IL 九动同打。",
             wraplength=500,
             foreground="#666666",
             font=("Microsoft YaHei UI", 8),
@@ -303,7 +317,7 @@ class ComboPatchApp:
         ).pack(anchor=tk.W, pady=(8, 0))
         ttk.Label(
             tab_battle,
-            text="与九动/封印/抓宠互斥（共用 OnApplicationPause 加载器）。",
+            text="与九动DLL/烧卡/抓宠/盗贼辅助互斥（共用 OnApplicationPause 加载器）。",
             wraplength=500,
             foreground="#666666",
             font=("Microsoft YaHei UI", 8),
@@ -336,15 +350,27 @@ class ComboPatchApp:
             else:
                 button.configure(state=tk.NORMAL if enabled else tk.DISABLED)
 
+    def _on_nine_il_toggle(self) -> None:
+        """IL 九动仅与九动 DLL 互斥。"""
+        if self._patch_toggle_guard:
+            return
+        if not self.battle_nine_action_var.get():
+            return
+        self._patch_toggle_guard = True
+        try:
+            self.battle_nine_external_var.set(False)
+        finally:
+            self._patch_toggle_guard = False
+
     def _on_battle_exclusive_toggle(self, which: str) -> None:
-        """战斗扩展互斥：神奇九动(IL/DLL) / 自动烧卡 / 自动抓宠 / 注入桥接，四类只能勾一类。"""
+        """DLL 互斥：九动DLL / 烧卡 / 抓宠 / 盗贼辅助 / 桥接。勾九动DLL 时顺带关掉 IL 九动。"""
         if self._patch_toggle_guard:
             return
         var_map = {
-            "nine_il": self.battle_nine_action_var,
             "nine_dll": self.battle_nine_external_var,
             "seal": self.auto_seal_external_var,
             "catch": self.auto_catch_external_var,
+            "sell": self.auto_sell_external_var,
             "bridge": self.inject_bridge_var,
         }
         active = var_map.get(which)
@@ -355,6 +381,8 @@ class ComboPatchApp:
             for key, var in var_map.items():
                 if key != which:
                     var.set(False)
+            if which == "nine_dll":
+                self.battle_nine_action_var.set(False)
         finally:
             self._patch_toggle_guard = False
 
@@ -591,6 +619,7 @@ class ComboPatchApp:
                 battle_nine_external=self.battle_nine_external_var.get(),
                 auto_seal_external=self.auto_seal_external_var.get(),
                 auto_catch_external=self.auto_catch_external_var.get(),
+                auto_sell_external=self.auto_sell_external_var.get(),
                 customer_gm=self.customer_gm_var.get(),
                 map_sprint=self.map_sprint_var.get(),
                 battle_longpress=self.battle_longpress_var.get(),
@@ -643,6 +672,7 @@ class ComboPatchApp:
                 or self.battle_nine_external_var.get()
                 or self.auto_seal_external_var.get()
                 or self.auto_catch_external_var.get()
+                or self.auto_sell_external_var.get()
                 or self.customer_gm_var.get()
                 or self.map_sprint_var.get()
                 or self.battle_longpress_var.get()
@@ -653,21 +683,24 @@ class ComboPatchApp:
             ):
                 messagebox.showwarning("未选择", "请至少勾选一项补丁")
                 return
-            exclusive = [
-                self.battle_nine_action_var.get(),
+            dll_exclusive = [
                 self.battle_nine_external_var.get(),
                 self.auto_seal_external_var.get(),
                 self.auto_catch_external_var.get(),
+                self.auto_sell_external_var.get(),
                 self.inject_bridge_var.get(),
             ]
-            if sum(1 for x in exclusive if x) > 1:
-                messagebox.showwarning(
-                    "冲突",
-                    "战斗扩展互斥四选一：\n"
-                    "神奇九动（IL 或 DLL） / 自动烧卡·DLL / 自动抓宠·DLL / 注入桥接·DLL\n"
-                    "请只保留一类。",
+            if sum(1 for x in dll_exclusive if x) > 1:
+                messagebox.showerror(
+                    "互斥冲突",
+                    "DLL 扩展只能勾一类：神奇九动·DLL / 烧卡 / 抓宠 / 盗贼辅助 / 桥接。\n"
+                    "（IL 九动可与盗贼辅助等同打）",
                 )
                 return
+            if self.battle_nine_action_var.get() and self.battle_nine_external_var.get():
+                messagebox.showerror("互斥冲突", "神奇九动 IL原版 与 DLL版 不能同时勾选。")
+                return
+
             apply_combo(
                 vip=self.vip_var.get(),
                 vip_non_vip=self.vip_non_vip_var.get(),
@@ -676,6 +709,7 @@ class ComboPatchApp:
                 battle_nine_external=self.battle_nine_external_var.get(),
                 auto_seal_external=self.auto_seal_external_var.get(),
                 auto_catch_external=self.auto_catch_external_var.get(),
+                auto_sell_external=self.auto_sell_external_var.get(),
                 customer_gm=self.customer_gm_var.get(),
                 customer_gm_mode=self.customer_gm_mode_var.get(),
                 map_sprint=self.map_sprint_var.get(),

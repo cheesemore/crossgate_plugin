@@ -39,7 +39,7 @@ internal static class SlackReport
         {
             Console.WriteLine(
                 "用法: HotfixPatcher slack-report --hotfix <hotfix.dll.bytes> [--json] [--check id1,id2,...]\n" +
-                "常见 id: vip, sprint, longpress, level_one_include_all, customer_gm, skill_effect, bridge, nine, nine_queue, nine_magics, nine_external, auto_seal_external, auto_catch_external");
+                "常见 id: vip, sprint, longpress, level_one_include_all, customer_gm, skill_effect, bridge, nine, nine_queue, nine_magics, nine_external, auto_seal_external, auto_catch_external, auto_sell_external");
             return 1;
         }
 
@@ -204,6 +204,14 @@ internal static class SlackReport
             "append",
             false,
             "Pause 加载器 + Player/Pet 钩 + 百科 Tip 开关；与烧卡/桥接/九动DLL互斥，可与 IL 九动共存"));
+
+        list.Add(new PatchSlackProfile(
+            "auto_sell_external",
+            "盗贼辅助·DLL版",
+            200,
+            "append",
+            false,
+            "Pause 加载器 + 百科 Tip；标题★盗贼辅助★N次战斗后出售；与烧卡/抓宠/桥接/九动DLL互斥，可与 IL 九动共存；不进傻瓜补丁"));
 
         var nine = EstimateNineGrowth(asm, pe);
         list.Add(new PatchSlackProfile(

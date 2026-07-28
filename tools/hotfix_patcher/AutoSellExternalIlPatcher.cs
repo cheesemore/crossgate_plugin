@@ -6,22 +6,18 @@ using Mono.Cecil.Cil;
 namespace CrossgateMod.Patcher;
 
 /// <summary>
-/// 自动抓宠·DLL版：Pause 加载 SeqChapterAutoCatch.dll.bytes，
-/// 钩 AutoFight_PlayerAction / AutoFight_PetAction，以及月卡 VIP 路径
-/// DoVipPlayerAutoFight / DoVipPetAutoFight（否则 VIP 自动技会绕过抓宠防御）。
-/// 并将 MapSidebarPanel.OnClickWiki 改为 OnWikiClick（点百科 Tip 切换流水线开/关）。
-/// 与烧封印/助手桥接/神奇九动·DLL版互斥（共用 OnApplicationPause）；可与 IL 九动共存。
+/// 盗贼辅助·DLL版：Pause 加载 SeqChapterAutoSell.dll.bytes，
+/// MapSidebarPanel.OnClickWiki → OnWikiClick（Tip 开关）。
+/// 与助手桥接、神奇九动·DLL、烧卡/抓宠互斥（共用 OnApplicationPause）；可与 IL 九动共存。
 /// </summary>
-internal static class AutoCatchExternalIlPatcher
+internal static class AutoSellExternalIlPatcher
 {
-    public const string AssetFileName = "SeqChapterAutoCatch.dll.bytes";
-    public const string TypeName = "SeqChapterAutoCatch";
+    public const string AssetFileName = "SeqChapterAutoSell.dll.bytes";
+    public const string TypeName = "SeqChapterAutoSell";
     public const string BootstrapName = "Bootstrap";
-    public const string EntryName = "TryPlayerAutoCatch";
-    public const string PetEntryName = "TryPetAutoCatch";
     public const string WikiEntryName = "OnWikiClick";
     public const string DllAssetPath = "hotfixdata/" + AssetFileName;
-    public const string TempDllSuffix = "/seqchapter_auto_catch.dll";
+    public const string TempDllSuffix = "/seqchapter_auto_sell.dll";
 
     public static int Run(string[] args)
     {
@@ -52,9 +48,9 @@ internal static class AutoCatchExternalIlPatcher
         if (string.IsNullOrWhiteSpace(source))
         {
             Console.WriteLine(
-                "用法: HotfixPatcher auto-catch-external-patch --hotfix <orig> --output <out>\n" +
-                "      HotfixPatcher auto-catch-external-patch --hotfix <file> --detect\n" +
-                "      HotfixPatcher auto-catch-external-patch --hotfix <orig> --output <out> --restore");
+                "用法: HotfixPatcher auto-sell-external-patch --hotfix <orig> --output <out>\n" +
+                "      HotfixPatcher auto-sell-external-patch --hotfix <file> --detect\n" +
+                "      HotfixPatcher auto-sell-external-patch --hotfix <orig> --output <out> --restore");
             return 1;
         }
 
@@ -77,7 +73,7 @@ internal static class AutoCatchExternalIlPatcher
         try
         {
             Apply(source, output);
-            Console.WriteLine("[OK] 自动抓宠·DLL版补丁完成: " + output);
+            Console.WriteLine("[OK] 盗贼辅助·DLL版补丁完成: " + output);
             return 0;
         }
         catch (Exception ex)
@@ -92,14 +88,14 @@ internal static class AutoCatchExternalIlPatcher
         var origBytes = File.ReadAllBytes(sourcePath);
         var expectedSize = HotfixSize.Require(origBytes);
 
-        var dllPath = BuildAutoCatchDll(sourcePath);
+        var dllPath = BuildAutoSellDll(sourcePath);
         var assetOut = Path.Combine(Path.GetDirectoryName(outputPath)!, AssetFileName);
         var deployedNew = false;
         try
         {
             File.Copy(dllPath, assetOut, overwrite: true);
             deployedNew = true;
-            Console.WriteLine("[AUTO-CATCH] 已部署 " + assetOut);
+            Console.WriteLine("[AUTO-SELL] 已部署 " + assetOut);
 
             var hotfixDir = Path.GetDirectoryName(sourcePath)!;
             var resolver = new HotfixAssemblyResolver(hotfixDir);
@@ -116,7 +112,6 @@ internal static class AutoCatchExternalIlPatcher
             var entryStartMethod = hotfixEntry.Methods.First(m => m.Name == "Start" && m.HasBody);
             var userStrings = UserStringHeap.FromPe(origBytes);
 
-            // Pause / 百科统一 Assembly.Load(bytes)（与助手桥接相同），避免 LoadFrom 落盘失败静默无反应
             BridgeLoaderIlBuilder.BuildLoaderBodyInPlace(
                 pauseMethod,
                 asm.MainModule,
@@ -127,14 +122,6 @@ internal static class AutoCatchExternalIlPatcher
                 bootstrapName: BootstrapName);
             BridgeLoaderIlBuilder.BuildQuitTriggersPauseBody(quitMethod, pauseMethod, asm.MainModule);
             BridgeLoaderIlBuilder.ApplyDeferredTimerStartHook(entryStartMethod.Body, quitMethod, asm.MainModule);
-
-            var battleProcesser = asm.MainModule.Types.First(t => t.Name == "BattleProcesser");
-            var playerAction = battleProcesser.Methods.First(
-                m => m.Name == "AutoFight_PlayerAction" && m.HasBody && m.Parameters.Count == 0);
-            InjectBoolHook(playerAction, asm.MainModule, EntryName, "PlayerAction");
-            var petAction = battleProcesser.Methods.First(
-                m => m.Name == "AutoFight_PetAction" && m.HasBody && m.Parameters.Count == 0);
-            InjectBoolHook(petAction, asm.MainModule, PetEntryName, "PetAction");
 
             var mapSidebar = asm.MainModule.Types.FirstOrDefault(t => t.Name == "MapSidebarPanel")
                 ?? throw new InvalidOperationException("未找到 MapSidebarPanel");
@@ -147,10 +134,10 @@ internal static class AutoCatchExternalIlPatcher
                 TypeName,
                 WikiEntryName,
                 TempDllSuffix,
-                tipOn: "自动抓宠已开启",
-                tipOff: "自动抓宠已关闭",
-                tipFail: "自动抓宠加载失败");
-            Console.WriteLine("[AUTO-CATCH] OnClickWiki -> OnWikiClick + 原版 Tip");
+                tipOn: "盗贼辅助已开启",
+                tipOff: "盗贼辅助已关闭",
+                tipFail: "盗贼辅助加载失败");
+            Console.WriteLine("[AUTO-SELL] OnClickWiki -> OnWikiClick + 原版 Tip");
 
             using var ms = new MemoryStream();
             asm.Write(ms);
@@ -168,15 +155,8 @@ internal static class AutoCatchExternalIlPatcher
             var outBytes = File.ReadAllBytes(outputPath);
             var growth = (long)PeLayout.GetSection(outBytes, ".text").VirtualSize
                          - (long)PeLayout.GetSection(origBytes, ".text").VirtualSize;
-            Console.WriteLine($"[AUTO-CATCH] .text VirtualSize {(growth >= 0 ? "+" : "")}{growth}");
+            Console.WriteLine($"[AUTO-SELL] .text VirtualSize {(growth >= 0 ? "+" : "")}{growth}");
             HotfixSize.EnsureUnchanged(outBytes, expectedSize);
-
-            // 原版不给哥布林打 LevelOneFlag；抓宠依赖「一级含哥布林」或 Level==1 兜底
-            if (!LevelOneIncludeAllIlPatcher.IsPatched(outputPath))
-            {
-                LevelOneIncludeAllIlPatcher.Apply(outputPath, outputPath);
-                Console.WriteLine("[AUTO-CATCH] 已附带：遇敌一级含哥布林/迷你蝙蝠");
-            }
         }
         catch
         {
@@ -187,7 +167,7 @@ internal static class AutoCatchExternalIlPatcher
                     if (!File.Exists(outputPath) || !IsPatched(outputPath))
                     {
                         File.Delete(assetOut);
-                        Console.WriteLine("[AUTO-CATCH] 失败回滚，已删除 " + assetOut);
+                        Console.WriteLine("[AUTO-SELL] 失败回滚，已删除 " + assetOut);
                     }
                 }
                 catch
@@ -200,96 +180,10 @@ internal static class AutoCatchExternalIlPatcher
         }
     }
 
-    /// <summary>
-    /// 方法入口：entry()==true 则 ret，否则走原逻辑。无 EH（HybridCLR 更稳）。
-    /// </summary>
-    private static void InjectBoolHook(
-        MethodDefinition method,
-        ModuleDefinition module,
-        string entryName,
-        string label)
-    {
-        if (IsHookInstalled(method, entryName))
-        {
-            Console.WriteLine($"[AUTO-CATCH] {label} 钩已存在，跳过");
-            return;
-        }
-
-        var body = method.Body;
-        if (body.Instructions.Count == 0)
-        {
-            throw new InvalidOperationException(method.Name + " 无指令");
-        }
-
-        var il = body.GetILProcessor();
-        var getType = BridgeLoaderIlBuilder.ImportTypeGetTypeStaticPublic(module);
-        var getMethod = BridgeLoaderIlBuilder.ImportTypeGetMethodPublic(module);
-        var invoke = BridgeLoaderIlBuilder.ImportMethodInvokePublic(module);
-
-        var continueAt = body.Instructions[0];
-        var haveType = il.Create(OpCodes.Nop);
-        var haveMethod = il.Create(OpCodes.Nop);
-        var unboxLabel = il.Create(OpCodes.Nop);
-
-        var block = new List<Instruction>
-        {
-            il.Create(OpCodes.Ldstr, TypeName + ", " + TypeName),
-            il.Create(OpCodes.Call, getType),
-            il.Create(OpCodes.Dup),
-            il.Create(OpCodes.Brtrue, haveType),
-            il.Create(OpCodes.Pop),
-            il.Create(OpCodes.Br, continueAt),
-            haveType,
-            il.Create(OpCodes.Ldstr, entryName),
-            il.Create(OpCodes.Callvirt, getMethod),
-            il.Create(OpCodes.Dup),
-            il.Create(OpCodes.Brtrue, haveMethod),
-            il.Create(OpCodes.Pop),
-            il.Create(OpCodes.Br, continueAt),
-            haveMethod,
-            il.Create(OpCodes.Ldnull),
-            il.Create(OpCodes.Ldnull),
-            il.Create(OpCodes.Callvirt, invoke),
-            il.Create(OpCodes.Dup),
-            il.Create(OpCodes.Brtrue, unboxLabel),
-            il.Create(OpCodes.Pop),
-            il.Create(OpCodes.Br, continueAt),
-            unboxLabel,
-            il.Create(OpCodes.Unbox_Any, module.TypeSystem.Boolean),
-            il.Create(OpCodes.Brfalse, continueAt),
-            il.Create(OpCodes.Ret),
-        };
-
-        for (var i = 0; i < block.Count; i++)
-        {
-            il.InsertBefore(continueAt, block[i]);
-        }
-
-        body.InitLocals = true;
-        IlSerializer.RecalculateOffsets(body);
-        body.MaxStackSize = Math.Max(body.MaxStackSize, (short)8);
-        Console.WriteLine($"[AUTO-CATCH] 已注入 {entryName}（{label}，无 EH）");
-    }
-
-    private static bool IsHookInstalled(MethodDefinition method, string entryName)
-    {
-        foreach (var insn in method.Body.Instructions)
-        {
-            if (insn.OpCode == OpCodes.Ldstr && insn.Operand is string s
-                && (s == entryName || s == TypeName + ", " + TypeName))
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
     public static bool IsPatched(string hotfixPath)
     {
         try
         {
-            // DLL 丢失时百科/Pause 会静默失败，必须视为未打齐
             var asset = Path.Combine(Path.GetDirectoryName(hotfixPath)!, AssetFileName);
             if (!File.Exists(asset))
             {
@@ -299,14 +193,13 @@ internal static class AutoCatchExternalIlPatcher
             var pe = File.ReadAllBytes(hotfixPath);
             var ascii = System.Text.Encoding.ASCII.GetString(pe);
             var uni = System.Text.Encoding.Unicode.GetString(pe);
-            if (!ascii.Contains("SeqChapterAutoCatch") && !uni.Contains("SeqChapterAutoCatch")
+            if (!ascii.Contains("SeqChapterAutoSell") && !uni.Contains("SeqChapterAutoSell")
                 && !ascii.Contains(AssetFileName)
-                && !ContainsUtf16(pe, "SeqChapterAutoCatch"))
+                && !ContainsUtf16(pe, "SeqChapterAutoSell"))
             {
                 return false;
             }
 
-            // 整文件 Unicode.GetString 可能错位漏检；用字节级 UTF-16 搜用户字符串
             if (!ContainsUtf16(pe, "OnWikiClick") && !ascii.Contains("OnWikiClick") && !uni.Contains("OnWikiClick"))
             {
                 return false;
@@ -320,18 +213,7 @@ internal static class AutoCatchExternalIlPatcher
             });
             var pause = asm.MainModule.Types.First(t => t.Name == "HotfixEntry")
                 .Methods.First(m => m.Name == "OnApplicationPause" && m.HasBody);
-            if (pause.Body.Instructions.Count <= 8)
-            {
-                return false;
-            }
-
-            var battleProcesser = asm.MainModule.Types.FirstOrDefault(t => t.Name == "BattleProcesser");
-            var playerAction = battleProcesser?.Methods.FirstOrDefault(
-                m => m.Name == "AutoFight_PlayerAction" && m.HasBody && m.Parameters.Count == 0);
-            var petAction = battleProcesser?.Methods.FirstOrDefault(
-                m => m.Name == "AutoFight_PetAction" && m.HasBody && m.Parameters.Count == 0);
-            return playerAction != null && IsHookInstalled(playerAction, EntryName)
-                   && petAction != null && IsHookInstalled(petAction, PetEntryName);
+            return pause.Body.Instructions.Count > 8;
         }
         catch
         {
@@ -339,19 +221,19 @@ internal static class AutoCatchExternalIlPatcher
         }
     }
 
-    private static string BuildAutoCatchDll(string hotfixPath)
+    private static string BuildAutoSellDll(string hotfixPath)
     {
         var srcDir = ResolveSourceDir(hotfixPath);
-        var csPath = Path.Combine(srcDir, "SeqChapterAutoCatch.cs");
+        var csPath = Path.Combine(srcDir, "SeqChapterAutoSell.cs");
         if (!File.Exists(csPath))
         {
-            throw new FileNotFoundException("找不到 SeqChapterAutoCatch.cs", csPath);
+            throw new FileNotFoundException("找不到 SeqChapterAutoSell.cs", csPath);
         }
 
         var hotfixDataDir = Path.GetDirectoryName(hotfixPath)!;
-        var outDir = Path.Combine(Path.GetTempPath(), "seqchapter_autocatch_" + Guid.NewGuid().ToString("N"));
+        var outDir = Path.Combine(Path.GetTempPath(), "seqchapter_autosell_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(outDir);
-        var dllPath = Path.Combine(outDir, "SeqChapterAutoCatch.dll");
+        var dllPath = Path.Combine(outDir, "SeqChapterAutoSell.dll");
 
         var refs = new List<MetadataReference>();
         foreach (var name in new[] { "mscorlib.dll.bytes", "system.dll.bytes", "system.core.dll.bytes" })
@@ -365,7 +247,7 @@ internal static class AutoCatchExternalIlPatcher
 
         if (refs.Count == 0)
         {
-            throw new InvalidOperationException("未找到 hotfixdata 内 mscorlib/system，无法编译自动抓宠 DLL");
+            throw new InvalidOperationException("未找到 hotfixdata 内 mscorlib/system，无法编译盗贼辅助 DLL");
         }
 
         var syntax = CSharpSyntaxTree.ParseText(
@@ -373,7 +255,7 @@ internal static class AutoCatchExternalIlPatcher
             path: csPath,
             encoding: System.Text.Encoding.UTF8);
         var compile = CSharpCompilation.Create(
-            "SeqChapterAutoCatch",
+            "SeqChapterAutoSell",
             new[] { syntax },
             refs,
             new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary)
@@ -386,28 +268,27 @@ internal static class AutoCatchExternalIlPatcher
             var errors = string.Join(
                 Environment.NewLine,
                 result.Diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error).Select(d => d.ToString()));
-            throw new InvalidOperationException("Roslyn 编译 SeqChapterAutoCatch 失败:\n" + errors);
+            throw new InvalidOperationException("Roslyn 编译 SeqChapterAutoSell 失败:\n" + errors);
         }
 
         File.WriteAllBytes(dllPath, ms.ToArray());
-        Console.WriteLine($"[AUTO-CATCH] 已编译自动抓宠 DLL（{refs.Count} 个引用）");
+        Console.WriteLine($"[AUTO-SELL] 已编译盗贼辅助 DLL（{refs.Count} 个引用）");
         return dllPath;
     }
 
     private static string ResolveSourceDir(string hotfixPath)
     {
         var hotfixDir = Path.GetDirectoryName(hotfixPath)!;
-        // 单文件发布时 BaseDirectory 在临时解压目录；ProcessPath 才是 exe 真实目录
         var exeDir = Path.GetDirectoryName(Environment.ProcessPath ?? "")
             ?? AppContext.BaseDirectory;
         var candidates = new List<string>
         {
-            Path.GetFullPath(Path.Combine(exeDir, "seqchapter_auto_catch")),
-            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "seqchapter_auto_catch")),
-            Path.GetFullPath(Path.Combine(exeDir, "..", "tools", "seqchapter_auto_catch")),
-            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "tools", "seqchapter_auto_catch")),
-            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "seqchapter_auto_catch")),
-            Path.GetFullPath(Path.Combine(hotfixDir, "..", "..", "..", "tools", "seqchapter_auto_catch")),
+            Path.GetFullPath(Path.Combine(exeDir, "seqchapter_auto_sell")),
+            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "seqchapter_auto_sell")),
+            Path.GetFullPath(Path.Combine(exeDir, "..", "tools", "seqchapter_auto_sell")),
+            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "tools", "seqchapter_auto_sell")),
+            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "seqchapter_auto_sell")),
+            Path.GetFullPath(Path.Combine(hotfixDir, "..", "..", "..", "tools", "seqchapter_auto_sell")),
         };
 
         for (var dir = hotfixDir; ; dir = Path.GetDirectoryName(dir)!)
@@ -417,7 +298,7 @@ internal static class AutoCatchExternalIlPatcher
                 break;
             }
 
-            var probe = Path.Combine(dir, "tools", "seqchapter_auto_catch");
+            var probe = Path.Combine(dir, "tools", "seqchapter_auto_sell");
             if (!candidates.Contains(probe, StringComparer.OrdinalIgnoreCase))
             {
                 candidates.Add(probe);
@@ -431,14 +312,14 @@ internal static class AutoCatchExternalIlPatcher
 
         foreach (var dir in candidates)
         {
-            if (File.Exists(Path.Combine(dir, "SeqChapterAutoCatch.cs")))
+            if (File.Exists(Path.Combine(dir, "SeqChapterAutoSell.cs")))
             {
                 return dir;
             }
         }
 
         throw new DirectoryNotFoundException(
-            "找不到 tools/seqchapter_auto_catch 目录（请把 seqchapter_auto_catch 放在 HotfixPatcher.exe 同级，或游戏根目录 tools/ 下）");
+            "找不到 tools/seqchapter_auto_sell 目录（请把 seqchapter_auto_sell 放在 HotfixPatcher.exe 同级，或游戏根目录 tools/ 下）");
     }
 
     private static bool ContainsUtf16(byte[] pe, string text)
@@ -449,8 +330,7 @@ internal static class AutoCatchExternalIlPatcher
             return false;
         }
 
-        var end = pe.Length - needle.Length;
-        for (var i = 0; i <= end; i++)
+        for (var i = 0; i <= pe.Length - needle.Length; i++)
         {
             var ok = true;
             for (var j = 0; j < needle.Length; j++)

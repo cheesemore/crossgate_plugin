@@ -11,7 +11,7 @@ using System.Threading;
 /// 场上有可抓一级敌宠时（LevelOneFlag 或 Level==1；排除迷你蝙蝠 101242；含哥布林 101800）：
 ///   P1(队长/队序0) 扔封印卡（无卡则走原自动）；
 ///   P2(队序1) 放 1 号技能（Config[0] 的 Skillindex/Techindex，即位置编号非 SkillId）；
-///   其余人物防御 G；所有宠物固定防御（对齐 SkillId=74：W|0|GetBattlePetIndex(false)，不扫技能栏）。
+///   其余人物防御 G；所有宠物防御（PetSkills 中 SkillId=74 的栏位，W|slot|petIndex）。
 /// 无「可抓一级」则走原自动。
 /// 退战后（仅队长，且 PipelineEnabled）：
 ///   1) 需停挂机时立刻发「停止挂机」；
@@ -31,10 +31,10 @@ public static class SeqChapterAutoCatch
 
     private const int SealFlagMask = 0x100;
     /// <summary>
-    /// 宠物防御 SkillId（原版 74）。指令不带 SkillId，自动配置/NewDefenseData 均用 Techindex=0，
-    /// 故固定发 W|0|{petIndex}，不检测 PetSkills 是否仍有防御技。
+    /// 宠物防御：在 PetSkills 里找 SkillId=74 的栏位发 W|{slot}|{petIndex}。
+    /// 注意：不可固定 slot=0——0 号常是攻击，会导致「防御」实为出手。
     /// </summary>
-    private const int PetDefendTechIndex = 0;
+    private const int PetDefendSkillId = 74;
     /// <summary>迷你蝙蝠形象 ID：一级也不抓。</summary>
     private const int MiniBatAnimationId = 101242;
     /// <summary>CHAR_PET_BATTLE.REST — 休息。</summary>
@@ -1635,14 +1635,72 @@ public static class SeqChapterAutoCatch
         cmd = "";
         try
         {
-            // 固定防御（SkillId 74）：不扫 PetSkills。原版自动配置/NewDefenseData 的 Techindex=0。
+            var player = GetPlayerFromUid(uid);
+            if (player == null)
+            {
+                return false;
+            }
+
+            var battlePetId = Convert.ToInt32(GetMember(player, "battlePetID") ?? -1);
+            if (battlePetId < 0)
+            {
+                return false;
+            }
+
+            var holder = FindType("PlayerDataHolder");
+            var getPets = holder?.GetMethod(
+                "GetPetDatasFromUid",
+                BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic);
+            var pets = getPets?.Invoke(null, new object[] { uid }) as IList;
+            if (pets == null || battlePetId >= pets.Count)
+            {
+                return false;
+            }
+
+            var pet = pets[battlePetId];
+            if (pet == null || Convert.ToInt32(GetMember(pet, "useFlag") ?? 0) != 1)
+            {
+                return false;
+            }
+
+            var data = GetMember(pet, "data");
+            var skills = GetMember(data, "PetSkills") as IList;
+            if (skills == null)
+            {
+                return false;
+            }
+
+            // SendPetCommand 用 Techindex 下标取 PetSkills[i]；优先匹配 SkillId=74 的下标。
+            // 若技能的 Index 字段与下标不一致，仍用下标（与 SendPetCommand 一致）。
+            var defendSlot = -1;
+            for (var i = 0; i < skills.Count; i++)
+            {
+                var sk = skills[i];
+                if (sk == null)
+                {
+                    continue;
+                }
+
+                var sid = Convert.ToInt32(GetMember(sk, "SkillId") ?? 0);
+                if (sid == PetDefendSkillId)
+                {
+                    defendSlot = i;
+                    break;
+                }
+            }
+
+            if (defendSlot < 0)
+            {
+                return false;
+            }
+
             var petIndex = ResolveBattlePetIndex(battleMgr);
             if (petIndex < 0)
             {
                 return false;
             }
 
-            cmd = "W|" + PetDefendTechIndex.ToString("X") + "|" + petIndex.ToString("X");
+            cmd = "W|" + defendSlot.ToString("X") + "|" + petIndex.ToString("X");
             return true;
         }
         catch

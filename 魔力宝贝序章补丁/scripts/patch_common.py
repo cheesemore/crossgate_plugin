@@ -545,6 +545,7 @@ def _sync_patcher_tree(src_dir: Path, dst_dir: Path) -> bool:
 _EXTERNAL_PATCH_SOURCES = (
     ("seqchapter_auto_seal", "SeqChapterAutoSeal.cs"),
     ("seqchapter_auto_catch", "SeqChapterAutoCatch.cs"),
+    ("seqchapter_auto_sell", "SeqChapterAutoSell.cs"),
 )
 
 
@@ -1001,6 +1002,7 @@ def adopt_client_hotfix_update(game_root: Path | None = None) -> list[str]:
         "SeqChapterNineAction.dll.bytes",
         "SeqChapterAutoSeal.dll.bytes",
         "SeqChapterAutoCatch.dll.bytes",
+        "SeqChapterAutoSell.dll.bytes",
     ):
         extra = hf_dir / name
         if extra.is_file():

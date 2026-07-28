@@ -10,6 +10,7 @@ DEFAULT_COMBO_KWARGS = {
     "battle_nine_external": False,
     "auto_seal_external": False,
     "auto_catch_external": False,
+    "auto_sell_external": False,
     "customer_gm": True,
     "customer_gm_mode": "autoskill",
     "map_sprint": True,

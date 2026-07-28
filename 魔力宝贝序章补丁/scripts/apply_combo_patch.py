@@ -342,6 +342,25 @@ def apply_auto_catch_external(hotfix: Path, source: Path) -> tuple[bool, str]:
     return True, "自动抓宠·DLL版：已部署 DLL + 战斗钩 + 百科开关"
 
 
+def apply_auto_sell_external(hotfix: Path, source: Path) -> tuple[bool, str]:
+    """盗贼辅助·DLL版：SeqChapterAutoSell.dll.bytes + 百科开关；每10场退战远程出售魔石。"""
+    proc = run_patcher_capture(
+        [
+            "auto-sell-external-patch",
+            "--hotfix",
+            str(source),
+            "--output",
+            str(hotfix),
+        ]
+    )
+    out = (proc.stdout or "") + (proc.stderr or "")
+    if proc.returncode != 0:
+        return False, out.strip() or "盗贼辅助·DLL版补丁失败"
+    if "[SKIP]" in out and "盗贼辅助" in out:
+        return True, "盗贼辅助·DLL版：已是补丁状态（跳过）"
+    return True, "盗贼辅助·DLL版：已部署 DLL + 百科开关"
+
+
 def _emit_combo(messages: list[str], on_log, text: str) -> None:
     messages.append(text)
     if on_log is None:
@@ -361,6 +380,7 @@ def _apply_gameplay_patches(
     battle_nine_external: bool,
     auto_seal_external: bool,
     auto_catch_external: bool,
+    auto_sell_external: bool,
     customer_gm: bool,
     customer_gm_mode: str,
     map_sprint: bool,
@@ -469,7 +489,7 @@ def _apply_gameplay_patches(
             raise RuntimeError(msg)
         _emit_combo(messages, on_log, msg)
 
-    # 自动烧卡/抓宠/百科文字最后打：Cecil 改方法体，避免挡在二进制补丁前面
+    # 自动烧卡/抓宠/盗贼辅助/百科文字最后打：Cecil 改方法体，避免挡在二进制补丁前面
     if auto_seal_external:
         _emit_combo(messages, on_log, "正在打：自动烧卡·DLL版…")
         ok, msg = apply_auto_seal_external(hotfix, work)
@@ -480,6 +500,13 @@ def _apply_gameplay_patches(
     if auto_catch_external:
         _emit_combo(messages, on_log, "正在打：自动抓宠·DLL版…")
         ok, msg = apply_auto_catch_external(hotfix, work)
+        if not ok:
+            raise RuntimeError(msg)
+        _emit_combo(messages, on_log, msg)
+        work = hotfix
+    if auto_sell_external:
+        _emit_combo(messages, on_log, "正在打：盗贼辅助·DLL版…")
+        ok, msg = apply_auto_sell_external(hotfix, work)
         if not ok:
             raise RuntimeError(msg)
         _emit_combo(messages, on_log, msg)
@@ -508,6 +535,7 @@ def apply_combo(
     battle_nine_external: bool = False,
     auto_seal_external: bool = False,
     auto_catch_external: bool = False,
+    auto_sell_external: bool = False,
     customer_gm: bool = False,
     customer_gm_mode: str = "autoskill",
     map_sprint: bool = False,
@@ -554,19 +582,33 @@ def apply_combo(
     if auto_catch_external and wiki_label:
         raise RuntimeError("自动抓宠·DLL 已占用侧栏百科按钮，不能同时启用百科文字→百科1。")
 
-    # 战斗扩展互斥四选一：神奇九动 / 自动烧卡·DLL / 自动抓宠·DLL / 注入桥接·DLL
+    if auto_seal_external and wiki_download_res:
+        raise RuntimeError("自动烧卡·DLL 已占用侧栏百科按钮，不能同时启用百科→资源下载。")
+
+    if auto_seal_external and wiki_label:
+        raise RuntimeError("自动烧卡·DLL 已占用侧栏百科按钮，不能同时启用百科文字→百科1。")
+
+    if auto_sell_external and wiki_download_res:
+        raise RuntimeError("盗贼辅助·DLL 已占用侧栏百科按钮，不能同时启用百科→资源下载。")
+
+    if auto_sell_external and wiki_label:
+        raise RuntimeError("盗贼辅助·DLL 已占用侧栏百科按钮，不能同时启用百科文字→百科1。")
+
+    # DLL 互斥（共用 OnApplicationPause）：九动DLL / 烧卡 / 抓宠 / 盗贼辅助 / 桥接
+    # IL 九动仅与九动DLL互斥（上方已检），可与盗贼辅助等 DLL 共存
     exclusive_flags = [
-        ("神奇九动·IL", battle_nine_action),
         ("神奇九动·DLL", battle_nine_external),
         ("自动烧卡·DLL", auto_seal_external),
         ("自动抓宠·DLL", auto_catch_external),
+        ("盗贼辅助·DLL", auto_sell_external),
         ("注入桥接·DLL", inject_bridge),
     ]
     exclusive_on = [name for name, on in exclusive_flags if on]
     if len(exclusive_on) > 1:
         raise RuntimeError(
-            "战斗扩展互斥四选一（只能勾一类）："
-            "神奇九动（IL或DLL） / 自动烧卡·DLL / 自动抓宠·DLL / 注入桥接·DLL。\n"
+            "战斗扩展 DLL 互斥（只能勾一类）："
+            "神奇九动·DLL / 自动烧卡·DLL / 自动抓宠·DLL / 盗贼辅助·DLL / 注入桥接·DLL。\n"
+            "（IL 九动可与盗贼辅助等同打）\n"
             f"当前同时勾选了：{'、'.join(exclusive_on)}"
         )
 
@@ -579,6 +621,7 @@ def apply_combo(
         battle_nine_external=battle_nine_external,
         auto_seal_external=auto_seal_external,
         auto_catch_external=auto_catch_external,
+        auto_sell_external=auto_sell_external,
         customer_gm=customer_gm,
         map_sprint=map_sprint,
         battle_longpress=battle_longpress,
@@ -599,6 +642,7 @@ def apply_combo(
         or battle_nine_external
         or auto_seal_external
         or auto_catch_external
+        or auto_sell_external
         or customer_gm
         or map_sprint
         or battle_longpress
@@ -618,6 +662,7 @@ def apply_combo(
         battle_nine_external=battle_nine_external,
         auto_seal_external=auto_seal_external,
         auto_catch_external=auto_catch_external,
+        auto_sell_external=auto_sell_external,
         customer_gm=customer_gm,
         customer_gm_mode=customer_gm_mode,
         map_sprint=map_sprint,
@@ -661,6 +706,7 @@ def apply_combo(
         "battle_nine_external": battle_nine_external,
         "auto_seal_external": auto_seal_external,
         "auto_catch_external": auto_catch_external,
+        "auto_sell_external": auto_sell_external,
         "customer_gm": customer_gm,
         "customer_gm_mode": customer_gm_mode if customer_gm else "",
         "map_sprint": map_sprint,
