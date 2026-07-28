@@ -1,12 +1,14 @@
 using System;
 using System.Collections;
 using System.Reflection;
+using System.Threading;
 
 /// <summary>
 /// 自动烧卡 DLL（原「自动封印」）。部署为 hotfixdata/SeqChapterAutoSeal.dll.bytes
 /// Pause 延迟加载后 Bootstrap；AutoFight_PlayerAction 入口调 TryPlayerAutoSeal。
 /// 侧栏百科 = 手动开关：默认 PipelineEnabled=false；点百科 Tip 切换开/关。
 /// 开启后：仅队长（本机 MainPlayerUid 且队序 0）回合，从其背包扔封印卡；队员不烧卡。
+/// 退战（仅队长）：Tip 队长背包封印卡剩余数量；若为 0 则发「停止挂机」。
 /// 开启时窗口标题追加「 ★自动烧卡中★」。关闭后不走烧卡逻辑。
 /// </summary>
 public static class SeqChapterAutoSeal
@@ -19,6 +21,9 @@ public static class SeqChapterAutoSeal
     private const int SealFlagMask = 0x100;
 
     private static bool _bootstrapped;
+    private static bool _exitHooked;
+    private static Action _onExitBattle;
+    private static int _exitPipelineRunning;
 
     public static bool IsPipelineActive()
     {
@@ -38,6 +43,7 @@ public static class SeqChapterAutoSeal
         }
 
         _bootstrapped = true;
+        TryHookExitBattle();
     }
 
     /// <summary>MapSidebarPanel.OnClickWiki：切换烧卡；返回是否开启（由 hotfix IL 用原版 Tip 提示）。</summary>
@@ -318,6 +324,322 @@ public static class SeqChapterAutoSeal
         catch
         {
             return false;
+        }
+    }
+
+    private static void TryHookExitBattle()
+    {
+        if (_exitHooked)
+        {
+            return;
+        }
+
+        try
+        {
+            var ecType = FindType("EventCenter");
+            if (ecType == null)
+            {
+                return;
+            }
+
+            object instance = null;
+            for (var cur = ecType; cur != null; cur = cur.BaseType)
+            {
+                var instProp = cur.GetProperty(
+                    "Instance",
+                    BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.FlattenHierarchy);
+                if (instProp != null)
+                {
+                    instance = instProp.GetValue(null, null);
+                    if (instance != null)
+                    {
+                        break;
+                    }
+                }
+            }
+
+            if (instance == null)
+            {
+                return;
+            }
+
+            var exitEv = GetMember(instance, "ExitBattle");
+            if (exitEv == null)
+            {
+                return;
+            }
+
+            _onExitBattle = OnBattleExited;
+            var add = exitEv.GetType().GetMethod(
+                "Add",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+                null,
+                new[] { typeof(Action) },
+                null);
+            if (add == null)
+            {
+                return;
+            }
+
+            add.Invoke(exitEv, new object[] { _onExitBattle });
+            _exitHooked = true;
+        }
+        catch
+        {
+            // 退战钩失败时战斗内烧卡仍可用
+        }
+    }
+
+    private static void OnBattleExited()
+    {
+        if (!IsPipelineActive())
+        {
+            return;
+        }
+
+        try
+        {
+            var mainUid = GetStaticString("PlayerDataHolder", "MainPlayerUid");
+            if (string.IsNullOrEmpty(mainUid))
+            {
+                return;
+            }
+
+            // 仅队长客户端
+            var slot = GetPartySlot(mainUid);
+            if (slot != 0 && slot < 90)
+            {
+                return;
+            }
+
+            if (Interlocked.CompareExchange(ref _exitPipelineRunning, 1, 0) != 0)
+            {
+                return;
+            }
+
+            var uid = mainUid;
+            var thread = new Thread(() =>
+            {
+                try
+                {
+                    RunExitSealCheck(uid);
+                }
+                catch
+                {
+                    // ignore
+                }
+                finally
+                {
+                    Interlocked.Exchange(ref _exitPipelineRunning, 0);
+                }
+            });
+            thread.IsBackground = true;
+            thread.Name = "SeqChapterAutoSeal.ExitPipeline";
+            thread.Start();
+        }
+        catch
+        {
+            Interlocked.Exchange(ref _exitPipelineRunning, 0);
+        }
+    }
+
+    /// <summary>
+    /// 退战：Tip 队长背包封印卡剩余张数；为 0 且仍在自动遇敌则「停止挂机」。
+    /// </summary>
+    private static void RunExitSealCheck(string uid)
+    {
+        if (!IsPipelineActive() || string.IsNullOrEmpty(uid))
+        {
+            return;
+        }
+
+        var remain = CountSealCardsInBag(uid);
+        Tip("封印卡剩余 " + remain + " 张");
+
+        if (remain > 0)
+        {
+            return;
+        }
+
+        if (!IsEncounterActive(uid))
+        {
+            return;
+        }
+
+        try
+        {
+            TrySendAutoBattle("停止挂机", uid);
+            Tip("封印卡已用尽，已停止自动遇敌");
+        }
+        catch
+        {
+            // ignore
+        }
+    }
+
+    /// <summary>背包封印卡总张数（各格 Pile 之和；判定与战斗用卡一致）。</summary>
+    private static int CountSealCardsInBag(string uid)
+    {
+        var total = 0;
+        try
+        {
+            var holder = FindType("PlayerDataHolder");
+            var getItems = holder?.GetMethod(
+                "GetItemDatasFromUid",
+                BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic);
+            var list = getItems?.Invoke(null, new object[] { uid }) as IList;
+            if (list == null)
+            {
+                return 0;
+            }
+
+            MethodInfo canUse = null;
+            var itemMgr = GetManagerInstance("ItemManager");
+            if (itemMgr != null)
+            {
+                foreach (var m in itemMgr.GetType().GetMethods(
+                             BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+                {
+                    if (m.Name == "CanUseInBattle" && m.GetParameters().Length == 2)
+                    {
+                        canUse = m;
+                        break;
+                    }
+                }
+            }
+
+            for (var i = 8; i < list.Count; i++)
+            {
+                var item = list[i];
+                if (item == null || Convert.ToInt32(GetMember(item, "useFlag") ?? 0) != 1)
+                {
+                    continue;
+                }
+
+                var data = GetMember(item, "data");
+                if (data == null)
+                {
+                    continue;
+                }
+
+                var typeVal = Convert.ToInt32(GetMember(data, "Type") ?? 0);
+                if (typeVal < 23)
+                {
+                    continue;
+                }
+
+                var flg = Convert.ToInt32(GetMember(data, "Flg") ?? 0);
+                var name = Convert.ToString(GetMember(data, "Name") ?? GetMember(data, "name") ?? "");
+                var typeName = Convert.ToString(GetMember(data, "TypeName") ?? "");
+                var nameHit = (!string.IsNullOrEmpty(name) && name.IndexOf("封印", StringComparison.Ordinal) >= 0)
+                              || (!string.IsNullOrEmpty(typeName)
+                                  && typeName.IndexOf("封印", StringComparison.Ordinal) >= 0);
+                if (((flg & SealFlagMask) == 0) && !nameHit)
+                {
+                    continue;
+                }
+
+                if (canUse != null)
+                {
+                    try
+                    {
+                        if (!Convert.ToBoolean(canUse.Invoke(itemMgr, new object[] { data, uid })))
+                        {
+                            continue;
+                        }
+                    }
+                    catch
+                    {
+                        // ignore
+                    }
+                }
+
+                var pile = Convert.ToInt32(GetMember(data, "Pile") ?? 0);
+                total += pile > 0 ? pile : 1;
+            }
+        }
+        catch
+        {
+            return total;
+        }
+
+        return total;
+    }
+
+    private static bool IsEncounterActive(string uid)
+    {
+        try
+        {
+            var player = GetPlayerFromUid(uid);
+            if (player != null)
+            {
+                var status = Convert.ToInt32(GetMember(player, "encounterStatus") ?? 0);
+                if (status != 0)
+                {
+                    return true;
+                }
+            }
+
+            var pdata = GetStaticField("PlayerDataHolder", "playerData");
+            return Convert.ToInt32(GetMember(pdata, "encounterStatus") ?? 0) != 0;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static void TrySendAutoBattle(string action, string mainUid)
+    {
+        try
+        {
+            if (action == "停止挂机")
+            {
+                var player = GetPlayerFromUid(mainUid);
+                if (player != null)
+                {
+                    var status = Convert.ToInt32(GetMember(player, "encounterStatus") ?? 0);
+                    if (status == 0)
+                    {
+                        var pdata = GetStaticField("PlayerDataHolder", "playerData");
+                        status = Convert.ToInt32(GetMember(pdata, "encounterStatus") ?? 0);
+                    }
+
+                    if (status == 0)
+                    {
+                        return;
+                    }
+                }
+            }
+
+            var roleMgr = GetManagerInstance("RoleManager");
+            var send = roleMgr?.GetType().GetMethod(
+                "SendAutoBattle",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+                null,
+                new[] { typeof(string), typeof(string) },
+                null);
+            send?.Invoke(roleMgr, new object[] { action, mainUid });
+        }
+        catch
+        {
+            // ignore
+        }
+    }
+
+    private static object GetPlayerFromUid(string uid)
+    {
+        try
+        {
+            var holder = FindType("PlayerDataHolder");
+            var m = holder?.GetMethod(
+                "GetPlayerFromUid",
+                BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic);
+            return m?.Invoke(null, new object[] { uid });
+        }
+        catch
+        {
+            return null;
         }
     }
 
