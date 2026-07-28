@@ -1,15 +1,19 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""魔力宝贝：序章 — 傻瓜补丁（一键固定组合）。
+"""魔力宝贝：序章 — 傻瓜补丁（两包四模式）。
+
+发布物：
+  傻瓜补丁_九动版   → 九动加速 / 抓宠 / 烧卡 / 慢速烧卡
+  傻瓜补丁_融合版   → 普通加速 / 抓宠 / 烧卡 / 慢速烧卡
 
 用法：
-  傻瓜补丁.exe                打开界面
-  傻瓜补丁.exe --auto         无界面自动打补丁（供 一键打补丁.bat）
-  傻瓜补丁.exe --auto --burn-seal         仅自动烧卡（高速，兼容旧包）
-  傻瓜补丁.exe --auto --burn-seal-slow    仅慢速烧卡（无任何加速）
-  傻瓜补丁.exe --auto --auto-catch        仅自动抓宠（兼容旧包）
-  傻瓜补丁.exe --auto --no-nine           无九动
-烧卡/抓宠合一包（烧卡抓宠.flag）：界面三选一，只能打一种。
+  傻瓜补丁_*.exe              打开界面（四选一）
+  傻瓜补丁_*.exe --auto --accel
+  傻瓜补丁_*.exe --auto --burn-seal
+  傻瓜补丁_*.exe --auto --burn-seal-slow
+  傻瓜补丁_*.exe --auto --auto-catch
+
+拒绝自愈时，界面可选手选干净目录恢复 hotfix（无默认源）后再打。
 """
 from __future__ import annotations
 
@@ -19,8 +23,14 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, scrolledtext, ttk
 
-from foolproof_apply import FoolproofError, resolve_game_root, run_foolproof_patch
-from patch_common import DATA_DIR, EXPECTED_SIZE, detect_game_root_from_launcher, get_game_root
+from foolproof_apply import (
+    FoolproofError,
+    is_unclean_client_error,
+    resolve_game_root,
+    restore_hotfixdata_from_clean,
+    run_foolproof_patch,
+)
+from patch_common import EXPECTED_SIZE, detect_game_root_from_launcher, get_game_root
 
 
 def _flag_bases() -> list[Path]:
@@ -39,81 +49,34 @@ def _has_flag(*names: str) -> bool:
     return False
 
 
-def _detect_seal_catch_choice() -> bool:
-    """烧卡/抓宠合一包：界面可选其一。"""
-    if any(
-        a in ("--seal-catch", "--burn-or-catch", "/seal-catch")
-        for a in sys.argv[1:]
-    ):
+def _detect_nine_pack() -> bool:
+    if any(a in ("--nine-pack", "--with-nine-pack", "/nine-pack") for a in sys.argv[1:]):
         return True
-    return _has_flag("烧卡抓宠.flag", "SEAL_CATCH", "烧卡或抓宠.flag")
+    return _has_flag("九动版.flag", "NINE_PACK")
 
 
-def _detect_burn_seal() -> bool:
+def _detect_fusion_pack() -> bool:
     if any(
-        a in ("--burn-seal", "--burn-seal-cards", "--auto-burn", "/burn-seal")
-        for a in sys.argv[1:]
-    ):
-        return True
-    return _has_flag("烧封印.flag", "BURN_SEAL", "自动烧卡.flag")
-
-
-def _detect_burn_seal_slow() -> bool:
-    if any(
-        a in (
-            "--burn-seal-slow",
-            "--slow-burn-seal",
-            "--auto-burn-slow",
-            "/burn-seal-slow",
-        )
-        for a in sys.argv[1:]
-    ):
-        return True
-    return _has_flag("慢速烧卡.flag", "BURN_SEAL_SLOW", "烧卡慢速.flag")
-
-
-def _detect_auto_catch() -> bool:
-    if any(
-        a in (
-            "--auto-catch",
-            "--catch-pet",
-            "--pet-catch",
-            "/auto-catch",
-            "/catch-pet",
-        )
+        a in ("--fusion-pack", "--fusion", "--seal-catch", "--burn-or-catch", "/fusion-pack")
         for a in sys.argv[1:]
     ):
         return True
     return _has_flag(
-        "自动抓宠.flag",
-        "AUTO_CATCH",
-        "捉宠.flag",
-        "CATCH_PET",
+        "融合版.flag",
+        "FUSION_PACK",
+        "烧卡抓宠.flag",
+        "SEAL_CATCH",
+        "烧卡或抓宠.flag",
     )
 
 
-def _detect_no_nine() -> bool:
-    if any(a in ("--no-nine", "--without-nine", "/no-nine") for a in sys.argv[1:]):
-        return True
-    return _has_flag("无九动.flag", "NO_NINE")
-
-
-SEAL_CATCH_CHOICE = _detect_seal_catch_choice()
-# 合一包优先；旧独占 flag 仍可用
-BURN_SEAL_SLOW = (not SEAL_CATCH_CHOICE) and _detect_burn_seal_slow()
-BURN_SEAL = (not SEAL_CATCH_CHOICE) and (not BURN_SEAL_SLOW) and _detect_burn_seal()
-AUTO_CATCH = (not SEAL_CATCH_CHOICE) and _detect_auto_catch()
-NO_NINE = (
-    SEAL_CATCH_CHOICE
-    or BURN_SEAL
-    or BURN_SEAL_SLOW
-    or AUTO_CATCH
-    or _detect_no_nine()
-)
+# 两包：有九动版旗标 → 九动版；否则融合版（开发无旗标也当融合）
+NINE_PACK = _detect_nine_pack()
+FUSION_PACK = not NINE_PACK
+ACCEL_LABEL = "九动加速" if NINE_PACK else "普通加速"
 
 
 def show_popup(title: str, text: str, *, error: bool = False) -> None:
-    """成功/失败弹窗（无主窗口时也能用）。"""
     root = tk.Tk()
     root.withdraw()
     try:
@@ -126,74 +89,68 @@ def show_popup(title: str, text: str, *, error: bool = False) -> None:
 
 
 def _profile_title() -> str:
-    if SEAL_CATCH_CHOICE:
-        return "傻瓜补丁（烧卡/抓宠）"
-    if BURN_SEAL_SLOW:
-        return "傻瓜补丁（慢速烧卡）"
-    if BURN_SEAL:
-        return "傻瓜补丁（自动烧卡）"
-    if AUTO_CATCH:
-        return "傻瓜补丁（自动抓宠）"
-    if NO_NINE:
-        return "傻瓜补丁（无九动）"
-    return "傻瓜补丁"
+    if NINE_PACK:
+        return "傻瓜补丁（九动版）"
+    return "傻瓜补丁（融合版）"
 
 
-def _argv_modes() -> tuple[bool, bool, bool]:
-    """从命令行解析 burn / burn_slow / catch（互斥）。"""
+def _argv_mode() -> str | None:
+    """命令行模式：accel / burn / burn_slow / catch。"""
     argv = sys.argv[1:]
-    burn_slow = any(
-        a in ("--burn-seal-slow", "--slow-burn-seal", "--auto-burn-slow", "/burn-seal-slow")
-        for a in argv
-    )
-    burn = (not burn_slow) and any(
-        a in ("--burn-seal", "--burn-seal-cards", "--auto-burn", "/burn-seal") for a in argv
-    )
-    catch = any(
-        a in ("--auto-catch", "--catch-pet", "/auto-catch") for a in argv
-    )
-    return burn, burn_slow, catch
+    if any(a in ("--burn-seal-slow", "--slow-burn-seal", "--auto-burn-slow", "/burn-seal-slow") for a in argv):
+        return "burn_slow"
+    if any(a in ("--burn-seal", "--burn-seal-cards", "--auto-burn", "/burn-seal") for a in argv):
+        return "burn"
+    if any(a in ("--auto-catch", "--catch-pet", "/auto-catch") for a in argv):
+        return "catch"
+    if any(a in ("--accel", "--normal", "--nine-accel", "/accel") for a in argv):
+        return "accel"
+    return None
+
+
+def _mode_to_flags(mode: str) -> tuple[bool, bool, bool, bool]:
+    """enable_nine, burn, burn_slow, catch。"""
+    if mode == "accel":
+        return NINE_PACK, False, False, False
+    if mode == "burn":
+        return False, True, False, False
+    if mode == "burn_slow":
+        return False, False, True, False
+    if mode == "catch":
+        return False, False, False, True
+    raise FoolproofError("请选择：加速 / 抓宠 / 烧卡 / 慢速烧卡（只能打一个）。")
 
 
 def run_auto() -> int:
-    """命令行/ bat 一键：自动找游戏目录 → 打补丁 → 弹窗。"""
-    if SEAL_CATCH_CHOICE:
-        # 合一包必须指定其一，否则请开界面选
-        burn, burn_slow, catch = _argv_modes()
-        if sum(bool(x) for x in (burn, burn_slow, catch)) > 1:
-            show_popup(
-                f"{_profile_title()} — 失败",
-                "不能同时指定多个模式，请只选一个。",
-                error=True,
-            )
-            return 1
-        if not burn and not burn_slow and not catch:
-            show_popup(
-                f"{_profile_title()} — 失败",
-                "烧卡/抓宠合一包请打开界面选择，或：\n"
-                "  --auto --burn-seal\n"
-                "  --auto --burn-seal-slow\n"
-                "  --auto --auto-catch",
-                error=True,
-            )
-            return 1
-        burn_seal, burn_seal_slow, auto_catch = burn, burn_slow, catch
-    else:
-        burn_seal, burn_seal_slow, auto_catch = BURN_SEAL, BURN_SEAL_SLOW, AUTO_CATCH
-
+    mode = _argv_mode()
+    if mode is None:
+        show_popup(
+            f"{_profile_title()} — 失败",
+            "请打开界面选择模式，或指定其一：\n"
+            "  --auto --accel\n"
+            "  --auto --auto-catch\n"
+            "  --auto --burn-seal\n"
+            "  --auto --burn-seal-slow",
+            error=True,
+        )
+        return 1
     try:
+        enable_nine, burn, burn_slow, catch = _mode_to_flags(mode)
         msgs = run_foolproof_patch(
-            enable_nine=not NO_NINE,
-            burn_seal=burn_seal,
-            burn_seal_slow=burn_seal_slow,
-            auto_catch=auto_catch,
+            enable_nine=enable_nine,
+            burn_seal=burn,
+            burn_seal_slow=burn_slow,
+            auto_catch=catch,
             on_log=lambda line: print(line, flush=True),
         )
         detail = "\n".join(msgs[-8:]) if msgs else "补丁已打好。"
         show_popup(f"{_profile_title()} — 成功", f"补丁已打好。\n请启动游戏验证。\n\n{detail}")
         return 0
     except FoolproofError as exc:
-        show_popup(f"{_profile_title()} — 失败", str(exc), error=True)
+        hint = ""
+        if is_unclean_client_error(exc):
+            hint = "\n\n也可打开界面，选择从干净目录恢复后再打。"
+        show_popup(f"{_profile_title()} — 失败", str(exc) + hint, error=True)
         return 1
     except Exception as exc:
         show_popup(f"{_profile_title()} — 失败", str(exc), error=True)
@@ -204,8 +161,8 @@ class FoolproofApp(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
         self.title(_profile_title())
-        self.geometry("680x560")
-        self.minsize(580, 440)
+        self.geometry("720x600")
+        self.minsize(600, 460)
 
         body = ttk.Frame(self, padding=12)
         body.pack(fill=tk.BOTH, expand=True)
@@ -219,87 +176,47 @@ class FoolproofApp(tk.Tk):
         )
         ttk.Button(row, text="浏览…", command=self.browse).pack(side=tk.LEFT)
 
-        self.mode_var = tk.StringVar(value="")
-        if SEAL_CATCH_CHOICE:
-            tip = (
-                "固定组合（烧卡 / 慢速烧卡 / 抓宠 三选一）：\n"
-                "· 自动烧卡：战斗 10x · 特效 5x · 跑速快 · 一级含蝙蝠/哥布林 · 点百科 Tip；"
-                "退战 Tip 余卡，无卡停遇敌；标题「★自动烧卡中★」\n"
-                "· 慢速烧卡：烧卡逻辑同上，但无任何加速（无战斗倍速/特效/跑速）\n"
-                "· 自动抓宠：战斗 5x · 特效 2x · 一级含蝙蝠/哥布林 · 点百科 Tip；"
-                "宠物对齐防御键；标题「★自动中★遇到1级N只」\n"
-                "共同：自动技能 · 长按详情 · 无九动\n"
-                "只能打一种（共用侧栏百科开关）。不含：神奇九动、加速过场、助手桥接"
-            )
-            ttk.Label(body, text=tip, justify=tk.LEFT).pack(anchor=tk.W, pady=(10, 6))
-            mode_row = ttk.Frame(body)
-            mode_row.pack(anchor=tk.W, pady=(0, 8))
-            ttk.Label(mode_row, text="选择补丁：").pack(side=tk.LEFT)
+        pack_name = "九动版" if NINE_PACK else "融合版"
+        tip = (
+            f"本包：傻瓜补丁·{pack_name}（四选一，只能打一种）\n"
+            f"· {ACCEL_LABEL}：VIP/非VIP 5x · 特效 2x · 跑速快 · 自动技能 · 长按 · 一级含蝙蝠/哥布林"
+            + (" · 神奇九动·DLL" if NINE_PACK else " · 无九动")
+            + "\n"
+            "· 自动抓宠：点百科 Tip；战斗 5x · 特效 2x；标题「★自动中★…」\n"
+            "· 自动烧卡：点百科 Tip；战斗 10x · 特效 5x；标题「★自动烧卡中★」\n"
+            "· 慢速烧卡：烧卡逻辑同上，但无任何加速\n"
+            "抓宠/烧卡/慢速烧卡 均不含九动（与加速模式互斥）。不含加速过场、助手桥接。\n"
+            "若提示客户端不干净：可点「从干净目录恢复…」（需你手动选目录，无默认源）。"
+        )
+        ttk.Label(body, text=tip, justify=tk.LEFT).pack(anchor=tk.W, pady=(10, 6))
+
+        self.mode_var = tk.StringVar(value="accel")
+        mode_row = ttk.Frame(body)
+        mode_row.pack(anchor=tk.W, pady=(0, 8))
+        ttk.Label(mode_row, text="选择补丁：").pack(side=tk.LEFT)
+        for value, text in (
+            ("accel", ACCEL_LABEL),
+            ("catch", "自动抓宠"),
+            ("burn", "自动烧卡"),
+            ("burn_slow", "慢速烧卡"),
+        ):
             ttk.Radiobutton(
                 mode_row,
-                text="自动烧卡",
+                text=text,
                 variable=self.mode_var,
-                value="burn",
-            ).pack(side=tk.LEFT, padx=(8, 8))
-            ttk.Radiobutton(
-                mode_row,
-                text="慢速烧卡",
-                variable=self.mode_var,
-                value="burn_slow",
-            ).pack(side=tk.LEFT, padx=(0, 8))
-            ttk.Radiobutton(
-                mode_row,
-                text="自动封印",
-                variable=self.mode_var,
-                value="catch",
-            ).pack(side=tk.LEFT)
-            self.mode_var.set("burn")
-        elif BURN_SEAL_SLOW:
-            tip = (
-                "固定组合（慢速烧卡）：\n"
-                "默认关；点侧栏百科 Tip「自动烧卡已开启」/「自动烧卡已关闭」\n"
-                "烧卡逻辑同快速版，但无任何加速（无战斗倍速/特效/跑速）\n"
-                "· 自动技能 · 长按详情 · 一级含蝙蝠/哥布林 · 标题「★自动烧卡中★」\n"
-                "· 退战 Tip 剩余封印卡；为 0 则停止自动遇敌\n"
-                "不含：神奇九动、加速过场、助手桥接、自动抓宠"
-            )
-            ttk.Label(body, text=tip, justify=tk.LEFT).pack(anchor=tk.W, pady=(10, 6))
-        elif BURN_SEAL:
-            tip = (
-                "固定组合（自动烧卡）：\n"
-                "默认关；点侧栏百科 Tip「自动烧卡已开启」/「自动烧卡已关闭」\n"
-                "VIP/非VIP 10x · 特效 5x（最高）· 一级含蝙蝠/哥布林\n"
-                "· 自动技能 · 跑速快 · 长按详情 · 标题「★自动烧卡中★」\n"
-                "· 退战 Tip 剩余封印卡；为 0 则停止自动遇敌\n"
-                "不含：神奇九动、加速过场、助手桥接、自动抓宠"
-            )
-            ttk.Label(body, text=tip, justify=tk.LEFT).pack(anchor=tk.W, pady=(10, 6))
-        elif AUTO_CATCH:
-            tip = (
-                "固定组合（自动抓宠）：\n"
-                "默认关；点侧栏百科 Tip 开关（开：自动抓宠已开启 / 关：自动战斗已关闭）\n"
-                "一级且非迷你蝙蝠：P1 扔卡 · P2 一号技能 · 其余人物 G · 宠物对齐防御键（SkillId74→W|Index）\n"
-                "VIP/非VIP 5x · 特效 2x · 一级含蝙蝠/哥布林 · 无九动"
-            )
-            ttk.Label(body, text=tip, justify=tk.LEFT).pack(anchor=tk.W, pady=(10, 6))
-        elif NO_NINE:
-            tip = (
-                "固定组合（无九动）：\n"
-                "VIP/非VIP 5x · 特效 2x · 一级含蝙蝠/哥布林 · 自动技能 · 跑速快 · 长按详情\n"
-                "不含：神奇九动、加速过场、助手桥接、自动烧卡/抓宠"
-            )
-            ttk.Label(body, text=tip, justify=tk.LEFT).pack(anchor=tk.W, pady=(10, 6))
-        else:
-            tip = (
-                "固定组合：VIP/非VIP 5x · 神奇九动·DLL版 · 特效 2x · 一级含蝙蝠/哥布林\n"
-                "· 自动技能 · 跑速快 · 长按详情（本包固定 DLL 九动，不打 IL）"
-            )
-            ttk.Label(body, text=tip, justify=tk.LEFT).pack(anchor=tk.W, pady=(10, 6))
+                value=value,
+            ).pack(side=tk.LEFT, padx=(8, 0))
 
         btns = ttk.Frame(body)
         btns.pack(fill=tk.X, pady=(0, 8))
         self.apply_btn = ttk.Button(btns, text="一键打补丁", command=self.on_apply)
         self.apply_btn.pack(side=tk.LEFT)
+        self.restore_btn = ttk.Button(
+            btns,
+            text="从干净目录恢复…",
+            command=self.on_restore_clean,
+        )
+        self.restore_btn.pack(side=tk.LEFT, padx=(8, 0))
         ttk.Label(
             btns,
             text=f"期望 hotfix 体积 {EXPECTED_SIZE:,}",
@@ -330,49 +247,46 @@ class FoolproofApp(tk.Tk):
         self.log.insert(tk.END, line + "\n")
         self.log.see(tk.END)
 
-    def _resolve_modes(self) -> tuple[bool, bool, bool]:
-        """返回 (burn_seal, burn_seal_slow, auto_catch)。"""
-        if SEAL_CATCH_CHOICE:
-            mode = self.mode_var.get()
-            if mode == "burn":
-                return True, False, False
-            if mode == "burn_slow":
-                return False, True, False
-            if mode == "catch":
-                return False, False, True
-            raise FoolproofError("请选择：自动烧卡、慢速烧卡 或 自动抓宠（只能打一个）。")
-        return BURN_SEAL, BURN_SEAL_SLOW, AUTO_CATCH
+    def _game_root(self) -> Path | None:
+        raw = self.path_var.get().strip()
+        return Path(raw) if raw else None
 
-    def on_apply(self) -> None:
+    def _set_busy(self, busy: bool) -> None:
+        self._busy = busy
+        state = ["disabled"] if busy else ["!disabled"]
+        self.apply_btn.state(state)
+        self.restore_btn.state(state)
+
+    def on_restore_clean(self) -> None:
         if self._busy:
             return
-        raw = self.path_var.get().strip()
-        game_root = Path(raw) if raw else None
-        try:
-            burn_seal, burn_seal_slow, auto_catch = self._resolve_modes()
-        except FoolproofError as exc:
-            messagebox.showerror(f"{_profile_title()} — 失败", str(exc))
+        game_root = self._game_root()
+        if game_root is None:
+            messagebox.showerror(f"{_profile_title()} — 失败", "请先填写游戏目录。")
+            return
+        # 不设默认源：必须用户自选
+        clean = filedialog.askdirectory(
+            title="选择干净客户端目录（含 cg37.exe；勿选当前游戏目录）"
+        )
+        if not clean:
             return
 
-        self._busy = True
-        self.apply_btn.state(["disabled"])
+        self._set_busy(True)
         self.log.delete("1.0", tk.END)
 
         def work() -> None:
             try:
-                msgs = run_foolproof_patch(
+                msgs = restore_hotfixdata_from_clean(
+                    Path(clean),
                     game_root,
-                    enable_nine=not NO_NINE,
-                    burn_seal=burn_seal,
-                    burn_seal_slow=burn_seal_slow,
-                    auto_catch=auto_catch,
                     on_log=lambda line: self.after(0, self._append, line),
                 )
                 self.after(
                     0,
                     lambda: messagebox.showinfo(
-                        f"{_profile_title()} — 成功",
-                        "补丁已打好。\n请启动游戏验证。\n\n" + "\n".join(msgs[-6:]),
+                        f"{_profile_title()} — 恢复成功",
+                        "已从干净目录恢复 hotfix。\n可继续点「一键打补丁」。\n\n"
+                        + "\n".join(msgs[-6:]),
                     ),
                 )
             except FoolproofError as exc:
@@ -388,13 +302,103 @@ class FoolproofApp(tk.Tk):
                     lambda: messagebox.showerror(f"{_profile_title()} — 失败", str(exc)),
                 )
             finally:
-                def done() -> None:
-                    self._busy = False
-                    self.apply_btn.state(["!disabled"])
-
-                self.after(0, done)
+                self.after(0, lambda: self._set_busy(False))
 
         threading.Thread(target=work, daemon=True).start()
+
+    def _offer_restore_then_retry(self, err: FoolproofError) -> None:
+        if not is_unclean_client_error(err):
+            messagebox.showerror(f"{_profile_title()} — 失败", str(err))
+            return
+        if not messagebox.askyesno(
+            f"{_profile_title()} — 客户端不干净",
+            str(err)
+            + "\n\n是否现在选择一份干净客户端目录，恢复 hotfix 后再打补丁？\n"
+            "（不会预填路径，需你手动选择）",
+        ):
+            return
+        clean = filedialog.askdirectory(
+            title="选择干净客户端目录（含 cg37.exe；勿选当前游戏目录）"
+        )
+        if not clean:
+            return
+        game_root = self._game_root()
+        self._set_busy(True)
+
+        def work() -> None:
+            try:
+                root = self._game_root()
+                if root is None:
+                    raise FoolproofError("请先填写游戏目录。")
+                restore_hotfixdata_from_clean(
+                    Path(clean),
+                    root,
+                    on_log=lambda line: self.after(0, self._append, line),
+                )
+                self.after(0, self._append, "恢复完成，重新打补丁…")
+                self.after(0, self._apply_core)
+            except Exception as exc:
+                self.after(0, self._append, str(exc))
+                self.after(
+                    0,
+                    lambda: messagebox.showerror(f"{_profile_title()} — 失败", str(exc)),
+                )
+                self.after(0, lambda: self._set_busy(False))
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _apply_core(self) -> None:
+        """在工作线程或恢复后调用；结束后会解除 busy。"""
+        game_root = self._game_root()
+        try:
+            enable_nine, burn, burn_slow, catch = _mode_to_flags(self.mode_var.get())
+        except FoolproofError as exc:
+            messagebox.showerror(f"{_profile_title()} — 失败", str(exc))
+            self._set_busy(False)
+            return
+
+        def work() -> None:
+            try:
+                msgs = run_foolproof_patch(
+                    game_root,
+                    enable_nine=enable_nine,
+                    burn_seal=burn,
+                    burn_seal_slow=burn_slow,
+                    auto_catch=catch,
+                    on_log=lambda line: self.after(0, self._append, line),
+                )
+                self.after(
+                    0,
+                    lambda: messagebox.showinfo(
+                        f"{_profile_title()} — 成功",
+                        "补丁已打好。\n请启动游戏验证。\n\n" + "\n".join(msgs[-6:]),
+                    ),
+                )
+                self.after(0, lambda: self._set_busy(False))
+            except FoolproofError as exc:
+                self.after(0, self._append, str(exc))
+
+                def on_err() -> None:
+                    self._set_busy(False)
+                    self._offer_restore_then_retry(exc)
+
+                self.after(0, on_err)
+            except Exception as exc:
+                self.after(0, self._append, str(exc))
+                self.after(
+                    0,
+                    lambda: messagebox.showerror(f"{_profile_title()} — 失败", str(exc)),
+                )
+                self.after(0, lambda: self._set_busy(False))
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def on_apply(self) -> None:
+        if self._busy:
+            return
+        self._set_busy(True)
+        self.log.delete("1.0", tk.END)
+        self._apply_core()
 
 
 def main() -> int:

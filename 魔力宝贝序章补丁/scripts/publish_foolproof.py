@@ -1,13 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""构建「傻瓜补丁」独立包（含 HotfixPatcher + 一键打补丁.bat）→ E:\\cross序章\\发布plugin\\*.zip。
+"""构建「傻瓜补丁」独立包（九动版 / 融合版）→ E:\\cross序章\\发布plugin\\*.zip。
 
 用法：
-  python publish_foolproof.py                 # 默认含九动
-  python publish_foolproof.py --no-nine       # 无九动变体
-  python publish_foolproof.py --seal-catch    # 烧卡/抓宠合一（界面二选一）
-  python publish_foolproof.py --burn-seal     # 同 --seal-catch（兼容旧参数）
-  python publish_foolproof.py --auto-catch    # 同 --seal-catch（兼容旧参数）
+  python publish_foolproof.py --nine-pack      # 九动版（四选一：九动加速/抓宠/烧卡/慢速烧卡）
+  python publish_foolproof.py --fusion-pack    # 融合版（四选一：普通加速/抓宠/烧卡/慢速烧卡）
+  python publish_foolproof.py                  # 同 --fusion-pack
 """
 from __future__ import annotations
 
@@ -21,9 +19,8 @@ from pathlib import Path
 
 SCRIPTS_DIR = Path(__file__).resolve().parent
 TOOLKIT_ROOT = SCRIPTS_DIR.parent
-GAME_ROOT = TOOLKIT_ROOT.parent  # 插件仓库根（crossgate_plugin）
-CROSS_ROOT = GAME_ROOT.parent  # E:\cross序章
-# 统一发布目录（与游戏客户端、插件仓库并列）
+GAME_ROOT = TOOLKIT_ROOT.parent
+CROSS_ROOT = GAME_ROOT.parent
 RELEASE_DIR = CROSS_ROOT / "发布plugin"
 STAGING_DIR = RELEASE_DIR / "_foolproof_build"
 DIST_DIR = RELEASE_DIR / "dist_foolproof"
@@ -36,61 +33,38 @@ AUTO_CATCH_SRC = GAME_ROOT / "tools" / "seqchapter_auto_catch"
 NINE_ACTION_SRC = GAME_ROOT / "tools" / "seqchapter_nine_action"
 
 _ARGV = sys.argv[1:]
-# --burn-seal / --auto-catch 均导向合一包（界面二选一）
-SEAL_CATCH = any(
-    a in (
-        "--seal-catch",
-        "--burn-or-catch",
-        "--burn-seal",
-        "--burn-seal-cards",
-        "--auto-catch",
-        "--catch-pet",
-        "--pet-catch",
-        "/seal-catch",
-        "/burn-seal",
-        "/auto-catch",
-    )
-    for a in _ARGV
+NINE_PACK = any(a in ("--nine-pack", "--with-nine-pack", "/nine-pack") for a in _ARGV)
+# 默认融合版；显式 --nine-pack 才出九动版
+FUSION_PACK = (not NINE_PACK) or any(
+    a in ("--fusion-pack", "--fusion", "/fusion-pack") for a in _ARGV
 )
-NO_NINE = SEAL_CATCH or any(
-    a in ("--no-nine", "--without-nine", "/no-nine") for a in _ARGV
-)
+if NINE_PACK:
+    FUSION_PACK = False
 
-if SEAL_CATCH:
-    APP_NAME = "傻瓜补丁_烧卡抓宠"
-elif NO_NINE:
-    APP_NAME = "傻瓜补丁_无九动"
+if NINE_PACK:
+    APP_NAME = "傻瓜补丁_九动版"
+    ACCEL_NAME = "九动加速"
 else:
-    APP_NAME = "傻瓜补丁"
+    APP_NAME = "傻瓜补丁_融合版"
+    ACCEL_NAME = "普通加速"
 
-# 同系列旧包前缀（含更名迁移）
 SERIES_CLEANUP_PREFIXES = [APP_NAME]
-if SEAL_CATCH:
-    SERIES_CLEANUP_PREFIXES.extend(
-        [
-            "傻瓜补丁_烧封印",
-            "傻瓜补丁_自动抓宠",
-            "傻瓜补丁_捉宠版",
-            "傻瓜补丁_自动烧卡",
-        ]
-    )
+# 清理旧系列命名，避免发布目录堆积
+SERIES_CLEANUP_PREFIXES.extend(
+    [
+        "傻瓜补丁_烧卡抓宠",
+        "傻瓜补丁_烧封印",
+        "傻瓜补丁_自动抓宠",
+        "傻瓜补丁_捉宠版",
+        "傻瓜补丁_自动烧卡",
+        "傻瓜补丁_无九动",
+    ]
+)
+if NINE_PACK:
+    SERIES_CLEANUP_PREFIXES.append("傻瓜补丁")  # 旧默认九动单包
 
 ENTRY = SCRIPTS_DIR / "foolproof_gui.py"
 BAT_NAME = "一键打补丁.bat"
-
-# 合一包：打开界面选烧卡/抓宠（不带 --auto）
-if SEAL_CATCH:
-    _AUTO_ARGS = ""
-elif NO_NINE:
-    _AUTO_ARGS = "--auto --no-nine"
-else:
-    _AUTO_ARGS = "--auto"
-
-_BAT_RUN = (
-    f'"%~dp0{APP_NAME}.exe"'
-    if not _AUTO_ARGS
-    else f'"%~dp0{APP_NAME}.exe" {_AUTO_ARGS}'
-)
 
 BAT_CONTENT = rf"""@echo off
 chcp 65001 >nul
@@ -102,94 +76,51 @@ if not exist "%~dp0{APP_NAME}.exe" (
   exit /b 1
 )
 echo 正在打开傻瓜补丁…
-{_BAT_RUN}
+"%~dp0{APP_NAME}.exe"
 exit /b %ERRORLEVEL%
 """
 
-README_SEAL_CATCH = """魔力宝贝：序章 — 傻瓜补丁·烧卡/抓宠（三选一）
+README = f"""魔力宝贝：序章 — {APP_NAME}
 
-内容：
-· 自动烧卡：最高加速（战斗10x / 特效5x / 跑速快）
-· 慢速烧卡：烧卡逻辑相同，但无任何加速
-· 自动抓宠：战斗5x / 特效2x / 跑速快
-共同：一级含哥布林/蝙蝠 · 自动技能 · 长按详情 · 无九动
-不含：神奇九动、加速过场、助手桥接
+打开补丁后请四选一（只能打一种）：
 
-打开补丁后请选择其一（只能打一个）：
+【{ACCEL_NAME}】
+· VIP/非VIP 5x · 特效 2x · 跑速快 · 自动技能 · 长按详情 · 遇敌一级含哥布林/蝙蝠
+{"· 含神奇九动·DLL版（本包不打 IL 九动，适配余量紧张客户端）" if NINE_PACK else "· 不含神奇九动"}
+
+【自动抓宠】
+· 默认关闭。点侧栏「百科」Tip 开关；标题「★自动中★遇到1级N只」
+· 战斗 5x · 特效 2x。可抓一级时 P1 扔卡、P2 一号技能、其余人物 G、宠物对齐防御键
+· 不含九动
 
 【自动烧卡】
-· 默认关闭。点侧栏「百科」：Tip「自动烧卡已开启」/「自动烧卡已关闭」；标题「★自动烧卡中★」
-· 战斗 10x · 特效 5x · 跑速快。开启后非 VIP 自动战斗有封印卡则自动扔卡；无卡走常规自动
-· 退战（队长）：Tip「封印卡剩余 N 张」；N=0 时停止自动遇敌
+· 默认关闭。点侧栏「百科」Tip；标题「★自动烧卡中★」
+· 战斗 10x · 特效 5x · 跑速快。退战 Tip 余卡，无卡停遇敌
+· 不含九动
 
 【慢速烧卡】
 · 烧卡 / Tip / 退战停遇敌 与「自动烧卡」相同
-· 无任何加速：无战斗倍速、无特效加速、无地图跑速、无加速过场
+· 无任何加速（无战斗倍速、特效、跑速、过场）
+· 不含九动
 
-【自动抓宠】
-· 默认关闭。点侧栏「百科」 Tip 开关；标题「★自动中★遇到1级N只」
-· 战斗 5x · 特效 2x。场上有可抓一级（不含迷你蝙蝠）时 P1 扔卡、P2 一号技能、其余人物 G、宠物对齐防御键
-· 退战（队长）：满宠可存仓/终检；无卡停挂机；开关不因退战自动关闭
-
-请把封印卡放在背包。组队时各开各的客户端。队长存仓需月卡远程仓权限。
+共同不含：加速过场、助手桥接。抓宠/烧卡请把封印卡放背包。
 
 1. 关掉游戏
 2. 把本文件夹解压到游戏目录（和 cg37.exe 放一起，或放在子文件夹里也行）
-3. 双击「一键打补丁.bat」，在界面选择「自动烧卡」「慢速烧卡」或「自动封印」后打补丁
-4. 看弹窗：成功或失败都会提示
-
-客户端更新后：先用启动器「更新」到最新，再运行本包。
-若提示客户端状态异常：请删除本客户端，复制一份干净客户端，再重新打补丁。
-
-找不到游戏时会自动往上一级目录找，一直找到盘符为止。
-"""
-
-README_BURN = README_SEAL_CATCH  # 兼容旧引用
-README_CATCH = README_SEAL_CATCH
-
-README_NO_NINE = """魔力宝贝：序章 — 傻瓜补丁（无九动）
-
-内容：VIP/非VIP 5x · 自动技能 · 跑速快 · 长按详情 · 特效2x · 遇敌一级含哥布林/蝙蝠
-不含：神奇九动、加速过场、助手桥接
-
-1. 关掉游戏
-2. 把本文件夹解压到游戏目录（和 cg37.exe 放一起，或放在子文件夹里也行）
-3. 双击「一键打补丁.bat」
+3. 双击「一键打补丁.bat」，在界面选择模式后打补丁
 4. 看弹窗：成功或失败都会提示
 
 客户端更新后：先用启动器「更新」到最新，再运行本包（或换新版傻瓜补丁）。
-若提示客户端状态异常：请删除本客户端，复制一份干净客户端，再重新打补丁。
+若提示客户端状态异常：可在界面点「从干净目录恢复…」，手动选择一份干净客户端目录
+（无默认路径），恢复 hotfix 后再打补丁。
 
 找不到游戏时会自动往上一级目录找，一直找到盘符为止。
 """
-
-README_DEFAULT = """魔力宝贝：序章 — 傻瓜补丁
-
-内容：VIP/非VIP 5x · 自动技能 · 跑速快 · 长按详情 · 特效2x · 神奇九动·DLL版 · 遇敌一级含哥布林/蝙蝠
-不含：加速过场、助手桥接、IL 九动（本包固定 DLL 九动，适配余量紧张的客户端）
-
-1. 关掉游戏
-2. 把本文件夹解压到游戏目录（和 cg37.exe 放一起，或放在子文件夹里也行）
-3. 双击「一键打补丁.bat」
-4. 看弹窗：成功或失败都会提示
-
-客户端更新后：先用启动器「更新」到最新，再运行本包（或换新版傻瓜补丁）。
-若提示客户端状态异常：请删除本客户端，复制一份干净客户端，再重新打补丁。
-
-找不到游戏时会自动往上一级目录找，一直找到盘符为止。
-"""
-
-README = (
-    README_SEAL_CATCH
-    if SEAL_CATCH
-    else (README_NO_NINE if NO_NINE else README_DEFAULT)
-)
 
 _STAMP_RE = re.compile(r"^\d{8}_\d{6}$")
 
 
 def _is_series_zip(stem: str, prefix: str) -> bool:
-    """匹配「前缀.zip」或「前缀_年月日_时分秒.zip」，避免 傻瓜补丁 误删 傻瓜补丁_烧封印。"""
     if stem == prefix:
         return True
     head = prefix + "_"
@@ -204,7 +135,6 @@ def cleanup_series_old_releases(
     *,
     keep: Path | None = None,
 ) -> list[Path]:
-    """删除发布目录下同系列旧 zip（及 dist 下旧解压目录）。返回已删路径。"""
     removed: list[Path] = []
     if not release_dir.is_dir():
         return removed
@@ -222,7 +152,6 @@ def cleanup_series_old_releases(
             except OSError as exc:
                 print(f"[WARN] 无法删除 {zip_path.name}: {exc}")
 
-    # dist_foolproof / 解压目录
     for prefix in prefixes:
         for dist_root in (release_dir / "dist_foolproof", release_dir / "dist"):
             folder = dist_root / prefix
@@ -245,7 +174,6 @@ def _run(cmd: list[str], *, cwd: Path | None = None) -> None:
 
 
 def ensure_ref_stubs() -> Path:
-    """VERIFY 需要 UnityEngine.CoreModule 等 stubs；缺则编译。"""
     core = REF_STUBS_BIN / "UnityEngine.CoreModule.dll"
     if not core.is_file():
         if not REF_STUBS_BUILD.is_file():
@@ -292,7 +220,6 @@ def publish_patcher() -> Path:
     exe = PATCHER_STAGING / "HotfixPatcher.exe"
     if not exe.is_file():
         raise RuntimeError("HotfixPatcher.exe 编译失败")
-    # 与 HotfixPatcher.exe 同级，供 ResolveRefStubDirs(BaseDirectory/ref_stubs)
     _copy_ref_stubs(PATCHER_STAGING / "ref_stubs")
     target = TOOLKIT_ROOT / "patcher" / "HotfixPatcher.exe"
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -347,26 +274,19 @@ def build_exe() -> Path:
     patcher_dst = out_dir / "patcher"
     patcher_dst.mkdir(parents=True, exist_ok=True)
     shutil.copy2(PATCHER_STAGING / "HotfixPatcher.exe", patcher_dst / "HotfixPatcher.exe")
-    # 傻瓜包独立运行时 VERIFY 必须能解析 UnityEngine.CoreModule
     _copy_ref_stubs(patcher_dst / "ref_stubs")
 
-    # 随包带上 DLL 源码（烧卡/抓宠 或 九动 DLL）
-    bundle_srcs: list[tuple[Path, str]] = []
-    if SEAL_CATCH:
-        if not (AUTO_SEAL_SRC / "SeqChapterAutoSeal.cs").is_file():
-            raise FileNotFoundError(f"找不到自动烧卡源码: {AUTO_SEAL_SRC}")
-        if not (AUTO_CATCH_SRC / "SeqChapterAutoCatch.cs").is_file():
-            raise FileNotFoundError(f"找不到自动抓宠源码: {AUTO_CATCH_SRC}")
-        bundle_srcs = [
-            (AUTO_SEAL_SRC, "seqchapter_auto_seal"),
-            (AUTO_CATCH_SRC, "seqchapter_auto_catch"),
-        ]
-    elif not NO_NINE:
-        if not (NINE_ACTION_SRC / "SeqChapterNineAction.cs").is_file():
-            raise FileNotFoundError(f"找不到九动 DLL 源码: {NINE_ACTION_SRC}")
-        bundle_srcs = [(NINE_ACTION_SRC, "seqchapter_nine_action")]
+    # 两包都带烧卡+抓宠源；九动版额外带九动 DLL 源
+    bundle_srcs: list[tuple[Path, str]] = [
+        (AUTO_SEAL_SRC, "seqchapter_auto_seal"),
+        (AUTO_CATCH_SRC, "seqchapter_auto_catch"),
+    ]
+    if NINE_PACK:
+        bundle_srcs.append((NINE_ACTION_SRC, "seqchapter_nine_action"))
 
     for src, name in bundle_srcs:
+        if not src.is_dir():
+            raise FileNotFoundError(f"找不到源码目录: {src}")
         seal_dst = patcher_dst / name
         if seal_dst.is_dir():
             shutil.rmtree(seal_dst, ignore_errors=True)
@@ -379,11 +299,10 @@ def build_exe() -> Path:
 
     (out_dir / BAT_NAME).write_text(BAT_CONTENT, encoding="utf-8")
     (out_dir / "使用说明.txt").write_text(README, encoding="utf-8")
-    if SEAL_CATCH:
-        (out_dir / "烧卡抓宠.flag").write_text("1\n", encoding="utf-8")
-        (out_dir / "无九动.flag").write_text("1\n", encoding="utf-8")
-    elif NO_NINE:
-        (out_dir / "无九动.flag").write_text("1\n", encoding="utf-8")
+    if NINE_PACK:
+        (out_dir / "九动版.flag").write_text("1\n", encoding="utf-8")
+    else:
+        (out_dir / "融合版.flag").write_text("1\n", encoding="utf-8")
     print(f"[OK] {out_dir}")
     return out_dir
 
@@ -400,7 +319,7 @@ def zip_folder(folder: Path, zip_path: Path) -> None:
 
 def main() -> int:
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    label = "烧卡抓宠" if SEAL_CATCH else ("无九动" if NO_NINE else "默认")
+    label = "九动版" if NINE_PACK else "融合版"
     print(f"=== 傻瓜补丁构建 {stamp}（{label}）===\n")
     RELEASE_DIR.mkdir(parents=True, exist_ok=True)
 

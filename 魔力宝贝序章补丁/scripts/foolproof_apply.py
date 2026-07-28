@@ -1,29 +1,17 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-傻瓜补丁：与 GUI 默认勾选一致，自动判断客户端状态后一键打补丁。
+傻瓜补丁：诊断客户端后一键打补丁（由 GUI 两包四选一调用）。
 
-默认组合（见 patch_defaults.FOOLPROOF_COMBO_KWARGS）：
-  VIP/非VIP 5x · 客服→自动技能 · Sprint 快 · 长按详情 · 无加速过场
-  · 技能特效 2x · 遇敌一级含哥布林/迷你蝙蝠 · 无九动 · 无桥接 · 无自动烧卡/抓宠
+两包：
+  · 九动版：九动加速（DLL 九动）/ 抓宠 / 烧卡 / 慢速烧卡
+  · 融合版：普通加速（无九动）/ 抓宠 / 烧卡 / 慢速烧卡
 
-自动烧卡版（FOOLPROOF_BURN_SEAL_COMBO_KWARGS）：同上 + 自动烧卡·DLL版，仍无九动；
-  战斗倍速 10x、特效 5x（最高档）。
+预设见 patch_defaults：
+  FOOLPROOF_COMBO / NO_NINE / BURN_SEAL / BURN_SEAL_SLOW / AUTO_CATCH
 
-慢速烧卡版（FOOLPROOF_BURN_SEAL_SLOW_COMBO_KWARGS）：烧卡逻辑同快速版，但无任何加速
-  （无战斗倍速、无特效加速、无地图跑速、无加速过场）；仍含自动技能/长按/一级含蝙蝠哥布林。
-
-自动抓宠版（FOOLPROOF_AUTO_CATCH_COMBO_KWARGS）：同上 + 自动抓宠·DLL版，仍无九动；
-  有一级：P1 扔卡 / P2 一号技 / 其余人物 G / 宠物对齐防御键；退战存仓/无卡停挂机。
-
-带九动包：run_foolproof_patch(enable_nine=True) 时固定打神奇九动·DLL版（余量紧，不再优先 IL）。
-GUI / 简单补丁默认「加速过场」关闭（见 DEFAULT_COMBO_KWARGS）。
-
-体积与 HotfixSize.Expected / EXPECTED_SIZE 绑定；客户端更新导致体积变化时
-需发新版傻瓜补丁。新包会强制用「当前体积正确的干净 hotfix」覆盖旧 .orig。
-
-活 hotfix 若不像干净官方原版（热更新半覆盖 / 仍含旧补丁等）一律提示：
-删除本客户端，复制干净客户端后再使用补丁（不回退用可能过期的本地 .orig）。
+活 hotfix 不干净时：界面可选手选干净目录恢复（restore_hotfixdata_from_clean），无默认源。
+体积与 EXPECTED_SIZE 绑定；客户端更新导致体积变化时需发新版傻瓜补丁。
 """
 from __future__ import annotations
 
@@ -69,7 +57,8 @@ LogFn = Callable[[str], None]
 UNCLEAN_CLIENT_HINT = (
     "当前客户端状态异常（hotfix 不是干净官方原版）。\n"
     "常见原因：热更新未完整覆盖、仍含旧补丁、半更新。\n\n"
-    "请删除本客户端，复制一份干净的客户端，再重新使用补丁。"
+    "可在傻瓜补丁界面选择从干净目录恢复 hotfix 后再打，\n"
+    "或自行用启动器修复/换干净客户端后再打补丁。"
 )
 
 
@@ -78,12 +67,107 @@ class FoolproofError(RuntimeError):
 
 
 def unclean_client_error(detail: str = "") -> FoolproofError:
-    """怪状态：一律引导用户换干净客户端，不再建议「再点一次更新」。"""
+    """怪状态：引导恢复干净 hotfix 或换客户端。"""
     text = UNCLEAN_CLIENT_HINT
     detail = (detail or "").strip()
     if detail:
         text = f"{text}\n\n详情：{detail}"
     return FoolproofError(text)
+
+
+def is_unclean_client_error(exc: BaseException) -> bool:
+    text = str(exc)
+    return (
+        "不是干净官方原版" in text
+        or "客户端状态异常" in text
+        or "干净目录恢复" in text
+    )
+
+
+def restore_hotfixdata_from_clean(
+    clean_root: Path,
+    game_root: Path,
+    *,
+    on_log: LogFn | None = None,
+) -> list[str]:
+    """从用户指定的干净客户端同步 hotfixdata（及常用主程序），再写好 .orig。
+
+    不设默认源：clean_root 必须由调用方显式传入。
+    """
+    messages: list[str] = []
+    if clean_root is None:
+        raise FoolproofError("未指定干净客户端目录。")
+
+    _emit(messages, on_log, "正在解析干净目录 / 游戏目录…")
+    clean = resolve_game_root(clean_root)
+    game = resolve_game_root(game_root)
+    if clean.resolve() == game.resolve():
+        raise FoolproofError("干净目录不能与当前游戏目录相同，请另选一份干净客户端。")
+
+    if _cg37_running():
+        raise FoolproofError("检测到 cg37.exe 正在运行。\n请先完全关闭游戏后再恢复。")
+
+    src_hf = clean / "cg37_Data" / "assets" / "hotfixdata"
+    dst_hf = game / "cg37_Data" / "assets" / "hotfixdata"
+    if not src_hf.is_dir():
+        raise FoolproofError(f"干净目录缺少 hotfixdata：\n{src_hf}")
+    dst_hf.mkdir(parents=True, exist_ok=True)
+
+    _emit(messages, on_log, f"干净目录: {clean}")
+    _emit(messages, on_log, f"游戏目录: {game}")
+
+    for name in ("cg37.exe", "GameAssembly.dll", "UnityPlayer.dll", "baselib.dll"):
+        src = clean / name
+        dst = game / name
+        if src.is_file():
+            if _safe_copy2(src, dst):
+                _emit(messages, on_log, f"已同步 {name}")
+            else:
+                _emit(messages, on_log, f"跳过 {name}（可能被占用或已一致）")
+
+    copied = 0
+    for src in sorted(src_hf.glob("*.bytes")):
+        dst = dst_hf / src.name
+        if _safe_copy2(src, dst):
+            copied += 1
+            _emit(messages, on_log, f"已同步 hotfixdata/{src.name}")
+        else:
+            _emit(messages, on_log, f"跳过 hotfixdata/{src.name}（写入失败）")
+    if copied == 0:
+        raise FoolproofError("未能从干净目录写入任何 hotfixdata/*.bytes。")
+
+    # 去掉干净源里没有的扩展 DLL，避免旧补丁残留
+    for dst in list(dst_hf.glob("SeqChapter*")):
+        if not (src_hf / dst.name).is_file():
+            try:
+                dst.unlink()
+                _emit(messages, on_log, f"已删除残留 {dst.name}")
+            except OSError as exc:
+                _emit(messages, on_log, f"警告：无法删除 {dst.name}（{exc}）")
+
+    hf = hotfix_path(game)
+    orig = hotfix_orig(game)
+    if not hf.is_file():
+        raise FoolproofError("恢复后仍找不到 hotfix.dll.bytes。")
+    size = hf.stat().st_size
+    if size != EXPECTED_SIZE:
+        raise FoolproofError(
+            f"干净目录的 hotfix 体积为 {size:,}，本包期望 {EXPECTED_SIZE:,}。\n"
+            "请换与本傻瓜补丁同版本的干净客户端，或换对应新版傻瓜补丁。"
+        )
+    if not _safe_copy2(hf, orig):
+        raise FoolproofError("无法写入 hotfix.dll.bytes.orig。")
+    _emit(messages, on_log, f"已写入 .orig（{size:,} 字节）")
+
+    live_ok, live_reason = _is_clean_hotfix_file(hf)
+    if not live_ok:
+        raise unclean_client_error(
+            f"同步后仍不像干净原版：{live_reason}\n请确认所选目录本身是未打补丁的官方客户端。"
+        )
+
+    clear_combo_patch_state()
+    _emit(messages, on_log, "干净 hotfix 恢复完成，可继续打补丁。")
+    return messages
 
 
 def _emit(messages: list[str], on_log: LogFn | None, text: str) -> None:

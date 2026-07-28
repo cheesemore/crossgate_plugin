@@ -21,7 +21,6 @@ public static class SeqChapterPluginHost
     private static bool _visible;
     private static readonly Dictionary<string, bool> _enabled = new Dictionary<string, bool>(StringComparer.Ordinal);
     private static readonly Dictionary<string, object> _toggles = new Dictionary<string, object>(StringComparer.Ordinal);
-    private static bool _suppressToggleEvent;
     private static object _cachedFont;
 
     private static readonly FeatureDef[] Features =
@@ -81,7 +80,7 @@ public static class SeqChapterPluginHost
         }
         catch (Exception ex)
         {
-            Tip("插件面板打开失败: " + RootMessage(ex));
+            Tip("插件面板打开失败: " + ex.GetType().Name + ": " + RootMessage(ex));
         }
     }
 
@@ -153,17 +152,27 @@ public static class SeqChapterPluginHost
         _toggles.Clear();
         _visible = false;
 
-        var goType = FindType("UnityEngine.GameObject")
-            ?? throw new InvalidOperationException("找不到 UnityEngine.GameObject");
-        var objectType = FindType("UnityEngine.Object")
-            ?? throw new InvalidOperationException("找不到 UnityEngine.Object");
+        try
+        {
+            EnsurePanelCore();
+        }
+        catch (Exception ex)
+        {
+            _rootGo = null;
+            _toggles.Clear();
+            _visible = false;
+            throw;
+        }
+    }
 
+    private static void EnsurePanelCore()
+    {
+        var goType = RequireType("UnityEngine.GameObject");
+        var objectType = RequireType("UnityEngine.Object");
+
+        // 先普通 GO，再挂 Canvas（Unity 会把 Transform 升级成 RectTransform）
         _rootGo = Activator.CreateInstance(goType, new object[] { "SeqChapterPluginHostPanel" });
-        CallStatic(objectType, "DontDestroyOnLoad", new[] { FindType("UnityEngine.Object") }, new[] { _rootGo });
-
-        // UI 根必须是 RectTransform
-        var rootRt = AddComponent(_rootGo, "UnityEngine.RectTransform");
-        StretchFull(rootRt);
+        CallStatic(objectType, "DontDestroyOnLoad", new[] { objectType }, new[] { _rootGo });
 
         var canvas = AddComponent(_rootGo, "UnityEngine.Canvas");
         SetProp(canvas, "renderMode", EnumValue("UnityEngine.RenderMode", "ScreenSpaceOverlay", 0));
@@ -176,67 +185,78 @@ public static class SeqChapterPluginHost
         SetProp(group, "blocksRaycasts", true);
         SetProp(group, "interactable", true);
 
+        var rootRt = RequireRect(_rootGo, "root");
+        StretchFull(rootRt);
+
         // 半透明遮罩
         var dim = CreateUiChild(_rootGo, "Dim");
         var dimImg = AddComponent(dim, "UnityEngine.UI.Image");
         SetColor(dimImg, 0f, 0f, 0f, 0.55f);
-        StretchFull(GetComp(dim, "UnityEngine.RectTransform"));
-        BindButton(dim, () => SetPanelVisible(false));
+        StretchFull(RequireRect(dim, "dim"));
+        BindButton(dim, dimImg, () => SetPanelVisible(false));
 
         // 中心面板
         var panel = CreateUiChild(_rootGo, "Panel");
-        var panelRt = GetComp(panel, "UnityEngine.RectTransform");
-        SetAnchoredCenter(panelRt, 420f, 460f);
+        SetAnchoredCenter(RequireRect(panel, "panel"), 420f, 460f);
         var panelImg = AddComponent(panel, "UnityEngine.UI.Image");
         SetColor(panelImg, 0.12f, 0.14f, 0.18f, 0.96f);
 
         var title = CreateUiChild(panel, "Title");
-        SetAnchoredTop(GetComp(title, "UnityEngine.RectTransform"), 0f, -16f, 360f, 36f);
-        var titleText = AddComponent(title, "UnityEngine.UI.Text");
-        ConfigureText(titleText, "序章插件", 22, true);
+        SetAnchoredTop(RequireRect(title, "title"), 0f, -16f, 360f, 36f);
+        ConfigureText(AddComponent(title, "UnityEngine.UI.Text"), "序章插件", 22, true);
 
         var close = CreateUiChild(panel, "Close");
-        SetAnchoredTopRight(GetComp(close, "UnityEngine.RectTransform"), -12f, -12f, 56f, 32f);
+        SetAnchoredTopRight(RequireRect(close, "close"), -12f, -12f, 56f, 32f);
         var closeImg = AddComponent(close, "UnityEngine.UI.Image");
         SetColor(closeImg, 0.35f, 0.2f, 0.2f, 1f);
         var closeLabelGo = CreateUiChild(close, "Label");
-        StretchFull(GetComp(closeLabelGo, "UnityEngine.RectTransform"));
-        var closeLabel = AddComponent(closeLabelGo, "UnityEngine.UI.Text");
-        ConfigureText(closeLabel, "关闭", 16, true);
-        BindButton(close, () => SetPanelVisible(false));
+        StretchFull(RequireRect(closeLabelGo, "closeLabel"));
+        ConfigureText(AddComponent(closeLabelGo, "UnityEngine.UI.Text"), "关闭", 16, true);
+        BindButton(close, closeImg, () => SetPanelVisible(false));
 
         var hint = CreateUiChild(panel, "Hint");
-        SetAnchoredTop(GetComp(hint, "UnityEngine.RectTransform"), 0f, -56f, 380f, 40f);
-        var hintText = AddComponent(hint, "UnityEngine.UI.Text");
-        ConfigureText(hintText, "烧卡 / 抓宠 / 盗贼 不能同时开启（互斥）", 14, false);
+        SetAnchoredTop(RequireRect(hint, "hint"), 0f, -56f, 380f, 40f);
+        ConfigureText(
+            AddComponent(hint, "UnityEngine.UI.Text"),
+            "烧卡 / 抓宠 / 盗贼 不能同时开启（互斥）",
+            14,
+            false);
 
         float y = -110f;
         for (var i = 0; i < Features.Length; i++)
         {
             var f = Features[i];
             var row = CreateUiChild(panel, "Row_" + f.Id);
-            SetAnchoredTop(GetComp(row, "UnityEngine.RectTransform"), 0f, y, 380f, 36f);
+            SetAnchoredTop(RequireRect(row, "row:" + f.Id), 0f, y, 380f, 36f);
             var rowImg = AddComponent(row, "UnityEngine.UI.Image");
             SetColor(rowImg, 0.18f, 0.2f, 0.24f, 1f);
 
-            var toggle = AddComponent(row, "UnityEngine.UI.Toggle");
-            _toggles[f.Id] = toggle;
-            SetProp(toggle, "isOn", IsEnabled(f.Id));
-            BindToggle(toggle, f.Id);
-
             var labelGo = CreateUiChild(row, "Label");
-            SetAnchoredLeft(GetComp(labelGo, "UnityEngine.RectTransform"), 44f, 0f, 320f, 36f);
+            StretchFull(RequireRect(labelGo, "rowLabel:" + f.Id));
             var label = AddComponent(labelGo, "UnityEngine.UI.Text");
-            var suffix = string.IsNullOrEmpty(f.ConflictGroup) ? "" : "  [互斥组]";
-            ConfigureText(label, f.Title + suffix, 16, false);
+            _toggles[f.Id] = label; // 复用字典：存行标题 Text，便于刷新开关状态
+            ConfigureText(label, FormatFeatureLabel(f), 16, false);
+
+            var captured = f;
+            BindButton(row, rowImg, () => SetEnabled(captured.Id, !IsEnabled(captured.Id)));
 
             y -= 44f;
         }
 
         var foot = CreateUiChild(panel, "Foot");
-        SetAnchoredTop(GetComp(foot, "UnityEngine.RectTransform"), 0f, y - 8f, 380f, 48f);
-        var footText = AddComponent(foot, "UnityEngine.UI.Text");
-        ConfigureText(footText, "第一期骨架：点百科开关本面板；功能逻辑二期接入。", 13, false);
+        SetAnchoredTop(RequireRect(foot, "foot"), 0f, y - 8f, 380f, 48f);
+        ConfigureText(
+            AddComponent(foot, "UnityEngine.UI.Text"),
+            "第一期骨架：点百科开关本面板；点行切换功能（二期接逻辑）。",
+            13,
+            false);
+    }
+
+    private static string FormatFeatureLabel(FeatureDef f)
+    {
+        var on = IsEnabled(f.Id) ? "开" : "关";
+        var suffix = string.IsNullOrEmpty(f.ConflictGroup) ? "" : " [互斥]";
+        return "[" + on + "] " + f.Title + suffix;
     }
 
     private static void SetPanelVisible(bool visible)
@@ -292,62 +312,51 @@ public static class SeqChapterPluginHost
 
     private static void SyncToggleUi(string id, bool on)
     {
-        object toggle;
-        if (!_toggles.TryGetValue(id, out toggle) || toggle == null)
+        object label;
+        if (!_toggles.TryGetValue(id, out label) || label == null)
         {
             return;
         }
 
-        _suppressToggleEvent = true;
-        try
+        FeatureDef def = null;
+        for (var i = 0; i < Features.Length; i++)
         {
-            SetProp(toggle, "isOn", on);
+            if (Features[i].Id == id)
+            {
+                def = Features[i];
+                break;
+            }
         }
-        finally
+
+        if (def == null)
         {
-            _suppressToggleEvent = false;
+            return;
         }
+
+        // on 已写入 _enabled，直接按当前状态刷新文案
+        ConfigureText(label, FormatFeatureLabel(def), 16, false);
     }
 
-    private static void BindButton(object go, Action action)
+    private static void BindButton(object go, object targetGraphic, Action action)
     {
         var btn = AddComponent(go, "UnityEngine.UI.Button");
+        if (targetGraphic != null)
+        {
+            SetProp(btn, "targetGraphic", targetGraphic);
+        }
+
         var onClick = GetProp(btn, "onClick");
         if (onClick == null)
         {
-            return;
+            throw new InvalidOperationException("Button.onClick 为空");
         }
 
-        var actionType = FindType("UnityEngine.Events.UnityAction");
-        if (actionType == null)
-        {
-            return;
-        }
-
-        // 包一层，避免直接 CreateDelegate 到闭包失败
+        var actionType = RequireType("UnityEngine.Events.UnityAction");
         var holder = new ClickHolder(action);
         var del = Delegate.CreateDelegate(actionType, holder, "Invoke");
-        onClick.GetType().GetMethod("AddListener", new[] { actionType }).Invoke(onClick, new object[] { del });
-    }
-
-    private static void BindToggle(object toggle, string featureId)
-    {
-        var onChanged = GetProp(toggle, "onValueChanged");
-        if (onChanged == null)
-        {
-            return;
-        }
-
-        var actionType = FindType("UnityEngine.Events.UnityAction`1");
-        if (actionType == null)
-        {
-            return;
-        }
-
-        actionType = actionType.MakeGenericType(typeof(bool));
-        var holder = new ToggleHolder(featureId);
-        var del = Delegate.CreateDelegate(actionType, holder, "Invoke");
-        onChanged.GetType().GetMethod("AddListener", new[] { actionType }).Invoke(onChanged, new object[] { del });
+        var add = onClick.GetType().GetMethod("AddListener", new[] { actionType })
+            ?? throw new InvalidOperationException("找不到 UnityEvent.AddListener");
+        add.Invoke(onClick, new object[] { del });
     }
 
     private sealed class ClickHolder
@@ -372,49 +381,23 @@ public static class SeqChapterPluginHost
         }
     }
 
-    private sealed class ToggleHolder
-    {
-        private readonly string _id;
-
-        public ToggleHolder(string id)
-        {
-            _id = id;
-        }
-
-        public void Invoke(bool on)
-        {
-            if (_suppressToggleEvent)
-            {
-                return;
-            }
-
-            try
-            {
-                SetEnabled(_id, on);
-            }
-            catch (Exception ex)
-            {
-                Tip("切换功能失败: " + RootMessage(ex));
-            }
-        }
-    }
-
     private static object CreateUiChild(object parent, string name)
     {
-        var goType = FindType("UnityEngine.GameObject");
+        var goType = RequireType("UnityEngine.GameObject");
         var child = Activator.CreateInstance(goType, new object[] { name });
-        var rectType = FindType("UnityEngine.RectTransform");
-        // Ensure RectTransform
-        AddComponent(child, "UnityEngine.RectTransform");
-        var transform = GetProp(child, "transform");
-        var parentTransform = GetProp(parent, "transform");
+        var transform = GetProp(child, "transform")
+            ?? throw new InvalidOperationException("子节点 transform 为空:" + name);
+        var parentTransform = GetProp(parent, "transform")
+            ?? throw new InvalidOperationException("父节点 transform 为空");
         var setParent = transform.GetType().GetMethod(
             "SetParent",
-            new[] { FindType("UnityEngine.Transform"), typeof(bool) });
-        if (setParent != null)
+            new[] { RequireType("UnityEngine.Transform"), typeof(bool) });
+        if (setParent == null)
         {
-            setParent.Invoke(transform, new object[] { parentTransform, false });
+            throw new InvalidOperationException("找不到 Transform.SetParent");
         }
+
+        setParent.Invoke(transform, new object[] { parentTransform, false });
 
         var localScale = FindType("UnityEngine.Vector3");
         if (localScale != null)
@@ -429,62 +412,120 @@ public static class SeqChapterPluginHost
         return child;
     }
 
+    private static object RequireRect(object go, string tag)
+    {
+        var rt = GetComp(go, "UnityEngine.RectTransform");
+        if (rt != null)
+        {
+            return rt;
+        }
+
+        // 挂到 Canvas 下后，有时仅能通过 transform 拿到已升级的 RectTransform
+        var tr = GetProp(go, "transform");
+        if (tr != null && tr.GetType().Name.IndexOf("RectTransform", StringComparison.Ordinal) >= 0)
+        {
+            return tr;
+        }
+
+        throw new InvalidOperationException("没有 RectTransform:" + tag);
+    }
+
+    private static Type RequireType(string fullName)
+    {
+        return FindType(fullName) ?? throw new InvalidOperationException("找不到类型 " + fullName);
+    }
+
+    private static object Vec2(float x, float y)
+    {
+        var v2 = RequireType("UnityEngine.Vector2");
+        return Activator.CreateInstance(v2, new object[] { x, y });
+    }
+
+    private static object Vec2Zero()
+    {
+        var v2 = RequireType("UnityEngine.Vector2");
+        var f = v2.GetField("zero", BindingFlags.Public | BindingFlags.Static)
+            ?? throw new InvalidOperationException("Vector2.zero 缺失");
+        return f.GetValue(null);
+    }
+
+    private static object Vec2One()
+    {
+        var v2 = RequireType("UnityEngine.Vector2");
+        var f = v2.GetField("one", BindingFlags.Public | BindingFlags.Static)
+            ?? throw new InvalidOperationException("Vector2.one 缺失");
+        return f.GetValue(null);
+    }
+
     private static void StretchFull(object rt)
     {
         if (rt == null)
         {
-            return;
+            throw new InvalidOperationException("StretchFull rt 为空");
         }
 
-        var v2 = FindType("UnityEngine.Vector2");
-        var zero = v2.GetField("zero", BindingFlags.Public | BindingFlags.Static).GetValue(null);
-        var one = v2.GetField("one", BindingFlags.Public | BindingFlags.Static).GetValue(null);
-        SetProp(rt, "anchorMin", zero);
-        SetProp(rt, "anchorMax", one);
-        SetProp(rt, "offsetMin", zero);
-        SetProp(rt, "offsetMax", zero);
-        SetProp(rt, "pivot", Activator.CreateInstance(v2, new object[] { 0.5f, 0.5f }));
+        SetProp(rt, "anchorMin", Vec2Zero());
+        SetProp(rt, "anchorMax", Vec2One());
+        SetProp(rt, "offsetMin", Vec2Zero());
+        SetProp(rt, "offsetMax", Vec2Zero());
+        SetProp(rt, "pivot", Vec2(0.5f, 0.5f));
     }
 
     private static void SetAnchoredCenter(object rt, float w, float h)
     {
-        var v2 = FindType("UnityEngine.Vector2");
-        var half = Activator.CreateInstance(v2, new object[] { 0.5f, 0.5f });
+        if (rt == null)
+        {
+            throw new InvalidOperationException("SetAnchoredCenter rt 为空");
+        }
+
+        var half = Vec2(0.5f, 0.5f);
         SetProp(rt, "anchorMin", half);
         SetProp(rt, "anchorMax", half);
         SetProp(rt, "pivot", half);
-        SetProp(rt, "sizeDelta", Activator.CreateInstance(v2, new object[] { w, h }));
-        SetProp(rt, "anchoredPosition", v2.GetField("zero", BindingFlags.Public | BindingFlags.Static).GetValue(null));
+        SetProp(rt, "sizeDelta", Vec2(w, h));
+        SetProp(rt, "anchoredPosition", Vec2Zero());
     }
 
     private static void SetAnchoredTop(object rt, float x, float y, float w, float h)
     {
-        var v2 = FindType("UnityEngine.Vector2");
-        SetProp(rt, "anchorMin", Activator.CreateInstance(v2, new object[] { 0.5f, 1f }));
-        SetProp(rt, "anchorMax", Activator.CreateInstance(v2, new object[] { 0.5f, 1f }));
-        SetProp(rt, "pivot", Activator.CreateInstance(v2, new object[] { 0.5f, 1f }));
-        SetProp(rt, "sizeDelta", Activator.CreateInstance(v2, new object[] { w, h }));
-        SetProp(rt, "anchoredPosition", Activator.CreateInstance(v2, new object[] { x, y }));
+        if (rt == null)
+        {
+            throw new InvalidOperationException("SetAnchoredTop rt 为空");
+        }
+
+        SetProp(rt, "anchorMin", Vec2(0.5f, 1f));
+        SetProp(rt, "anchorMax", Vec2(0.5f, 1f));
+        SetProp(rt, "pivot", Vec2(0.5f, 1f));
+        SetProp(rt, "sizeDelta", Vec2(w, h));
+        SetProp(rt, "anchoredPosition", Vec2(x, y));
     }
 
     private static void SetAnchoredTopRight(object rt, float x, float y, float w, float h)
     {
-        var v2 = FindType("UnityEngine.Vector2");
-        SetProp(rt, "anchorMin", Activator.CreateInstance(v2, new object[] { 1f, 1f }));
-        SetProp(rt, "anchorMax", Activator.CreateInstance(v2, new object[] { 1f, 1f }));
-        SetProp(rt, "pivot", Activator.CreateInstance(v2, new object[] { 1f, 1f }));
-        SetProp(rt, "sizeDelta", Activator.CreateInstance(v2, new object[] { w, h }));
-        SetProp(rt, "anchoredPosition", Activator.CreateInstance(v2, new object[] { x, y }));
+        if (rt == null)
+        {
+            throw new InvalidOperationException("SetAnchoredTopRight rt 为空");
+        }
+
+        SetProp(rt, "anchorMin", Vec2(1f, 1f));
+        SetProp(rt, "anchorMax", Vec2(1f, 1f));
+        SetProp(rt, "pivot", Vec2(1f, 1f));
+        SetProp(rt, "sizeDelta", Vec2(w, h));
+        SetProp(rt, "anchoredPosition", Vec2(x, y));
     }
 
     private static void SetAnchoredLeft(object rt, float x, float y, float w, float h)
     {
-        var v2 = FindType("UnityEngine.Vector2");
-        SetProp(rt, "anchorMin", Activator.CreateInstance(v2, new object[] { 0f, 0.5f }));
-        SetProp(rt, "anchorMax", Activator.CreateInstance(v2, new object[] { 0f, 0.5f }));
-        SetProp(rt, "pivot", Activator.CreateInstance(v2, new object[] { 0f, 0.5f }));
-        SetProp(rt, "sizeDelta", Activator.CreateInstance(v2, new object[] { w, h }));
-        SetProp(rt, "anchoredPosition", Activator.CreateInstance(v2, new object[] { x, y }));
+        if (rt == null)
+        {
+            throw new InvalidOperationException("SetAnchoredLeft rt 为空");
+        }
+
+        SetProp(rt, "anchorMin", Vec2(0f, 0.5f));
+        SetProp(rt, "anchorMax", Vec2(0f, 0.5f));
+        SetProp(rt, "pivot", Vec2(0f, 0.5f));
+        SetProp(rt, "sizeDelta", Vec2(w, h));
+        SetProp(rt, "anchoredPosition", Vec2(x, y));
     }
 
     private static void ConfigureText(object text, string content, int fontSize, bool bold)
@@ -581,7 +622,6 @@ public static class SeqChapterPluginHost
         var t = FindType(typeName);
         if (t == null)
         {
-            // RectTransform 可能已存在
             if (typeName.EndsWith("RectTransform", StringComparison.Ordinal))
             {
                 return GetComp(go, typeName);
@@ -591,13 +631,32 @@ public static class SeqChapterPluginHost
         }
 
         var existing = GetComp(go, typeName);
-        if (existing != null && typeName.EndsWith("RectTransform", StringComparison.Ordinal))
+        if (existing != null)
         {
             return existing;
         }
 
+        // 禁止对已有 Transform 的物体再 Add RectTransform（Unity 会抛错）
+        if (typeName.EndsWith("RectTransform", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                "对象已有 Transform，无法 Add RectTransform；请用 CreateUiGameObject 创建");
+        }
+
         var m = go.GetType().GetMethod("AddComponent", new[] { typeof(Type) });
-        return m.Invoke(go, new object[] { t });
+        if (m == null)
+        {
+            throw new MissingMethodException(go.GetType().FullName, "AddComponent");
+        }
+
+        try
+        {
+            return m.Invoke(go, new object[] { t });
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException("AddComponent(" + typeName + ") 失败: " + RootMessage(ex), ex);
+        }
     }
 
     private static object GetComp(object go, string typeName)
