@@ -130,8 +130,8 @@ class ComboPatchApp:
         self.vip_non_vip_var = tk.BooleanVar(value=True)
         self.vip_scale_var = tk.StringVar(value="5")
         self._patch_toggle_guard = False
-        self.battle_nine_action_var = tk.BooleanVar(value=True)
-        self.battle_nine_external_var = tk.BooleanVar(value=False)
+        self.battle_nine_action_var = tk.BooleanVar(value=False)
+        self.battle_nine_external_var = tk.BooleanVar(value=True)
         self.auto_seal_external_var = tk.BooleanVar(value=False)
         self.auto_catch_external_var = tk.BooleanVar(value=False)
         self.auto_sell_external_var = tk.BooleanVar(value=False)
@@ -260,13 +260,13 @@ class ComboPatchApp:
 
         ttk.Checkbutton(
             tab_battle,
-            text="神奇九动·IL原版（默认；需足够 .text 间隙）",
+            text="神奇九动·IL原版（需足够 .text 间隙；当前余量紧一般不勾）",
             variable=self.battle_nine_action_var,
             command=lambda: self._on_nine_il_toggle(),
         ).pack(anchor=tk.W)
         ttk.Checkbutton(
             tab_battle,
-            text="神奇九动·DLL版（间隙不足时用；与其它 DLL 互斥）",
+            text="神奇九动·DLL版（默认；与其它扩展 DLL 互斥）",
             variable=self.battle_nine_external_var,
             command=lambda: self._on_battle_exclusive_toggle("nine_dll"),
         ).pack(anchor=tk.W, pady=(4, 0))

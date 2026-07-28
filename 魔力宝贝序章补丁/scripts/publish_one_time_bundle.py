@@ -13,9 +13,11 @@ from pathlib import Path
 SCRIPTS_DIR = Path(__file__).resolve().parent
 TOOLKIT_ROOT = SCRIPTS_DIR.parent
 GAME_ROOT = TOOLKIT_ROOT.parent
-RELEASE_WORK = TOOLKIT_ROOT / "发布" / "_one_time_bundle"
+CROSS_ROOT = GAME_ROOT.parent  # E:\cross序章
+RELEASE_DIR = CROSS_ROOT / "发布plugin"
+RELEASE_WORK = RELEASE_DIR / "_one_time_bundle"
 BUNDLE_NAME = "序章补丁"
-ZIP_PATH = GAME_ROOT / f"{BUNDLE_NAME}.zip"
+ZIP_PATH = RELEASE_DIR / f"{BUNDLE_NAME}.zip"
 
 PATCHER_CSPROJ = GAME_ROOT / "tools" / "hotfix_patcher"
 PATCHER_STAGING = TOOLKIT_ROOT / "patcher" / "_release_staging"

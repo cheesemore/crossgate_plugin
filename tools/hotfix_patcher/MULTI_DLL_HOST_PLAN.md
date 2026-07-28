@@ -1,161 +1,251 @@
-# 多 DLL 共存整改计划（Plugin Host）
+# 多功能统一入口计划（Plugin Host + 百科面板）
 
-状态：**暂缓实现**（先落文档，有空再做）  
-相关互斥：神奇九动·DLL / 自动烧卡·DLL / 自动抓宠·DLL / 盗贼辅助·DLL / 注入桥接·DLL  
-例外：IL 九动不占 Pause 加载槽，可与烧卡/抓宠/盗贼等同打（与九动·DLL 互斥）。
+状态：**方案已拍板，待实现**（2026-07-28 续）  
+前身：Pause 五选一 + 百科 Tip 开关互抢。  
+产品目标：
+
+1. **DLL 入口只保留一个**（Pause → Plugin Host）。
+2. **游戏内点侧栏百科** → 打开**自己绘制的功能面板**（层级最高、稳定可复开）。
+3. **在面板里勾选/切换功能**；有逻辑冲突的不能同时勾选（例：自动捉宠 / 自动烧卡 / 盗贼辅助）。
+
+相关资产：神奇九动·DLL、自动烧卡、自动抓宠、盗贼辅助、注入桥接；IL 九动仍可不占 Pause。
 
 ---
 
 ## 1. 背景与问题
 
-当前各「·DLL 版」功能通过改写 `HotfixEntry.OnApplicationPause` 注入**单 DLL 加载器**：
+### 1.1 今日架构
 
-`FileUtil.LoadBytes("hotfixdata/<One>.dll.bytes")` → `Assembly.Load` → `Type.Bootstrap()`
+```text
+OnApplicationPause ──单 DLL──► 某一功能.Bootstrap()
+MapSidebarPanel.OnClickWiki ──► 同一功能.OnWikiClick() + Tip 开关
+```
 
-谁后打补丁谁覆盖 Pause 方法体，因此 GUI / `apply_combo_patch.py` 强制五选一。
+- 谁后打补丁谁覆盖 Pause → 工具层强制五选一。
+- 烧卡 / 抓宠 / 盗贼都改写百科 → 即使能多加载，按钮仍互抢。
+- 烧卡与抓宠还都钩 `AutoFight_PlayerAction`（抓宠另钩 Pet / VIP）→ **IL 层也不能简单叠两个补丁**。
 
-另外，烧卡 / 抓宠 / 盗贼都改写侧栏 **百科 `OnClickWiki`** 做 Tip 开关，即使 Pause 能加载多个 DLL，**百科按钮仍会互抢**，需要单独规划，不能只靠 Host。
+### 1.2 已拍板方向（相对旧 §5 候选）
 
-2026-07-28 客户端更新后 `.text` 裸余量更紧（干净底稿约数百字节级），IL 九动偏吃余量；多功能并存更倾向「Pause 只挂一个小加载器 + 功能 DLL 外置」。
-
----
-
-## 2. 目标
-
-1. **允许同时加载多个功能 DLL**（九动 DLL、烧卡、抓宠、盗贼、桥接中的任意组合，以清单为准）。
-2. Hotfix 内 Pause 槽位仍只保留**一段**加载 IL（余量友好）。
-3. 各功能 DLL 尽量保持现有 `Bootstrap()` 契约，少改业务逻辑。
-4. **百科按钮**：本阶段只定义问题与候选方案，**不在 Host 第一期强行合并 UI**。
-
-非目标（第一期不做）：
-
-- 不重写 IL 九动为 DLL（可继续与 Host 共存）。
-- 不把全部功能揉成单一「胖 DLL」。
-- 不在 Pause 方法体内联多段 `LoadBytes`（VA/可维护性差）。
+| 旧候选 | 结论 |
+|--------|------|
+| Host 统一百科分发 Tip | 否：改为打开面板，不再用百科当「当前功能开关」 |
+| 短按/长按分工 | 否 |
+| 单一挂机模式枚举（百科循环） | 部分采纳：挂机类互斥，但入口改为面板勾选 |
+| 弃用百科、改其它按钮 | 否：仍用百科，只改成「打开面板」 |
 
 ---
 
-## 3. 推荐方案：Plugin Host 调度 DLL
+## 2. 目标架构
 
-### 3.1 结构
+```text
+Pause ──► SeqChapterPluginHost.Bootstrap()
+            ├─ 读启用清单，依次 Load + 各功能.Bootstrap()（只做钩子/初始化，默认不自动开挂机）
+            └─ 安装战斗分发器（见 §4）
+
+百科 OnClickWiki ──► Host.OnWikiClick()
+                      └─ 打开/关闭 SeqChapterPluginPanel（自绘 UI）
+
+面板勾选 ──► FeatureRegistry.SetEnabled(id, on)
+              ├─ 冲突组校验（§5）不通过 → 拒绝勾选 + Tip 说明
+              └─ 通过 → 调对应功能 Enable/Disable
+```
+
+### 2.1 资产分工
 
 | 资产 | 职责 |
 |------|------|
-| `SeqChapterPluginHost.dll.bytes` | Pause 唯一加载目标；读清单；依次 `Assembly.Load` + 调各 `Bootstrap` |
-| `SeqChapterNineAction.dll.bytes` 等 | 现有功能 DLL，尽量不改入口名 |
-| 清单（建议） | 嵌入 Host，或旁路 `hotfixdata/seqchapter_plugins.json`（需评估 FileUtil 读文本能力） |
+| `SeqChapterPluginHost.dll.bytes` | **唯一** Pause 加载目标；百科入口；面板；功能注册表；冲突校验；战斗分发（可选同 DLL 内模块） |
+| `SeqChapterNineAction.dll.bytes` 等 | 业务 DLL；保留 `Bootstrap`；**去掉各自百科 Tip 开关**（改由 Host 调 `SetEnabled`） |
+| 清单 | 嵌入 Host，或 `hotfixdata/seqchapter_plugins.json`（优先嵌入，少文件依赖） |
 
-Pause 伪代码：
+Hotfix 内只保留：
 
-```text
-Host.Bootstrap()
-  for each plugin in enabled_list:
-      load hotfixdata/<plugin>.dll.bytes
-      invoke <TypeName>.Bootstrap()
-```
+- Pause → Host（`BridgeLoaderIlBuilder` 模板）
+- 百科 → `Host.OnWikiClick`（无 Tip 开关字符串，或仅 Tip「面板打开失败」）
+- 战斗分发钩（见 §4）：`AutoFight_PlayerAction` / Pet / VIP 等**只钩一次**进 Host
 
-补丁器侧：现有 `BridgeLoaderIlBuilder` 已是「单路径加载器」模板，改为只指向 Host 即可；各 `*ExternalIlPatcher` 不再各自覆盖 Pause，改为：
-
-- 确保 Host 加载器已安装（幂等）；
-- 把本功能登记进 Host 清单 / 构建参数；
-- 仍负责本功能在 hotfix 内的**专用钩子**（Magics、AutoFight 布尔钩、百科等——百科见第 5 节）。
-
-### 3.2 与现有代码的衔接
-
-| 现有 | 用法 |
-|------|------|
-| `BridgeLoaderIlBuilder` | 继续生成 Pause→Host 的 IL |
-| 各功能 `Bootstrap()` | Host 统一调用 |
-| `WikiChatTestExternalIlPatcher` | 已证明非 Pause 加载点可与 Pause 功能并存，可作旁路参考 |
-| GUI / `apply_combo_patch` 互斥表 | Host 落地后改为「可多选」，改为校验百科/余量等真实约束 |
-
-### 3.3 风险
-
-- HybridCLR / `Assembly.Load(byte[])`：与现网单 DLL 路径相同，风险低。
-- Bootstrap 顺序：九动 vs 战斗钩、百科 vs Tip，需固定顺序并写进清单。
-- 重复打补丁：Host 加载器安装必须幂等；清单合并不能丢已启用插件。
-- 助手桥接：若桥接也改走 Host，需确认与外部助手进程约定仍成立。
+各 `*ExternalIlPatcher` 不再各自覆盖 Pause / 百科；改为：确保 Host 已装、登记本插件、部署本 DLL、（挂机类）**不再**各自改 `AutoFight_*`。
 
 ---
 
-## 4. 建议分期
+## 3. 自绘面板（层级最高、稳定）
 
-### 第一期（最小可用）
+### 3.1 为何不用 IMGUI / 为何不复用原版 Panel 资源
 
-1. 新增 `tools/seqchapter_plugin_host/`（或同级命名）实现 Host + `Bootstrap`。
-2. 新增 / 改造 patcher：`PluginHostIlPatcher`（Pause → Host）。
-3. 先接入 **DLL 九动 + 盗贼辅助** 两条，验证双 Bootstrap。
-4. 组合补丁 / GUI：这两项允许同打；其它 DLL 仍可暂互斥。
-5. 文档与傻瓜包说明同步。
+| 方案 | 评价 |
+|------|------|
+| `OnGUI` 浮层 | 实现快，但与 UGUI 混排时层级/遮挡不稳定，易被战斗 UI 盖住 |
+| `UIManager.GetUIPanel<某原版面板>` 改皮 | 依赖具体面板生命周期，更新易碎 |
+| **运行时拼 UGUI Canvas**（推荐） | 不依赖 prefab；`sortingOrder` 可控；可 `DontDestroyOnLoad` |
+
+游戏内已有大量 `UIManager.GetUIPanel<T>` 用法（桥接 / GM / 百科下资源），证明 UGUI 栈可用；Host 面板走**独立 Canvas**，不挤进某业务 Panel。
+
+### 3.2 面板规格
+
+- 入口：侧栏 **百科** 点击 → 若面板未显示则创建并置顶；若已显示则关闭（或再点关闭按钮）。
+- 层级：
+  - 根节点挂独立 `Canvas`：`renderMode = ScreenSpaceOverlay`
+  - `overrideSorting = true`，`sortingOrder = 32767`（或同档极高值）
+  - 根上挂 `CanvasGroup`；需要时挡下层点击（`blocksRaycasts = true`）
+- 稳定：
+  - `DontDestroyOnLoad(root)`；场景切换后若被销毁则下次百科点击重建
+  - Bootstrap 时只注册，不强制常驻显示
+  - 打开失败 → `NotifyManager.Tip` 明确报错，不静默
+- 布局（第一期从简，一屏完成）：
+  - 标题：`序章插件` + 关闭
+  - 分组勾选（Toggle）+ 当前状态一行字
+  - 底部短说明：互斥项灰色/禁止勾选时 Tip
+
+第一期控件用代码创建 `Image`/`Text`/`Toggle`/`Button`（UnityEngine.UI）；不引入新字体资源则用游戏默认 Font（反射取现有 UI 上的 Font）。
+
+### 3.3 与百科其它补丁的关系
+
+启用 Host 面板后：
+
+- **禁止**再打 `wiki-download-res` / `wiki-label` / 旧版烧卡·抓宠·盗贼百科 Tip 补丁（工具层报错）。
+- 百科原始打开百科页的行为被替换为开面板（与现网「百科改 Tip 开关」一致：本来就不进原百科）。
+
+---
+
+## 4. 战斗钩必须统一分发（关键）
+
+烧卡、抓宠**不能**各自再改写一遍 `AutoFight_PlayerAction`，否则后打覆盖前打，面板互斥也救不了「钩子只剩一个」。
+
+### 4.1 推荐
+
+Hotfix 只打**一组**入口钩 → `Host.TryPlayerAutoFight()` / `TryPetAutoFight()`：
+
+```text
+TryPlayerAutoFight():
+  if Seal.Enabled:  return Seal.TryPlayerAutoSeal()
+  if Catch.Enabled: return Catch.TryPlayerAutoCatch()  // 含现有防御逻辑
+  return false  // 走原版自动战斗
+
+TryPetAutoFight():
+  if Catch.Enabled: return Catch.TryPet...
+  return false
+```
+
+VIP 路径（`DoVipPlayerAutoFight` / `DoVipPetAutoFight`）同样只钩到 Host 一次。
+
+### 4.2 盗贼辅助
+
+盗贼在 DLL 内反射订 `ExitBattle`，与 PlayerAction 钩不冲突；仍归入**挂机互斥组**（产品：三种挂机模式三选一），避免一边烧卡一边每 10 场去卖石等预期外组合。
+
+### 4.3 九动 / 桥接
+
+- DLL 九动：仍走 Magics + `ExpandAccountList` 等现有钩；由 Host 加载，**不占百科**。
+- 助手桥接：若迁入 Host，确认外部助手协议不变；与 DLL 九动是否互斥见 §5（保持现状：互斥）。
+
+---
+
+## 5. 冲突组（面板 + 工具双重约束）
+
+### 5.1 运行时（面板勾选）
+
+| 冲突组 ID | 成员 | 规则 |
+|-----------|------|------|
+| `hangup` | 自动烧卡、自动抓宠、盗贼辅助 | **至多开一个**；勾新的自动关旧的，或拒绝并 Tip（推荐：**自动关旧的**并 Tip「已切换为 xxx」） |
+| `nine` | 神奇九动·DLL、（若暴露）助手桥接影响九动的项 | DLL 九动 ⊥ 桥接（与现网一致）；IL 九动不在面板勾选（打补丁时已定） |
+| 独立项 | 地图加速、侧栏改键等 inplace | 不进 Host 面板或只读展示「已由补丁启用」 |
+
+慢速烧卡 vs 普通烧卡：同属烧卡功能内选项（子 Toggle），不进 `hangup` 多成员冲突。
+
+### 5.2 打补丁时（工具）
+
+Host 落地后：
+
+- **取消** Pause 五选一。
+- **保留**：IL 九动 ⊥ DLL 九动；Host 面板 ⊥ wiki-download / wiki-label；余量不足时的真实报错。
+- 烧卡 + 抓宠 + 盗贼：**允许同打**（DLL 都部署 + 统一战斗钩），由面板保证不同时 Enable。
+- 傻瓜包仍可只打子集（体积/场景需要时）。
+
+### 5.3 API 草图（功能 DLL）
+
+```csharp
+// 各功能尽量收敛到：
+public static void Bootstrap();           // 初始化、订事件；默认 Enabled=false
+public static bool IsEnabled();
+public static void SetEnabled(bool on);   // 取代 OnWikiClick 开关语义
+// 烧卡/抓宠另保留供 Host 分发调用的 Try* 方法
+```
+
+旧 `OnWikiClick`：Host 过渡期可内部转调 `SetEnabled(!IsEnabled())`，正式面板上线后删除百科 Tip IL。
+
+---
+
+## 6. 分期
+
+### 第一期 — Host + 空面板 + 百科入口（验收骨架）
+
+1. 新建 `tools/seqchapter_plugin_host/`：`Bootstrap` / `OnWikiClick` / 运行时 Canvas 面板（可先只有标题+关闭+占位 Toggle）。
+2. `PluginHostIlPatcher`：Pause → Host；百科 → Host.OnWikiClick。
+3. 清单先写死：仅 Host 自身；进游戏点百科能稳定开/关面板，切场景不丢、层级盖住侧栏/战斗 UI。
+4. 文档 / GUI：标明「百科 = 插件面板」，与旧 Tip 开关互斥说明。
+
+### 第二期 — 挂机三件套进面板
+
+1. 烧卡 / 抓宠 / 盗贼改 `SetEnabled`；去掉各自 Pause/百科补丁路径。
+2. Hotfix 战斗钩改为 Host 分发（§4）。
+3. 面板 `hangup` 组互斥；Tip 提示切换。
+4. 组合补丁允许三 DLL 同打；傻瓜包可出「Host 全家桶」或仍出单功能包。
+
+### 第三期 — 九动 DLL / 桥接进 Host
+
+1. Pause 五选一彻底删除。
+2. 面板增加九动 DLL 开关（若需运行时关）；桥接按风险决定是否面板化。
+3. 冲突组 `nine` 落地；验收多开组合。
+
+### 非目标（明确不做）
+
+- 不把全部业务揉成单一胖 DLL（Host 只调度 + UI + 分发）。
+- 不在 Pause 方法体内联多段 `LoadBytes`。
+- 第一期不做精美 UI / 动画；先稳定层级与互斥。
+
+---
+
+## 7. 验收标准
+
+### 第一期
+
+- [ ] 干净底稿可打：加速类 + Host；体积/余量可接受。
+- [ ] 进游戏点百科 → 自绘面板出现在最上层；再点百科或关闭可关掉。
+- [ ] 进战斗 / 切图 / 开关其它原版界面后，再开面板仍正常（不永久丢失引用）。
+- [ ] 未勾其它占百科补丁；误勾 wiki-download 时工具明确报错。
 
 ### 第二期
 
-- 烧卡、抓宠、桥接迁入 Host 清单。
-- 全面去掉 Pause 层五选一（改为真实冲突检测）。
+- [ ] 烧卡、抓宠、盗贼 DLL 均由 Host 加载；百科不再出现三套 Tip 开关文案覆盖。
+- [ ] 面板勾选烧卡后行为与现网百科 Tip 开烧卡一致；抓宠 / 盗贼同理。
+- [ ] 勾选抓宠时若烧卡已开 → 烧卡关闭且抓宠开启（或等价互斥），战斗钩只走抓宠。
+- [ ] 三角色同打补丁后，未在面板开启前不自动挂机。
 
-### 第三期（与 Host 可并行，但依赖产品决策）
+### 第三期
 
-- **百科按钮重新规划**（见下节）。
-- 可选：更多逻辑迁出 hotfix，进一步省余量。
-
----
-
-## 5. 百科按钮：必须另做规划（Host 解决不了）
-
-### 5.1 现状
-
-| 功能 | 百科用法 |
-|------|----------|
-| 自动烧卡 | `OnClickWiki` → Tip 开关烧卡 |
-| 自动抓宠 | 同上，抓宠 Tip |
-| 盗贼辅助 | 同上，盗贼 Tip |
-| 百科→资源下载 / 百科文字 | 也会占百科，与上列冲突 |
-
-同一点击只能进一套逻辑；Host 只解决「多个 DLL 能加载」，**不自动解决「一个按钮给谁用」**。
-
-### 5.2 候选方向（待定，需产品拍板）
-
-1. **Host 统一百科分发**  
-   hotfix 只钩一次 `OnClickWiki` → 调 `Host.OnWikiClick`；由 Host 按「当前主模式」或菜单分发给插件。  
-2. **点击 / 长按分工**  
-   短按开关 A，长按开关 B（或弹出简易选择 Tip）。  
-3. **单一「挂机模式」枚举**  
-   烧卡 / 抓宠 / 盗贼互为模式，百科只切换模式 + 显示当前状态（与现「只能开一种挂机」产品一致时最简单）。  
-4. **弃用百科，改标题栏/其它冷门按钮**  
-   成本高，需找稳定 UI 入口。
-
-### 5.3 第一期建议
-
-- Host 允许多 DLL **加载**。
-- 若启用的插件中 **超过一个需要百科**，组合补丁仍报错或提示「请只选一个占百科的功能」，直到第 5.2 落地。
-- 文档与 GUI 文案写清：**加载共存 ≠ 百科共存**。
+- [ ] DLL 九动 + 盗贼（面板关着）可同加载；需要时面板只开盗贼。
+- [ ] DLL 九动 + 桥接仍被拒绝或面板互斥，行为与文档一致。
+- [ ] `from_orig` 重打幂等：无双 Host、无双战斗钩。
 
 ---
 
-## 6. 验收标准（第一期）
+## 8. 参考文件
 
-- [ ] 干净底稿上可同时打上：正常加速类 inplace 补丁 + Host + DLL 九动 + 盗贼 DLL。
-- [ ] 进游戏后两个功能的 `Bootstrap` 均执行（日志或标题/Tip 可观察）。
-- [ ] 仅开盗贼时百科 Tip 行为与现网一致；仅开九动 DLL 时无百科冲突。
-- [ ] 同时勾选烧卡+盗贼（两者都要百科）时，工具给出明确错误/指引，而不是静默覆盖。
-- [ ] `from_orig` 重打幂等，不产生双 Host 或坏 Pause。
-
----
-
-## 7. 参考文件
-
-- `tools/hotfix_patcher/BridgeLoaderIlBuilder.cs`（及同类 Loader 构建）
-- `tools/hotfix_patcher/BattleNineActionExternalIlPatcher.cs`
-- `tools/hotfix_patcher/AutoSealExternalIlPatcher.cs`
-- `tools/hotfix_patcher/AutoCatchExternalIlPatcher.cs`
-- `tools/hotfix_patcher/AutoSellExternalIlPatcher.cs`
-- `tools/hotfix_patcher/HelperBridgeIlPatcher.cs`
-- `魔力宝贝序章补丁/scripts/apply_combo_patch.py`（DLL 互斥校验）
-- `魔力宝贝序章补丁/scripts/seqchapter_combo_gui.py`（互斥 UI）
+| 区域 | 路径 |
+|------|------|
+| Loader IL | `tools/hotfix_patcher/BridgeLoaderIlBuilder.cs` |
+| 现百科 Tip 三件套 | `AutoSealExternalIlPatcher.cs` / `AutoCatch…` / `AutoSell…` |
+| 九动 / 桥接 | `BattleNineActionExternalIlPatcher.cs` / `HelperBridgeIlPatcher.cs` |
+| 打开原版面板参考 | `WikiOpenDownloadResIlPatcher.cs`、`CustomerBtnGmIlPatcher.BuildOpenPanelBody` |
+| 功能 DLL | `tools/seqchapter_auto_seal|catch|sell|nine_action|helper_bridge/` |
+| 互斥校验 | `魔力宝贝序章补丁/scripts/apply_combo_patch.py` |
+| GUI | `seqchapter_combo_gui.py` / `foolproof_gui.py` |
 
 ---
 
-## 8. 备忘
+## 9. 备忘
 
-- 实现前先确认客户端有**干净** `hotfix.dll.bytes` 底稿；打补丁后勿把已打补丁文件同步回 `.orig` / `neworig`。
-- 本计划不阻塞当前「IL 九动 + 单 DLL」或「加速 + DLL 九动」等现有组合的使用。
+- 实现前确认客户端有**干净** `hotfix.dll.bytes`；打补丁后勿写回 `.orig` / `neworig`。
+- 当前体积目标以维护文档为准（约 **7,089,152**）；Host + 面板会增加外置 DLL，不必然增大 hotfix 本体（Pause/百科/分发钩仍要吃 `.text` 余量，分发钩设计需紧凑）。
+- 本计划落地前，现有「单 DLL + 百科 Tip」组合包仍可继续发布到 `E:\cross序章\发布plugin`。
+- 工作区唯一插件仓库：`E:\cross序章\crossgate_plugin`。

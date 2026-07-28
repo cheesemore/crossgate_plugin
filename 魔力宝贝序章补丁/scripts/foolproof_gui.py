@@ -5,10 +5,11 @@
 用法：
   傻瓜补丁.exe                打开界面
   傻瓜补丁.exe --auto         无界面自动打补丁（供 一键打补丁.bat）
-  傻瓜补丁.exe --auto --burn-seal    仅自动烧卡（兼容旧包）
-  傻瓜补丁.exe --auto --auto-catch   仅自动抓宠（兼容旧包）
-  傻瓜补丁.exe --auto --no-nine      无九动
-烧卡/抓宠合一包（烧卡抓宠.flag）：界面二选一，只能打一种。
+  傻瓜补丁.exe --auto --burn-seal         仅自动烧卡（高速，兼容旧包）
+  傻瓜补丁.exe --auto --burn-seal-slow    仅慢速烧卡（无任何加速）
+  傻瓜补丁.exe --auto --auto-catch        仅自动抓宠（兼容旧包）
+  傻瓜补丁.exe --auto --no-nine           无九动
+烧卡/抓宠合一包（烧卡抓宠.flag）：界面三选一，只能打一种。
 """
 from __future__ import annotations
 
@@ -57,6 +58,20 @@ def _detect_burn_seal() -> bool:
     return _has_flag("烧封印.flag", "BURN_SEAL", "自动烧卡.flag")
 
 
+def _detect_burn_seal_slow() -> bool:
+    if any(
+        a in (
+            "--burn-seal-slow",
+            "--slow-burn-seal",
+            "--auto-burn-slow",
+            "/burn-seal-slow",
+        )
+        for a in sys.argv[1:]
+    ):
+        return True
+    return _has_flag("慢速烧卡.flag", "BURN_SEAL_SLOW", "烧卡慢速.flag")
+
+
 def _detect_auto_catch() -> bool:
     if any(
         a in (
@@ -85,11 +100,13 @@ def _detect_no_nine() -> bool:
 
 SEAL_CATCH_CHOICE = _detect_seal_catch_choice()
 # 合一包优先；旧独占 flag 仍可用
-BURN_SEAL = (not SEAL_CATCH_CHOICE) and _detect_burn_seal()
+BURN_SEAL_SLOW = (not SEAL_CATCH_CHOICE) and _detect_burn_seal_slow()
+BURN_SEAL = (not SEAL_CATCH_CHOICE) and (not BURN_SEAL_SLOW) and _detect_burn_seal()
 AUTO_CATCH = (not SEAL_CATCH_CHOICE) and _detect_auto_catch()
 NO_NINE = (
     SEAL_CATCH_CHOICE
     or BURN_SEAL
+    or BURN_SEAL_SLOW
     or AUTO_CATCH
     or _detect_no_nine()
 )
@@ -111,6 +128,8 @@ def show_popup(title: str, text: str, *, error: bool = False) -> None:
 def _profile_title() -> str:
     if SEAL_CATCH_CHOICE:
         return "傻瓜补丁（烧卡/抓宠）"
+    if BURN_SEAL_SLOW:
+        return "傻瓜补丁（慢速烧卡）"
     if BURN_SEAL:
         return "傻瓜补丁（自动烧卡）"
     if AUTO_CATCH:
@@ -120,39 +139,53 @@ def _profile_title() -> str:
     return "傻瓜补丁"
 
 
+def _argv_modes() -> tuple[bool, bool, bool]:
+    """从命令行解析 burn / burn_slow / catch（互斥）。"""
+    argv = sys.argv[1:]
+    burn_slow = any(
+        a in ("--burn-seal-slow", "--slow-burn-seal", "--auto-burn-slow", "/burn-seal-slow")
+        for a in argv
+    )
+    burn = (not burn_slow) and any(
+        a in ("--burn-seal", "--burn-seal-cards", "--auto-burn", "/burn-seal") for a in argv
+    )
+    catch = any(
+        a in ("--auto-catch", "--catch-pet", "/auto-catch") for a in argv
+    )
+    return burn, burn_slow, catch
+
+
 def run_auto() -> int:
     """命令行/ bat 一键：自动找游戏目录 → 打补丁 → 弹窗。"""
     if SEAL_CATCH_CHOICE:
         # 合一包必须指定其一，否则请开界面选
-        argv = sys.argv[1:]
-        burn = any(a in ("--burn-seal", "--auto-burn", "/burn-seal") for a in argv)
-        catch = any(
-            a in ("--auto-catch", "--catch-pet", "/auto-catch") for a in argv
-        )
-        if burn and catch:
+        burn, burn_slow, catch = _argv_modes()
+        if sum(bool(x) for x in (burn, burn_slow, catch)) > 1:
             show_popup(
                 f"{_profile_title()} — 失败",
-                "不能同时指定自动烧卡与自动抓宠，请只选一个。",
+                "不能同时指定多个模式，请只选一个。",
                 error=True,
             )
             return 1
-        if not burn and not catch:
+        if not burn and not burn_slow and not catch:
             show_popup(
                 f"{_profile_title()} — 失败",
                 "烧卡/抓宠合一包请打开界面选择，或：\n"
                 "  --auto --burn-seal\n"
+                "  --auto --burn-seal-slow\n"
                 "  --auto --auto-catch",
                 error=True,
             )
             return 1
-        burn_seal, auto_catch = burn, catch
+        burn_seal, burn_seal_slow, auto_catch = burn, burn_slow, catch
     else:
-        burn_seal, auto_catch = BURN_SEAL, AUTO_CATCH
+        burn_seal, burn_seal_slow, auto_catch = BURN_SEAL, BURN_SEAL_SLOW, AUTO_CATCH
 
     try:
         msgs = run_foolproof_patch(
             enable_nine=not NO_NINE,
             burn_seal=burn_seal,
+            burn_seal_slow=burn_seal_slow,
             auto_catch=auto_catch,
             on_log=lambda line: print(line, flush=True),
         )
@@ -171,8 +204,8 @@ class FoolproofApp(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
         self.title(_profile_title())
-        self.geometry("640x520")
-        self.minsize(560, 420)
+        self.geometry("680x560")
+        self.minsize(580, 440)
 
         body = ttk.Frame(self, padding=12)
         body.pack(fill=tk.BOTH, expand=True)
@@ -189,10 +222,13 @@ class FoolproofApp(tk.Tk):
         self.mode_var = tk.StringVar(value="")
         if SEAL_CATCH_CHOICE:
             tip = (
-                "固定组合（烧卡 / 抓宠 二选一）：\n"
-                "· 自动烧卡：战斗 10x · 特效 5x · 一级含蝙蝠/哥布林 · 点百科 Tip；标题「★自动烧卡中★」\n"
-                "· 自动抓宠：战斗 5x · 特效 2x · 一级含蝙蝠/哥布林 · 点百科 Tip；宠物固定防御 W|0；标题「★自动中★遇到1级N只」\n"
-                "共同：自动技能 · 跑速快 · 长按详情 · 无九动\n"
+                "固定组合（烧卡 / 慢速烧卡 / 抓宠 三选一）：\n"
+                "· 自动烧卡：战斗 10x · 特效 5x · 跑速快 · 一级含蝙蝠/哥布林 · 点百科 Tip；"
+                "退战 Tip 余卡，无卡停遇敌；标题「★自动烧卡中★」\n"
+                "· 慢速烧卡：烧卡逻辑同上，但无任何加速（无战斗倍速/特效/跑速）\n"
+                "· 自动抓宠：战斗 5x · 特效 2x · 一级含蝙蝠/哥布林 · 点百科 Tip；"
+                "宠物对齐防御键；标题「★自动中★遇到1级N只」\n"
+                "共同：自动技能 · 长按详情 · 无九动\n"
                 "只能打一种（共用侧栏百科开关）。不含：神奇九动、加速过场、助手桥接"
             )
             ttk.Label(body, text=tip, justify=tk.LEFT).pack(anchor=tk.W, pady=(10, 6))
@@ -204,7 +240,13 @@ class FoolproofApp(tk.Tk):
                 text="自动烧卡",
                 variable=self.mode_var,
                 value="burn",
-            ).pack(side=tk.LEFT, padx=(8, 12))
+            ).pack(side=tk.LEFT, padx=(8, 8))
+            ttk.Radiobutton(
+                mode_row,
+                text="慢速烧卡",
+                variable=self.mode_var,
+                value="burn_slow",
+            ).pack(side=tk.LEFT, padx=(0, 8))
             ttk.Radiobutton(
                 mode_row,
                 text="自动封印",
@@ -212,12 +254,23 @@ class FoolproofApp(tk.Tk):
                 value="catch",
             ).pack(side=tk.LEFT)
             self.mode_var.set("burn")
+        elif BURN_SEAL_SLOW:
+            tip = (
+                "固定组合（慢速烧卡）：\n"
+                "默认关；点侧栏百科 Tip「自动烧卡已开启」/「自动烧卡已关闭」\n"
+                "烧卡逻辑同快速版，但无任何加速（无战斗倍速/特效/跑速）\n"
+                "· 自动技能 · 长按详情 · 一级含蝙蝠/哥布林 · 标题「★自动烧卡中★」\n"
+                "· 退战 Tip 剩余封印卡；为 0 则停止自动遇敌\n"
+                "不含：神奇九动、加速过场、助手桥接、自动抓宠"
+            )
+            ttk.Label(body, text=tip, justify=tk.LEFT).pack(anchor=tk.W, pady=(10, 6))
         elif BURN_SEAL:
             tip = (
                 "固定组合（自动烧卡）：\n"
                 "默认关；点侧栏百科 Tip「自动烧卡已开启」/「自动烧卡已关闭」\n"
                 "VIP/非VIP 10x · 特效 5x（最高）· 一级含蝙蝠/哥布林\n"
                 "· 自动技能 · 跑速快 · 长按详情 · 标题「★自动烧卡中★」\n"
+                "· 退战 Tip 剩余封印卡；为 0 则停止自动遇敌\n"
                 "不含：神奇九动、加速过场、助手桥接、自动抓宠"
             )
             ttk.Label(body, text=tip, justify=tk.LEFT).pack(anchor=tk.W, pady=(10, 6))
@@ -225,7 +278,7 @@ class FoolproofApp(tk.Tk):
             tip = (
                 "固定组合（自动抓宠）：\n"
                 "默认关；点侧栏百科 Tip 开关（开：自动抓宠已开启 / 关：自动战斗已关闭）\n"
-                "一级且非迷你蝙蝠：P1 扔卡 · P2 一号技能 · 其余人物 G · 宠物固定防御 W|0（SkillId74）\n"
+                "一级且非迷你蝙蝠：P1 扔卡 · P2 一号技能 · 其余人物 G · 宠物对齐防御键（SkillId74→W|Index）\n"
                 "VIP/非VIP 5x · 特效 2x · 一级含蝙蝠/哥布林 · 无九动"
             )
             ttk.Label(body, text=tip, justify=tk.LEFT).pack(anchor=tk.W, pady=(10, 6))
@@ -238,8 +291,8 @@ class FoolproofApp(tk.Tk):
             ttk.Label(body, text=tip, justify=tk.LEFT).pack(anchor=tk.W, pady=(10, 6))
         else:
             tip = (
-                "固定组合：VIP/非VIP 5x · 神奇九动 · 特效 2x · 一级含蝙蝠/哥布林\n"
-                "· 自动技能 · 跑速快 · 长按详情"
+                "固定组合：VIP/非VIP 5x · 神奇九动·DLL版 · 特效 2x · 一级含蝙蝠/哥布林\n"
+                "· 自动技能 · 跑速快 · 长按详情（本包固定 DLL 九动，不打 IL）"
             )
             ttk.Label(body, text=tip, justify=tk.LEFT).pack(anchor=tk.W, pady=(10, 6))
 
@@ -277,15 +330,18 @@ class FoolproofApp(tk.Tk):
         self.log.insert(tk.END, line + "\n")
         self.log.see(tk.END)
 
-    def _resolve_modes(self) -> tuple[bool, bool]:
+    def _resolve_modes(self) -> tuple[bool, bool, bool]:
+        """返回 (burn_seal, burn_seal_slow, auto_catch)。"""
         if SEAL_CATCH_CHOICE:
             mode = self.mode_var.get()
             if mode == "burn":
-                return True, False
+                return True, False, False
+            if mode == "burn_slow":
+                return False, True, False
             if mode == "catch":
-                return False, True
-            raise FoolproofError("请选择：自动烧卡 或 自动抓宠（只能打一个）。")
-        return BURN_SEAL, AUTO_CATCH
+                return False, False, True
+            raise FoolproofError("请选择：自动烧卡、慢速烧卡 或 自动抓宠（只能打一个）。")
+        return BURN_SEAL, BURN_SEAL_SLOW, AUTO_CATCH
 
     def on_apply(self) -> None:
         if self._busy:
@@ -293,7 +349,7 @@ class FoolproofApp(tk.Tk):
         raw = self.path_var.get().strip()
         game_root = Path(raw) if raw else None
         try:
-            burn_seal, auto_catch = self._resolve_modes()
+            burn_seal, burn_seal_slow, auto_catch = self._resolve_modes()
         except FoolproofError as exc:
             messagebox.showerror(f"{_profile_title()} — 失败", str(exc))
             return
@@ -308,6 +364,7 @@ class FoolproofApp(tk.Tk):
                     game_root,
                     enable_nine=not NO_NINE,
                     burn_seal=burn_seal,
+                    burn_seal_slow=burn_seal_slow,
                     auto_catch=auto_catch,
                     on_log=lambda line: self.after(0, self._append, line),
                 )

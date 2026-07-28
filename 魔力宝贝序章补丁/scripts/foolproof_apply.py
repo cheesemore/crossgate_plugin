@@ -10,10 +10,13 @@
 自动烧卡版（FOOLPROOF_BURN_SEAL_COMBO_KWARGS）：同上 + 自动烧卡·DLL版，仍无九动；
   战斗倍速 10x、特效 5x（最高档）。
 
-自动抓宠版（FOOLPROOF_AUTO_CATCH_COMBO_KWARGS）：同上 + 自动抓宠·DLL版，仍无九动；
-  有一级：P1 扔卡 / P2 一号技 / 其余人物 G / 宠物固定防御 W|0；退战存仓/无卡停挂机。
+慢速烧卡版（FOOLPROOF_BURN_SEAL_SLOW_COMBO_KWARGS）：烧卡逻辑同快速版，但无任何加速
+  （无战斗倍速、无特效加速、无地图跑速、无加速过场）；仍含自动技能/长按/一级含蝙蝠哥布林。
 
-带九动包：run_foolproof_patch(enable_nine=True) 时运行时择优 IL/DLL。
+自动抓宠版（FOOLPROOF_AUTO_CATCH_COMBO_KWARGS）：同上 + 自动抓宠·DLL版，仍无九动；
+  有一级：P1 扔卡 / P2 一号技 / 其余人物 G / 宠物对齐防御键；退战存仓/无卡停挂机。
+
+带九动包：run_foolproof_patch(enable_nine=True) 时固定打神奇九动·DLL版（余量紧，不再优先 IL）。
 GUI / 简单补丁默认「加速过场」关闭（见 DEFAULT_COMBO_KWARGS）。
 
 体积与 HotfixSize.Expected / EXPECTED_SIZE 绑定；客户端更新导致体积变化时
@@ -53,6 +56,7 @@ from patch_common import (
 )
 from patch_defaults import (
     FOOLPROOF_BURN_SEAL_COMBO_KWARGS,
+    FOOLPROOF_BURN_SEAL_SLOW_COMBO_KWARGS,
     FOOLPROOF_AUTO_CATCH_COMBO_KWARGS,
     FOOLPROOF_COMBO_KWARGS,
     FOOLPROOF_NO_NINE_COMBO_KWARGS,
@@ -296,6 +300,7 @@ def run_foolproof_patch(
     *,
     enable_nine: bool = True,
     burn_seal: bool = False,
+    burn_seal_slow: bool = False,
     auto_catch: bool = False,
     catch_pet: bool | None = None,
     on_log: LogFn | None = None,
@@ -303,16 +308,18 @@ def run_foolproof_patch(
     """一键诊断并打傻瓜补丁。成功返回消息列表；失败抛 FoolproofError。
 
     on_log：每产生一条进度即回调（GUI 可用来实时刷日志）。
-    burn_seal：自动烧卡版（强制无九动 + 自动烧卡）。
+    burn_seal：自动烧卡版（强制无九动 + 自动烧卡 · 最高加速）。
+    burn_seal_slow：慢速烧卡版（烧卡逻辑同 burn_seal，但无任何加速）。
     auto_catch：自动抓宠版（强制无九动 + 自动抓宠）。catch_pet 为 auto_catch 旧别名。
     """
     messages: list[str] = []
 
     if catch_pet is not None:
         auto_catch = bool(catch_pet) or auto_catch
-    if burn_seal and auto_catch:
-        raise FoolproofError("自动烧卡与自动抓宠不能同时启用。")
-    if burn_seal or auto_catch:
+    seal_modes = sum(bool(x) for x in (burn_seal, burn_seal_slow, auto_catch))
+    if seal_modes > 1:
+        raise FoolproofError("自动烧卡 / 慢速烧卡 / 自动抓宠 只能选一个。")
+    if burn_seal or burn_seal_slow or auto_catch:
         enable_nine = False
 
     _emit(messages, on_log, "正在解析游戏目录…")
@@ -327,7 +334,27 @@ def run_foolproof_patch(
     _emit(messages, on_log, "正在检查 hotfix / 底稿…")
     _ensure_clean_baseline(root, messages, on_log=on_log)
 
-    if burn_seal:
+    if burn_seal_slow:
+        _emit(
+            messages,
+            on_log,
+            "预设：慢速烧卡（点百科 Tip 开关 · 无九动 · 无任何加速 · 一级含蝙蝠/哥布林）",
+        )
+        kwargs = dict(FOOLPROOF_BURN_SEAL_SLOW_COMBO_KWARGS)
+        kwargs["battle_nine_action"] = False
+        kwargs["battle_nine_external"] = False
+        kwargs["auto_seal_external"] = True
+        kwargs["auto_catch_external"] = False
+        kwargs["level_one_include_all"] = True
+        kwargs["vip"] = False
+        kwargs["vip_non_vip"] = False
+        kwargs["map_sprint"] = False
+        kwargs["skill_effect_speed"] = False
+        kwargs["transition_speed"] = False
+        nine_label = "无"
+        nine_checks: list[str] = []
+        extra_checks = ["auto_seal_external", "level_one_include_all"]
+    elif burn_seal:
         _emit(messages, on_log, "预设：自动烧卡（点百科 Tip 开关 · 无九动 · 倍速10x/特效5x · 一级含蝙蝠/哥布林）")
         kwargs = dict(FOOLPROOF_BURN_SEAL_COMBO_KWARGS)
         kwargs["battle_nine_action"] = False
@@ -357,13 +384,13 @@ def run_foolproof_patch(
         nine_checks = []
         extra_checks = ["auto_catch_external", "level_one_include_all"]
     elif enable_nine:
-        use_il = choose_nine_il(root, on_log=on_log)
-        nine_label = "IL原版" if use_il else "DLL版"
-        _emit(messages, on_log, f"神奇九动：选用 {nine_label}")
+        use_il = False
+        nine_label = "DLL版"
+        _emit(messages, on_log, "神奇九动：固定 DLL版（本包不再打 IL 九动）")
         kwargs = dict(FOOLPROOF_COMBO_KWARGS)
-        kwargs["battle_nine_action"] = use_il
-        kwargs["battle_nine_external"] = not use_il
-        nine_checks = ["nine"] if use_il else ["nine_external"]
+        kwargs["battle_nine_action"] = False
+        kwargs["battle_nine_external"] = True
+        nine_checks = ["nine_external"]
         extra_checks = ["level_one_include_all"] if kwargs.get("level_one_include_all") else []
     else:
         use_il = False
@@ -382,10 +409,14 @@ def run_foolproof_patch(
 
     _emit(messages, on_log, "正在余量预检（启动补丁引擎，首次可能较慢）…")
     try:
+        if burn_seal_slow:
+            precheck = ["longpress", "customer_gm"]
+        else:
+            precheck = ["vip", "sprint", "longpress", "customer_gm", "skill_effect"]
         data = slack_report(
             game_root=root,
             prefer_orig=True,
-            check=["vip", "sprint", "longpress", "customer_gm", "skill_effect"]
+            check=precheck
             + (["transition"] if kwargs.get("transition_speed") else [])
             + nine_checks
             + extra_checks,
@@ -428,8 +459,6 @@ def run_foolproof_patch(
         if msg not in messages:
             messages.append(msg)
 
-    vip = kwargs.get("vip_scale", 5)
-    fx = kwargs.get("skill_effect_scale", 2.0)
     seal_part = " · 自动烧卡" if kwargs.get("auto_seal_external") else ""
     catch_part = " · 自动抓宠" if kwargs.get("auto_catch_external") else ""
     nine_part = f" · 九动{nine_label}" if enable_nine else " · 无九动"
@@ -438,20 +467,35 @@ def run_foolproof_patch(
         tr_part = f" · 过场{tr}s"
     else:
         tr_part = " · 无加速过场"
-    profile = "自动烧卡 · " if burn_seal else ("自动抓宠 · " if auto_catch else "")
-    _emit(
-        messages,
-        on_log,
-        f"已应用：{profile}VIP{vip}x · 自动技能 · Sprint快 · 长按详情"
-        f"{tr_part} · 特效{fx}x{seal_part}{catch_part}{nine_part}"
-        + (" · 一级含蝙蝠/哥布林" if kwargs.get("level_one_include_all") else ""),
-    )
-    try:
-        marked = (
-            "foolproof_burn_seal"
-            if burn_seal
-            else ("foolproof_auto_catch" if auto_catch else ("foolproof" if enable_nine else "foolproof_no_nine"))
+    if burn_seal_slow:
+        profile = "慢速烧卡 · "
+        _emit(
+            messages,
+            on_log,
+            f"已应用：{profile}无战斗倍速 · 自动技能 · 原速跑图 · 长按详情"
+            f"{tr_part} · 无特效加速{seal_part}{catch_part}{nine_part}"
+            + (" · 一级含蝙蝠/哥布林" if kwargs.get("level_one_include_all") else ""),
         )
+    else:
+        vip = kwargs.get("vip_scale", 5)
+        fx = kwargs.get("skill_effect_scale", 2.0)
+        profile = "自动烧卡 · " if burn_seal else ("自动抓宠 · " if auto_catch else "")
+        _emit(
+            messages,
+            on_log,
+            f"已应用：{profile}VIP{vip}x · 自动技能 · Sprint快 · 长按详情"
+            f"{tr_part} · 特效{fx}x{seal_part}{catch_part}{nine_part}"
+            + (" · 一级含蝙蝠/哥布林" if kwargs.get("level_one_include_all") else ""),
+        )
+    try:
+        if burn_seal_slow:
+            marked = "foolproof_burn_seal_slow"
+        elif burn_seal:
+            marked = "foolproof_burn_seal"
+        elif auto_catch:
+            marked = "foolproof_auto_catch"
+        else:
+            marked = "foolproof" if enable_nine else "foolproof_no_nine"
         mark_hotfix_watch_stamp(root, marked_by=marked)
         _emit(messages, on_log, "已标记 hotfix 指纹")
     except Exception as exc:

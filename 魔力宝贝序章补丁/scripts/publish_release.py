@@ -12,10 +12,11 @@ from pathlib import Path
 
 SCRIPTS_DIR = Path(__file__).resolve().parent
 TOOLKIT_ROOT = SCRIPTS_DIR.parent
-RELEASE_DIR = TOOLKIT_ROOT / "发布"
+GAME_ROOT = TOOLKIT_ROOT.parent
+CROSS_ROOT = GAME_ROOT.parent  # E:\cross序章
+RELEASE_DIR = CROSS_ROOT / "发布plugin"
 STAGING_DIR = RELEASE_DIR / "_build"
 DIST_DIR = RELEASE_DIR / "dist"
-GAME_ROOT = TOOLKIT_ROOT.parent
 PATCHER_CSPROJ = GAME_ROOT / "tools" / "hotfix_patcher" / "HotfixPatcher.csproj"
 PATCHER_STAGING = TOOLKIT_ROOT / "patcher" / "_release_staging"
 

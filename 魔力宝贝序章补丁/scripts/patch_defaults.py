@@ -6,8 +6,8 @@ DEFAULT_COMBO_KWARGS = {
     "vip": True,
     "vip_non_vip": True,
     "vip_scale": 5,
-    "battle_nine_action": True,
-    "battle_nine_external": False,
+    "battle_nine_action": False,
+    "battle_nine_external": True,
     "auto_seal_external": False,
     "auto_catch_external": False,
     "auto_sell_external": False,
@@ -51,6 +51,16 @@ FOOLPROOF_BURN_SEAL_COMBO_KWARGS = {
     "vip_scale": 10,
     "skill_effect_speed": True,
     "skill_effect_scale": 5.0,
+}
+
+# 傻瓜补丁·慢速烧卡：同自动烧卡逻辑，但无任何加速（无战斗倍速/特效/跑速/过场）
+FOOLPROOF_BURN_SEAL_SLOW_COMBO_KWARGS = {
+    **FOOLPROOF_BURN_SEAL_COMBO_KWARGS,
+    "vip": False,
+    "vip_non_vip": False,
+    "map_sprint": False,
+    "skill_effect_speed": False,
+    "transition_speed": False,
 }
 
 # 傻瓜补丁·自动抓宠：无九动 + 自动抓宠（与自动烧卡互斥）

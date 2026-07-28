@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""构建「傻瓜补丁」独立包（含 HotfixPatcher + 一键打补丁.bat）→ 发布/*.zip。
+"""构建「傻瓜补丁」独立包（含 HotfixPatcher + 一键打补丁.bat）→ E:\\cross序章\\发布plugin\\*.zip。
 
 用法：
   python publish_foolproof.py                 # 默认含九动
@@ -21,8 +21,10 @@ from pathlib import Path
 
 SCRIPTS_DIR = Path(__file__).resolve().parent
 TOOLKIT_ROOT = SCRIPTS_DIR.parent
-GAME_ROOT = TOOLKIT_ROOT.parent
-RELEASE_DIR = TOOLKIT_ROOT / "发布"
+GAME_ROOT = TOOLKIT_ROOT.parent  # 插件仓库根（crossgate_plugin）
+CROSS_ROOT = GAME_ROOT.parent  # E:\cross序章
+# 统一发布目录（与游戏客户端、插件仓库并列）
+RELEASE_DIR = CROSS_ROOT / "发布plugin"
 STAGING_DIR = RELEASE_DIR / "_foolproof_build"
 DIST_DIR = RELEASE_DIR / "dist_foolproof"
 PATCHER_CSPROJ = GAME_ROOT / "tools" / "hotfix_patcher" / "HotfixPatcher.csproj"
@@ -31,6 +33,7 @@ REF_STUBS_BIN = GAME_ROOT / "tools" / "hotfix_patcher" / "ref_stubs" / "bin"
 REF_STUBS_BUILD = GAME_ROOT / "tools" / "hotfix_patcher" / "build_ref_stubs.py"
 AUTO_SEAL_SRC = GAME_ROOT / "tools" / "seqchapter_auto_seal"
 AUTO_CATCH_SRC = GAME_ROOT / "tools" / "seqchapter_auto_catch"
+NINE_ACTION_SRC = GAME_ROOT / "tools" / "seqchapter_nine_action"
 
 _ARGV = sys.argv[1:]
 # --burn-seal / --auto-catch 均导向合一包（界面二选一）
@@ -103,27 +106,36 @@ echo 正在打开傻瓜补丁…
 exit /b %ERRORLEVEL%
 """
 
-README_SEAL_CATCH = """魔力宝贝：序章 — 傻瓜补丁·烧卡/抓宠（二选一）
+README_SEAL_CATCH = """魔力宝贝：序章 — 傻瓜补丁·烧卡/抓宠（三选一）
 
-内容：烧卡用最高加速（10x/特效5x）；抓宠仍为 5x/特效2x；共同含一级含哥布林/蝙蝠·自动技能·跑速快·长按详情·无九动
+内容：
+· 自动烧卡：最高加速（战斗10x / 特效5x / 跑速快）
+· 慢速烧卡：烧卡逻辑相同，但无任何加速
+· 自动抓宠：战斗5x / 特效2x / 跑速快
+共同：一级含哥布林/蝙蝠 · 自动技能 · 长按详情 · 无九动
 不含：神奇九动、加速过场、助手桥接
 
 打开补丁后请选择其一（只能打一个）：
 
 【自动烧卡】
 · 默认关闭。点侧栏「百科」：Tip「自动烧卡已开启」/「自动烧卡已关闭」；标题「★自动烧卡中★」
-· 战斗 10x · 特效 5x。开启后非 VIP 自动战斗有封印卡则自动扔卡；无卡走常规自动
+· 战斗 10x · 特效 5x · 跑速快。开启后非 VIP 自动战斗有封印卡则自动扔卡；无卡走常规自动
+· 退战（队长）：Tip「封印卡剩余 N 张」；N=0 时停止自动遇敌
+
+【慢速烧卡】
+· 烧卡 / Tip / 退战停遇敌 与「自动烧卡」相同
+· 无任何加速：无战斗倍速、无特效加速、无地图跑速、无加速过场
 
 【自动抓宠】
 · 默认关闭。点侧栏「百科」 Tip 开关；标题「★自动中★遇到1级N只」
-· 战斗 5x · 特效 2x。场上有可抓一级（不含迷你蝙蝠）时 P1 扔卡、P2 一号技能、其余人物 G、宠物固定防御 W|0
+· 战斗 5x · 特效 2x。场上有可抓一级（不含迷你蝙蝠）时 P1 扔卡、P2 一号技能、其余人物 G、宠物对齐防御键
 · 退战（队长）：满宠可存仓/终检；无卡停挂机；开关不因退战自动关闭
 
 请把封印卡放在背包。组队时各开各的客户端。队长存仓需月卡远程仓权限。
 
 1. 关掉游戏
 2. 把本文件夹解压到游戏目录（和 cg37.exe 放一起，或放在子文件夹里也行）
-3. 双击「一键打补丁.bat」，在界面选择「自动烧卡」或「自动封印」后打补丁
+3. 双击「一键打补丁.bat」，在界面选择「自动烧卡」「慢速烧卡」或「自动封印」后打补丁
 4. 看弹窗：成功或失败都会提示
 
 客户端更新后：先用启动器「更新」到最新，再运行本包。
@@ -153,8 +165,8 @@ README_NO_NINE = """魔力宝贝：序章 — 傻瓜补丁（无九动）
 
 README_DEFAULT = """魔力宝贝：序章 — 傻瓜补丁
 
-内容：VIP/非VIP 5x · 自动技能 · 跑速快 · 长按详情 · 特效2x · 神奇九动 · 遇敌一级含哥布林/蝙蝠
-不含：加速过场、助手桥接
+内容：VIP/非VIP 5x · 自动技能 · 跑速快 · 长按详情 · 特效2x · 神奇九动·DLL版 · 遇敌一级含哥布林/蝙蝠
+不含：加速过场、助手桥接、IL 九动（本包固定 DLL 九动，适配余量紧张的客户端）
 
 1. 关掉游戏
 2. 把本文件夹解压到游戏目录（和 cg37.exe 放一起，或放在子文件夹里也行）
@@ -338,25 +350,32 @@ def build_exe() -> Path:
     # 傻瓜包独立运行时 VERIFY 必须能解析 UnityEngine.CoreModule
     _copy_ref_stubs(patcher_dst / "ref_stubs")
 
-    # 烧卡/抓宠合一：随包带上两套 DLL 源码
+    # 随包带上 DLL 源码（烧卡/抓宠 或 九动 DLL）
+    bundle_srcs: list[tuple[Path, str]] = []
     if SEAL_CATCH:
         if not (AUTO_SEAL_SRC / "SeqChapterAutoSeal.cs").is_file():
             raise FileNotFoundError(f"找不到自动烧卡源码: {AUTO_SEAL_SRC}")
         if not (AUTO_CATCH_SRC / "SeqChapterAutoCatch.cs").is_file():
             raise FileNotFoundError(f"找不到自动抓宠源码: {AUTO_CATCH_SRC}")
-        for src, name in (
+        bundle_srcs = [
             (AUTO_SEAL_SRC, "seqchapter_auto_seal"),
             (AUTO_CATCH_SRC, "seqchapter_auto_catch"),
-        ):
-            seal_dst = patcher_dst / name
-            if seal_dst.is_dir():
-                shutil.rmtree(seal_dst, ignore_errors=True)
-            shutil.copytree(src, seal_dst)
-            tools_dst = out_dir / "tools" / name
-            tools_dst.parent.mkdir(parents=True, exist_ok=True)
-            if tools_dst.is_dir():
-                shutil.rmtree(tools_dst, ignore_errors=True)
-            shutil.copytree(src, tools_dst)
+        ]
+    elif not NO_NINE:
+        if not (NINE_ACTION_SRC / "SeqChapterNineAction.cs").is_file():
+            raise FileNotFoundError(f"找不到九动 DLL 源码: {NINE_ACTION_SRC}")
+        bundle_srcs = [(NINE_ACTION_SRC, "seqchapter_nine_action")]
+
+    for src, name in bundle_srcs:
+        seal_dst = patcher_dst / name
+        if seal_dst.is_dir():
+            shutil.rmtree(seal_dst, ignore_errors=True)
+        shutil.copytree(src, seal_dst)
+        tools_dst = out_dir / "tools" / name
+        tools_dst.parent.mkdir(parents=True, exist_ok=True)
+        if tools_dst.is_dir():
+            shutil.rmtree(tools_dst, ignore_errors=True)
+        shutil.copytree(src, tools_dst)
 
     (out_dir / BAT_NAME).write_text(BAT_CONTENT, encoding="utf-8")
     (out_dir / "使用说明.txt").write_text(README, encoding="utf-8")
