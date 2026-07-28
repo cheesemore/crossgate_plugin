@@ -76,13 +76,14 @@ internal static class SlackReport
         var evaluated = new List<(PatchSlackProfile Profile, bool Can, int BudgetAfter)>();
         foreach (var p in selected)
         {
-            var can = p.AlreadyApplied || p.GrowthBytes <= 0 || p.GrowthBytes <= budget;
-            if (!can && p.Mode == "external_dll")
-            {
-                can = false;
-            }
+            // Cecil 整包重写（外置 DLL）不吃 raw 追加余量；仅 binary append 计费
+            var consumesRawAppend = string.Equals(p.Mode, "append", StringComparison.OrdinalIgnoreCase);
+            var can = p.AlreadyApplied
+                      || !consumesRawAppend
+                      || p.GrowthBytes <= 0
+                      || p.GrowthBytes <= budget;
 
-            if (!p.AlreadyApplied && can && p.GrowthBytes > 0)
+            if (!p.AlreadyApplied && can && consumesRawAppend && p.GrowthBytes > 0)
             {
                 budget -= p.GrowthBytes;
             }
@@ -185,33 +186,33 @@ internal static class SlackReport
             "nine_external",
             "神奇九动·DLL版",
             180,
-            "append",
+            "cecil_rewrite",
             false,
-            "Pause 加载器+Magics；与 IL原版/桥接互斥"));
+            "Cecil 整包重写+外置 DLL，不占用 raw 追加；与 IL原版/桥接互斥"));
 
         list.Add(new PatchSlackProfile(
             "auto_seal_external",
             "自动烧卡·DLL版",
             220,
-            "append",
+            "cecil_rewrite",
             false,
-            "Pause 加载器 + Player 钩 + 百科 Tip 开关；与桥接/九动DLL/抓宠互斥，可与 IL 九动共存"));
+            "Cecil 整包重写+外置 DLL，不占用 raw 追加；与桥接/九动DLL/抓宠互斥，可与 IL 九动共存"));
 
         list.Add(new PatchSlackProfile(
             "auto_catch_external",
             "自动抓宠·DLL版",
             280,
-            "append",
+            "cecil_rewrite",
             false,
-            "Pause 加载器 + Player/Pet 钩 + 百科 Tip 开关；与烧卡/桥接/九动DLL互斥，可与 IL 九动共存"));
+            "Cecil 整包重写+外置 DLL，不占用 raw 追加；与烧卡/桥接/九动DLL互斥，可与 IL 九动共存"));
 
         list.Add(new PatchSlackProfile(
             "auto_sell_external",
             "盗贼辅助·DLL版",
             200,
-            "append",
+            "cecil_rewrite",
             false,
-            "Pause 加载器 + 百科 Tip；标题★盗贼辅助★N次战斗后出售；与烧卡/抓宠/桥接/九动DLL互斥，可与 IL 九动共存；不进傻瓜补丁"));
+            "Cecil 整包重写+外置 DLL，不占用 raw 追加；与烧卡/抓宠/桥接/九动DLL互斥，可与 IL 九动共存；不进傻瓜补丁"));
 
         var nine = EstimateNineGrowth(asm, pe);
         list.Add(new PatchSlackProfile(
