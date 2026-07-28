@@ -1,6 +1,6 @@
 # 多功能统一入口计划（Plugin Host + 百科面板）
 
-状态：**方案已拍板，待实现**（2026-07-28 续）  
+状态：**第一期实现中**（分支 `feature/plugin-host-wiki-panel`，2026-07-28）  
 前身：Pause 五选一 + 百科 Tip 开关互抢。  
 产品目标：
 
@@ -179,10 +179,11 @@ public static void SetEnabled(bool on);   // 取代 OnWikiClick 开关语义
 
 ### 第一期 — Host + 空面板 + 百科入口（验收骨架）
 
-1. 新建 `tools/seqchapter_plugin_host/`：`Bootstrap` / `OnWikiClick` / 运行时 Canvas 面板（可先只有标题+关闭+占位 Toggle）。
-2. `PluginHostIlPatcher`：Pause → Host；百科 → Host.OnWikiClick。
-3. 清单先写死：仅 Host 自身；进游戏点百科能稳定开/关面板，切场景不丢、层级盖住侧栏/战斗 UI。
-4. 文档 / GUI：标明「百科 = 插件面板」，与旧 Tip 开关互斥说明。
+1. ~~新建 `tools/seqchapter_plugin_host/`~~（已有：`Bootstrap` / `OnWikiClick` / 运行时 Canvas 面板 + hangup 占位互斥）
+2. ~~`PluginHostIlPatcher`~~（`plugin-host-patch`；Pause → Host；百科 → Host.OnWikiClick）
+3. ~~组合 GUI / `apply_combo_patch`~~：勾选「插件 Host·实验」（暂与其它扩展 DLL 互斥）
+4. [ ] 进游戏点百科验证：面板最上层、可开关、切场景可再开
+5. 文档 / GUI：标明「百科 = 插件面板」
 
 ### 第二期 — 挂机三件套进面板
 
