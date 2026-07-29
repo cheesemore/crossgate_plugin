@@ -3,7 +3,7 @@
 """构建「傻瓜补丁」独立包（九动版 / 融合版）→ E:\\cross序章\\发布plugin\\*.zip。
 
 用法：
-  python publish_foolproof.py --nine-pack      # 九动版（四选一：九动加速/抓宠/烧卡/慢速烧卡）
+  python publish_foolproof.py --nine-pack      # 九动版（五选一：九动加速/无九动加速/抓宠/烧卡/慢速烧卡）
   python publish_foolproof.py --fusion-pack    # 融合版（四选一：普通加速/抓宠/烧卡/慢速烧卡）
   python publish_foolproof.py                  # 同 --fusion-pack
 """
@@ -80,14 +80,26 @@ echo 正在打开傻瓜补丁…
 exit /b %ERRORLEVEL%
 """
 
+_CHOICE_N = "五选一" if NINE_PACK else "四选一"
+_NO_NINE_ACCEL_BLOCK = (
+    """
+【无九动加速】
+· VIP/非VIP 5x · 特效 2x · 跑速快 · 自动技能 · 长按详情 · 遇敌一级含哥布林/蝙蝠
+· 不含神奇九动（加速组合与「九动加速」相同，只是不打九动）
+"""
+    if NINE_PACK
+    else ""
+)
+
 README = f"""魔力宝贝：序章 — {APP_NAME}
 
-打开补丁后请四选一（只能打一种）：
+打开补丁后请{_CHOICE_N}（只能打一种）：
 
 【{ACCEL_NAME}】
 · VIP/非VIP 5x · 特效 2x · 跑速快 · 自动技能 · 长按详情 · 遇敌一级含哥布林/蝙蝠
 {"· 含神奇九动·DLL版（本包不打 IL 九动，适配余量紧张客户端）" if NINE_PACK else "· 不含神奇九动"}
-
+{"· 点侧栏百科：领超值月卡每日 + 在线礼包可领档 + 使用水晶碎片袋/高级水晶石/声望之花/生命之华/魔法结晶/高级声望勋章/时间水晶（间隔0.4s）" if NINE_PACK else ""}
+{_NO_NINE_ACCEL_BLOCK}
 【自动抓宠】
 · 默认关闭。点侧栏「百科」Tip 开关；标题「★自动中★遇到1级N只」
 · 战斗 5x · 特效 2x。可抓一级时 P1 扔卡、P2 一号技能、其余人物 G、宠物对齐防御键

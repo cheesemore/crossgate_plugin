@@ -1,7 +1,7 @@
 @echo off
 chcp 65001 >nul
 cd /d "%~dp0"
-echo [BUILD] 傻瓜补丁·九动版（四选一：九动加速/抓宠/烧卡/慢速烧卡） ...
+echo [BUILD] 傻瓜补丁·九动版（五选一：九动加速/无九动加速/抓宠/烧卡/慢速烧卡） ...
 python scripts\publish_foolproof.py --nine-pack
 if errorlevel 1 (
   echo [FAIL]

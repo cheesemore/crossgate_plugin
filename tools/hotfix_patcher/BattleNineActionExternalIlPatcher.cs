@@ -8,7 +8,8 @@ namespace CrossgateMod.Patcher;
 /// <summary>
 /// 神奇九动（DLL 版）：Magics 原地 + 加载 SeqChapterNineAction.dll.bytes。
 /// OnCommandPlayerCallback 末尾同步 Invoke ExpandAccountList（不依赖 Timer）。
-/// 与 IL 整法九动、助手桥接互斥（共用 OnApplicationPause / .text 余量）。
+/// MapSidebarPanel.OnClickWiki → OnWikiClick（日课：月卡/在线礼包/指定道具）。
+/// 与 IL 整法九动、助手桥接、烧卡/抓宠 DLL 互斥（共用 OnApplicationPause / 百科）。
 /// </summary>
 internal static class BattleNineActionExternalIlPatcher
 {
@@ -16,6 +17,8 @@ internal static class BattleNineActionExternalIlPatcher
     public const string TypeName = "SeqChapterNineAction";
     public const string BootstrapName = "Bootstrap";
     public const string ExpandName = "ExpandAccountList";
+    public const string WikiEntryName = "OnWikiClick";
+    public const string TempDllSuffix = ".nine_tmp.dll";
     public const string DllAssetPath = "hotfixdata/" + AssetFileName;
 
     public static int Run(string[] args)
@@ -142,6 +145,7 @@ internal static class BattleNineActionExternalIlPatcher
         try
         {
             File.WriteAllBytes(tmpMagics, padded);
+            // Magics 原地改 PE；百科钩放在 Magics 之后，避免旧逻辑/SKIP 路径丢钩
             BattleNineActionIlPatcher.Apply(tmpMagics, outputPath, patchQueue: false, patchMagics: true);
         }
         finally
@@ -149,11 +153,56 @@ internal static class BattleNineActionExternalIlPatcher
             try { File.Delete(tmpMagics); } catch { /* ignore */ }
         }
 
+        ApplyWikiHook(outputPath, hotfixDir);
+
         var outBytes = File.ReadAllBytes(outputPath);
         var growth = (long)PeLayout.GetSection(outBytes, ".text").VirtualSize
                      - (long)PeLayout.GetSection(origBytes, ".text").VirtualSize;
         Console.WriteLine($"[NINE-EXT] .text VirtualSize {(growth >= 0 ? "+" : "")}{growth}（钩子+Magics）");
         HotfixSize.EnsureUnchanged(outBytes, expectedSize);
+    }
+
+    /// <summary>在 Magics 之后改写百科，保证最终 PE 带日课入口。</summary>
+    private static void ApplyWikiHook(string hotfixPath, string hotfixDir)
+    {
+        var origBytes = File.ReadAllBytes(hotfixPath);
+        var expectedSize = HotfixSize.Require(origBytes);
+        var resolver = new HotfixAssemblyResolver(hotfixDir);
+        using var asm = AssemblyDefinition.ReadAssembly(hotfixPath, new ReaderParameters
+        {
+            AssemblyResolver = resolver,
+            InMemory = true,
+            ReadWrite = true,
+        });
+
+        var mapSidebar = asm.MainModule.Types.FirstOrDefault(t => t.Name == "MapSidebarPanel")
+            ?? throw new InvalidOperationException("未找到 MapSidebarPanel");
+        var onClickWiki = mapSidebar.Methods.FirstOrDefault(m => m.Name == "OnClickWiki" && m.HasBody)
+            ?? throw new InvalidOperationException("未找到 MapSidebarPanel.OnClickWiki");
+        BridgeLoaderIlBuilder.BuildLoadAndAlwaysInvokeBody(
+            onClickWiki,
+            asm.MainModule,
+            DllAssetPath,
+            TypeName,
+            WikiEntryName,
+            TempDllSuffix,
+            tipOn: "日课领取已开始",
+            tipOff: "日课领取进行中",
+            tipFail: "神奇九动/日课加载失败");
+        Console.WriteLine("[NINE-EXT] OnClickWiki -> OnWikiClick（日课流水线）");
+
+        using var ms = new MemoryStream();
+        asm.Write(ms);
+        var written = ms.ToArray();
+        if (written.Length > expectedSize)
+        {
+            throw new InvalidOperationException(
+                $"百科钩 Cecil 写出 {written.Length} 字节，超过 hotfix 固定体积 {expectedSize}");
+        }
+
+        var padded = PeExactSizePad.Pad(written, origBytes, expectedSize);
+        MetadataValidator.EnsureReadable(padded, hotfixDir);
+        File.WriteAllBytes(hotfixPath, padded);
     }
 
     /// <summary>
@@ -299,7 +348,20 @@ internal static class BattleNineActionExternalIlPatcher
 
             var onPlayer = asm.MainModule.Types.First(t => t.Name == "BattleProcesser")
                 .Methods.First(m => m.Name == "OnCommandPlayerCallback" && m.HasBody);
-            return IsExpandHookInstalled(onPlayer);
+            if (!IsExpandHookInstalled(onPlayer))
+            {
+                return false;
+            }
+
+            var wiki = asm.MainModule.Types.FirstOrDefault(t => t.Name == "MapSidebarPanel")
+                ?.Methods.FirstOrDefault(m => m.Name == "OnClickWiki" && m.HasBody);
+            if (wiki == null)
+            {
+                return false;
+            }
+
+            return wiki.Body.Instructions.Any(
+                i => i.OpCode == OpCodes.Ldstr && i.Operand is string s && s == WikiEntryName);
         }
         catch
         {

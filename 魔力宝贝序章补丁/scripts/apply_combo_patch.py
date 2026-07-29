@@ -301,7 +301,7 @@ def apply_battle_nine_external(hotfix: Path, source: Path) -> tuple[bool, str]:
         return False, out.strip() or "神奇九动·DLL版补丁失败"
     if "[SKIP]" in out:
         return True, "神奇九动·DLL版：已是补丁状态（跳过）"
-    return True, "神奇九动·DLL版：已部署 DLL + 加载钩 + Magics"
+    return True, "神奇九动·DLL版：已部署 DLL + 加载钩 + Magics + 百科日课"
 
 
 def apply_auto_seal_external(hotfix: Path, source: Path) -> tuple[bool, str]:

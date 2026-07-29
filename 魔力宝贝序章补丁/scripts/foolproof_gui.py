@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""魔力宝贝：序章 — 傻瓜补丁（两包四模式）。
+"""魔力宝贝：序章 — 傻瓜补丁（两包）。
 
 发布物：
-  傻瓜补丁_九动版   → 九动加速 / 抓宠 / 烧卡 / 慢速烧卡
+  傻瓜补丁_九动版   → 九动加速 / 无九动加速 / 抓宠 / 烧卡 / 慢速烧卡
   傻瓜补丁_融合版   → 普通加速 / 抓宠 / 烧卡 / 慢速烧卡
 
 用法：
-  傻瓜补丁_*.exe              打开界面（四选一）
+  傻瓜补丁_*.exe              打开界面选模式
   傻瓜补丁_*.exe --auto --accel
+  傻瓜补丁_九动版.exe --auto --accel-no-nine
   傻瓜补丁_*.exe --auto --burn-seal
   傻瓜补丁_*.exe --auto --burn-seal-slow
   傻瓜补丁_*.exe --auto --auto-catch
@@ -95,7 +96,7 @@ def _profile_title() -> str:
 
 
 def _argv_mode() -> str | None:
-    """命令行模式：accel / burn / burn_slow / catch。"""
+    """命令行模式：accel / accel_no_nine / burn / burn_slow / catch。"""
     argv = sys.argv[1:]
     if any(a in ("--burn-seal-slow", "--slow-burn-seal", "--auto-burn-slow", "/burn-seal-slow") for a in argv):
         return "burn_slow"
@@ -103,6 +104,11 @@ def _argv_mode() -> str | None:
         return "burn"
     if any(a in ("--auto-catch", "--catch-pet", "/auto-catch") for a in argv):
         return "catch"
+    if any(
+        a in ("--accel-no-nine", "--no-nine-accel", "--normal-accel", "/accel-no-nine")
+        for a in argv
+    ):
+        return "accel_no_nine"
     if any(a in ("--accel", "--normal", "--nine-accel", "/accel") for a in argv):
         return "accel"
     return None
@@ -112,27 +118,34 @@ def _mode_to_flags(mode: str) -> tuple[bool, bool, bool, bool]:
     """enable_nine, burn, burn_slow, catch。"""
     if mode == "accel":
         return NINE_PACK, False, False, False
+    if mode == "accel_no_nine":
+        return False, False, False, False
     if mode == "burn":
         return False, True, False, False
     if mode == "burn_slow":
         return False, False, True, False
     if mode == "catch":
         return False, False, False, True
-    raise FoolproofError("请选择：加速 / 抓宠 / 烧卡 / 慢速烧卡（只能打一个）。")
+    raise FoolproofError("请选择一种模式（只能打一个）。")
 
 
 def run_auto() -> int:
     mode = _argv_mode()
     if mode is None:
-        show_popup(
-            f"{_profile_title()} — 失败",
-            "请打开界面选择模式，或指定其一：\n"
-            "  --auto --accel\n"
-            "  --auto --auto-catch\n"
-            "  --auto --burn-seal\n"
-            "  --auto --burn-seal-slow",
-            error=True,
+        lines = [
+            "请打开界面选择模式，或指定其一：",
+            "  --auto --accel",
+        ]
+        if NINE_PACK:
+            lines.append("  --auto --accel-no-nine")
+        lines.extend(
+            [
+                "  --auto --auto-catch",
+                "  --auto --burn-seal",
+                "  --auto --burn-seal-slow",
+            ]
         )
+        show_popup(f"{_profile_title()} — 失败", "\n".join(lines), error=True)
         return 1
     try:
         enable_nine, burn, burn_slow, catch = _mode_to_flags(mode)
@@ -161,8 +174,8 @@ class FoolproofApp(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
         self.title(_profile_title())
-        self.geometry("720x600")
-        self.minsize(600, 460)
+        self.geometry("780x620")
+        self.minsize(680, 480)
 
         body = ttk.Frame(self, padding=12)
         body.pack(fill=tk.BOTH, expand=True)
@@ -177,11 +190,19 @@ class FoolproofApp(tk.Tk):
         ttk.Button(row, text="浏览…", command=self.browse).pack(side=tk.LEFT)
 
         pack_name = "九动版" if NINE_PACK else "融合版"
+        choice_n = "五选一" if NINE_PACK else "四选一"
         tip = (
-            f"本包：傻瓜补丁·{pack_name}（四选一，只能打一种）\n"
+            f"本包：傻瓜补丁·{pack_name}（{choice_n}，只能打一种）\n"
             f"· {ACCEL_LABEL}：VIP/非VIP 5x · 特效 2x · 跑速快 · 自动技能 · 长按 · 一级含蝙蝠/哥布林"
             + (" · 神奇九动·DLL" if NINE_PACK else " · 无九动")
             + "\n"
+        )
+        if NINE_PACK:
+            tip += (
+                "· 无九动加速：同上加速组合，但不打九动\n"
+                "· 九动版百科：点侧栏百科 → 依次领月卡每日/在线礼包可领档，并使用水晶碎片袋·高级水晶石·声望之花·生命之华·魔法结晶·高级声望勋章·时间水晶（间隔0.4s）\n"
+            )
+        tip += (
             "· 自动抓宠：点百科 Tip；战斗 5x · 特效 2x；标题「★自动中★…」\n"
             "· 自动烧卡：点百科 Tip；战斗 10x · 特效 5x；标题「★自动烧卡中★」\n"
             "· 慢速烧卡：烧卡逻辑同上，但无任何加速\n"
@@ -194,12 +215,17 @@ class FoolproofApp(tk.Tk):
         mode_row = ttk.Frame(body)
         mode_row.pack(anchor=tk.W, pady=(0, 8))
         ttk.Label(mode_row, text="选择补丁：").pack(side=tk.LEFT)
-        for value, text in (
-            ("accel", ACCEL_LABEL),
-            ("catch", "自动抓宠"),
-            ("burn", "自动烧卡"),
-            ("burn_slow", "慢速烧卡"),
-        ):
+        mode_choices: list[tuple[str, str]] = [("accel", ACCEL_LABEL)]
+        if NINE_PACK:
+            mode_choices.append(("accel_no_nine", "无九动加速"))
+        mode_choices.extend(
+            (
+                ("catch", "自动抓宠"),
+                ("burn", "自动烧卡"),
+                ("burn_slow", "慢速烧卡"),
+            )
+        )
+        for value, text in mode_choices:
             ttk.Radiobutton(
                 mode_row,
                 text=text,
