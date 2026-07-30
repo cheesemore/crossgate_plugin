@@ -301,7 +301,26 @@ def apply_battle_nine_external(hotfix: Path, source: Path) -> tuple[bool, str]:
         return False, out.strip() or "神奇九动·DLL版补丁失败"
     if "[SKIP]" in out:
         return True, "神奇九动·DLL版：已是补丁状态（跳过）"
-    return True, "神奇九动·DLL版：已部署 DLL + 加载钩 + Magics + 百科日课"
+    return True, "神奇九动·DLL版：已部署 DLL + 加载钩 + Magics"
+
+
+def apply_daily_claim_external(hotfix: Path, source: Path) -> tuple[bool, str]:
+    """日常·分享入口：SeqChapterDailyClaim.dll.bytes + 侧栏分享按钮（不占百科/Pause）。"""
+    proc = run_patcher_capture(
+        [
+            "daily-claim-external-patch",
+            "--hotfix",
+            str(source),
+            "--output",
+            str(hotfix),
+        ]
+    )
+    out = (proc.stdout or "") + (proc.stderr or "")
+    if proc.returncode != 0:
+        return False, out.strip() or "日常·分享入口补丁失败"
+    if "[SKIP]" in out and "日常" in out:
+        return True, "日常·分享：已是补丁状态（跳过）"
+    return True, "日常·分享：侧栏「分享」→ 月卡每日/在线礼包/指定道具"
 
 
 def apply_auto_seal_external(hotfix: Path, source: Path) -> tuple[bool, str]:
@@ -414,6 +433,7 @@ def _apply_gameplay_patches(
     pet_equip_unlock: bool,
     wiki_download_res: bool,
     wiki_label: bool = False,
+    daily_claim: bool = True,
     on_log=None,
 ) -> tuple[list[str], Path]:
     """在现有 hotfix 上叠加玩法补丁（不还原 .orig）。返回 (messages, work_path)。"""
@@ -546,6 +566,15 @@ def _apply_gameplay_patches(
         _emit_combo(messages, on_log, msg)
         work = hotfix
 
+    # 日常最后打：只改分享按钮，不碰百科/Pause，各模式均可叠加
+    if daily_claim:
+        _emit_combo(messages, on_log, "正在打：日常·分享入口…")
+        ok, msg = apply_daily_claim_external(hotfix, work)
+        if not ok:
+            raise RuntimeError(msg)
+        _emit_combo(messages, on_log, msg)
+        work = hotfix
+
     if pet_equip_unlock:
         raise RuntimeError("宠物四装备孔补丁已停用（会导致宠物界面崩溃）")
 
@@ -577,6 +606,7 @@ def apply_combo(
     pet_equip_unlock: bool = False,
     wiki_download_res: bool = False,
     wiki_label: bool = False,
+    daily_claim: bool = True,
     inject_bridge: bool = False,
     from_orig: bool = False,
     game_root: Path | None = None,
@@ -688,6 +718,7 @@ def apply_combo(
         or pet_equip_unlock
         or wiki_download_res
         or wiki_label
+        or daily_claim
     )
 
     patch_kwargs = dict(
@@ -713,6 +744,7 @@ def apply_combo(
         pet_equip_unlock=pet_equip_unlock,
         wiki_download_res=wiki_download_res,
         wiki_label=wiki_label,
+        daily_claim=daily_claim,
         on_log=on_log,
     )
 
@@ -758,6 +790,7 @@ def apply_combo(
         "pet_equip_unlock": pet_equip_unlock,
         "wiki_download_res": wiki_download_res,
         "wiki_label": wiki_label,
+        "daily_claim": daily_claim,
         "inject_bridge": inject_bridge,
         "bridge_patched": is_bridge_patched(game_root),
         "bridge_variant": detect_bridge_variant(game_root),

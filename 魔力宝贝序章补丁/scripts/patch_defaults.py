@@ -24,6 +24,7 @@ DEFAULT_COMBO_KWARGS = {
     "pet_equip_unlock": False,
     "wiki_download_res": False,
     "wiki_label": False,
+    "daily_claim": True,
     "inject_bridge": False,
     "from_orig": True,
 }
@@ -95,5 +96,6 @@ LAUNCH_INJECT_PRESET = {
     "pet_equip_unlock": False,
     "wiki_download_res": False,
     "wiki_label": False,
+    "daily_claim": True,
     "from_orig": True,
 }

@@ -31,6 +31,7 @@ REF_STUBS_BUILD = GAME_ROOT / "tools" / "hotfix_patcher" / "build_ref_stubs.py"
 AUTO_SEAL_SRC = GAME_ROOT / "tools" / "seqchapter_auto_seal"
 AUTO_CATCH_SRC = GAME_ROOT / "tools" / "seqchapter_auto_catch"
 NINE_ACTION_SRC = GAME_ROOT / "tools" / "seqchapter_nine_action"
+DAILY_CLAIM_SRC = GAME_ROOT / "tools" / "seqchapter_daily_claim"
 
 _ARGV = sys.argv[1:]
 NINE_PACK = any(a in ("--nine-pack", "--with-nine-pack", "/nine-pack") for a in _ARGV)
@@ -98,8 +99,11 @@ README = f"""魔力宝贝：序章 — {APP_NAME}
 【{ACCEL_NAME}】
 · VIP/非VIP 5x · 特效 2x · 跑速快 · 自动技能 · 长按详情 · 遇敌一级含哥布林/蝙蝠
 {"· 含神奇九动·DLL版（本包不打 IL 九动，适配余量紧张客户端）" if NINE_PACK else "· 不含神奇九动"}
-{"· 点侧栏百科：领超值月卡每日 + 在线礼包可领档 + 使用水晶碎片袋/高级水晶石/声望之花/生命之华/魔法结晶/高级声望勋章/时间水晶（间隔0.4s）" if NINE_PACK else ""}
 {_NO_NINE_ACCEL_BLOCK}
+【分享改日常（界面可勾选，默认勾上）】
+· 勾选后侧栏「分享」：领超值月卡每日 + 在线礼包可领档 + 使用水晶碎片袋/高级水晶石/声望之花/生命之华/魔法结晶/高级声望勋章/时间水晶（间隔0.4s）
+· 不占用百科按钮（抓宠/烧卡仍用百科 Tip）；取消勾选则保留原版分享
+
 【自动抓宠】
 · 默认关闭。点侧栏「百科」Tip 开关；标题「★自动中★遇到1级N只」
 · 战斗 5x · 特效 2x。可抓一级时 P1 扔卡、P2 一号技能、其余人物 G、宠物对齐防御键
@@ -288,10 +292,11 @@ def build_exe() -> Path:
     shutil.copy2(PATCHER_STAGING / "HotfixPatcher.exe", patcher_dst / "HotfixPatcher.exe")
     _copy_ref_stubs(patcher_dst / "ref_stubs")
 
-    # 两包都带烧卡+抓宠源；九动版额外带九动 DLL 源
+    # 两包都带烧卡+抓宠+日常源；九动版额外带九动 DLL 源
     bundle_srcs: list[tuple[Path, str]] = [
         (AUTO_SEAL_SRC, "seqchapter_auto_seal"),
         (AUTO_CATCH_SRC, "seqchapter_auto_catch"),
+        (DAILY_CLAIM_SRC, "seqchapter_daily_claim"),
     ]
     if NINE_PACK:
         bundle_srcs.append((NINE_ACTION_SRC, "seqchapter_nine_action"))

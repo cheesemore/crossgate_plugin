@@ -387,6 +387,7 @@ def run_foolproof_patch(
     burn_seal_slow: bool = False,
     auto_catch: bool = False,
     catch_pet: bool | None = None,
+    daily_claim: bool = True,
     on_log: LogFn | None = None,
 ) -> list[str]:
     """一键诊断并打傻瓜补丁。成功返回消息列表；失败抛 FoolproofError。
@@ -395,6 +396,7 @@ def run_foolproof_patch(
     burn_seal：自动烧卡版（强制无九动 + 自动烧卡 · 最高加速）。
     burn_seal_slow：慢速烧卡版（烧卡逻辑同 burn_seal，但无任何加速）。
     auto_catch：自动抓宠版（强制无九动 + 自动抓宠）。catch_pet 为 auto_catch 旧别名。
+    daily_claim：分享改日常（侧栏「分享」触发日常流水线；默认开）。
     """
     messages: list[str] = []
 
@@ -417,6 +419,11 @@ def run_foolproof_patch(
 
     _emit(messages, on_log, "正在检查 hotfix / 底稿…")
     _ensure_clean_baseline(root, messages, on_log=on_log)
+
+    if daily_claim:
+        _emit(messages, on_log, "附加：分享改日常（侧栏「分享」→ 月卡每日/在线礼包/指定道具）")
+    else:
+        _emit(messages, on_log, "附加：不打分享改日常（保留原版分享）")
 
     if burn_seal_slow:
         _emit(
@@ -488,6 +495,7 @@ def run_foolproof_patch(
 
     kwargs["from_orig"] = True
     kwargs["inject_bridge"] = False
+    kwargs["daily_claim"] = bool(daily_claim)
     kwargs["game_root"] = root
     kwargs["on_log"] = on_log
 
@@ -545,6 +553,7 @@ def run_foolproof_patch(
 
     seal_part = " · 自动烧卡" if kwargs.get("auto_seal_external") else ""
     catch_part = " · 自动抓宠" if kwargs.get("auto_catch_external") else ""
+    daily_part = " · 分享改日常" if kwargs.get("daily_claim") else ""
     nine_part = f" · 九动{nine_label}" if enable_nine else " · 无九动"
     if kwargs.get("transition_speed"):
         tr = kwargs.get("transition_speed_scale", 0.4)
@@ -557,7 +566,7 @@ def run_foolproof_patch(
             messages,
             on_log,
             f"已应用：{profile}无战斗倍速 · 自动技能 · 原速跑图 · 长按详情"
-            f"{tr_part} · 无特效加速{seal_part}{catch_part}{nine_part}"
+            f"{tr_part} · 无特效加速{seal_part}{catch_part}{daily_part}{nine_part}"
             + (" · 一级含蝙蝠/哥布林" if kwargs.get("level_one_include_all") else ""),
         )
     else:
@@ -568,7 +577,7 @@ def run_foolproof_patch(
             messages,
             on_log,
             f"已应用：{profile}VIP{vip}x · 自动技能 · Sprint快 · 长按详情"
-            f"{tr_part} · 特效{fx}x{seal_part}{catch_part}{nine_part}"
+            f"{tr_part} · 特效{fx}x{seal_part}{catch_part}{daily_part}{nine_part}"
             + (" · 一级含蝙蝠/哥布林" if kwargs.get("level_one_include_all") else ""),
         )
     try:

@@ -65,6 +65,11 @@ internal static class Program
             return BattleNineActionExternalIlPatcher.Run(args.Skip(1).ToArray());
         }
 
+        if (args.Length > 0 && args[0] == "daily-claim-external-patch")
+        {
+            return DailyClaimExternalIlPatcher.Run(args.Skip(1).ToArray());
+        }
+
         if (args.Length > 0 && args[0] == "battle-nine-action-patch")
         {
             return BattleNineActionIlPatcher.Run(args.Skip(1).ToArray());

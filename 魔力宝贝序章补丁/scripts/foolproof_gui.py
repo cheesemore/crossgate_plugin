@@ -143,17 +143,22 @@ def run_auto() -> int:
                 "  --auto --auto-catch",
                 "  --auto --burn-seal",
                 "  --auto --burn-seal-slow",
+                "可选：--no-daily（不打分享改日常；默认会打）",
             ]
         )
         show_popup(f"{_profile_title()} — 失败", "\n".join(lines), error=True)
         return 1
     try:
         enable_nine, burn, burn_slow, catch = _mode_to_flags(mode)
+        daily = not any(
+            a in ("--no-daily", "--no-share-daily", "/no-daily") for a in sys.argv[1:]
+        )
         msgs = run_foolproof_patch(
             enable_nine=enable_nine,
             burn_seal=burn,
             burn_seal_slow=burn_slow,
             auto_catch=catch,
+            daily_claim=daily,
             on_log=lambda line: print(line, flush=True),
         )
         detail = "\n".join(msgs[-8:]) if msgs else "补丁已打好。"
@@ -198,11 +203,9 @@ class FoolproofApp(tk.Tk):
             + "\n"
         )
         if NINE_PACK:
-            tip += (
-                "· 无九动加速：同上加速组合，但不打九动\n"
-                "· 九动版百科：点侧栏百科 → 依次领月卡每日/在线礼包可领档，并使用水晶碎片袋·高级水晶石·声望之花·生命之华·魔法结晶·高级声望勋章·时间水晶（间隔0.4s）\n"
-            )
+            tip += "· 无九动加速：同上加速组合，但不打九动\n"
         tip += (
+            "· 分享改日常（可选）：勾选后侧栏「分享」→ 领月卡每日/在线礼包可领档，并使用水晶碎片袋·高级水晶石·声望之花·生命之华·魔法结晶·高级声望勋章·时间水晶（间隔0.4s）；不占百科\n"
             "· 自动抓宠：点百科 Tip；战斗 5x · 特效 2x；标题「★自动中★…」\n"
             "· 自动烧卡：点百科 Tip；战斗 10x · 特效 5x；标题「★自动烧卡中★」\n"
             "· 慢速烧卡：烧卡逻辑同上，但无任何加速\n"
@@ -232,6 +235,13 @@ class FoolproofApp(tk.Tk):
                 variable=self.mode_var,
                 value=value,
             ).pack(side=tk.LEFT, padx=(8, 0))
+
+        self.daily_claim_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(
+            body,
+            text="分享改日常（各模式可叠加；取消则保留原版分享）",
+            variable=self.daily_claim_var,
+        ).pack(anchor=tk.W, pady=(0, 8))
 
         btns = ttk.Frame(body)
         btns.pack(fill=tk.X, pady=(0, 8))
@@ -391,6 +401,7 @@ class FoolproofApp(tk.Tk):
                     burn_seal=burn,
                     burn_seal_slow=burn_slow,
                     auto_catch=catch,
+                    daily_claim=bool(self.daily_claim_var.get()),
                     on_log=lambda line: self.after(0, self._append, line),
                 )
                 self.after(
