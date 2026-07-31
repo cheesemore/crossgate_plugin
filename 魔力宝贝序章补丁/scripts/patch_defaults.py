@@ -10,6 +10,7 @@ DEFAULT_COMBO_KWARGS = {
     "battle_nine_external": True,
     "auto_seal_external": False,
     "auto_catch_external": False,
+    "auto_catch_nopet_external": False,
     "auto_sell_external": False,
     "customer_gm": True,
     "customer_gm_mode": "autoskill",
@@ -69,22 +70,31 @@ FOOLPROOF_AUTO_CATCH_COMBO_KWARGS = {
     **FOOLPROOF_NO_NINE_COMBO_KWARGS,
     "auto_seal_external": False,
     "auto_catch_external": True,
+    "auto_catch_nopet_external": False,
     "level_one_include_all": True,
     "vip_scale": 5,
     "skill_effect_speed": True,
     "skill_effect_scale": 2.0,
 }
 
+# 傻瓜补丁·自动抓宠（无宠人防御）：一级时 P2 人物防御（替代有宠时的宠防御）
+FOOLPROOF_AUTO_CATCH_NOPET_COMBO_KWARGS = {
+    **FOOLPROOF_AUTO_CATCH_COMBO_KWARGS,
+    "auto_catch_external": False,
+    "auto_catch_nopet_external": True,
+}
+
 # 兼容旧名：捉宠 → 现指自动抓宠（不再指向烧卡）
 FOOLPROOF_CATCH_PET_COMBO_KWARGS = FOOLPROOF_AUTO_CATCH_COMBO_KWARGS
 
-# 序章多开器「启动前自动注入」使用的组合（不含客服 GM；改这里即可，勿改多开器代码）
+# 序章多开器「启动前自动注入」使用的组合（改这里即可，勿改多开器代码）
 LAUNCH_INJECT_PRESET = {
     "vip": True,
     "vip_non_vip": True,
     "vip_scale": 5,
     "battle_nine_action": False,
-    "customer_gm": False,
+    "customer_gm": True,
+    "customer_gm_mode": "autoskill",
     "map_sprint": True,
     "map_sprint_scale": 8,
     "battle_longpress": True,

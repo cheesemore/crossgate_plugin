@@ -179,18 +179,18 @@ class ComboPatchApp:
 
         ttk.Checkbutton(
             tab_common,
-            text="侧栏客服改开功能",
+            text="侧栏客服→高级自动战斗（默认开；官方入口太深）",
             variable=self.customer_gm_var,
         ).pack(anchor=tk.W, pady=(8, 0))
         for row_modes in (
             (
+                ("autoskill", "高级自动战斗"),
                 ("blindbox", "盲盒3028"),
                 ("lottery", "幸运秘宝3049"),
                 ("challengeboss", "讨伐令3045"),
                 ("bravetrial", "试炼3047"),
                 ("crystal", "水晶阁"),
             ),
-            (("autoskill", "自动技能"),),
         ):
             gm_row = ttk.Frame(tab_common)
             gm_row.pack(anchor=tk.W, padx=(18, 0), pady=(4, 0))
@@ -254,7 +254,7 @@ class ComboPatchApp:
 
         ttk.Checkbutton(
             tab_common,
-            text="分享改日常（侧栏「分享」→ 领月卡每日/在线礼包/指定道具；不占百科）",
+            text="分享改日常（默认开；侧栏「分享」→ 签到/月卡/在线礼包/指定道具；不占百科）",
             variable=self.daily_claim_var,
         ).pack(anchor=tk.W, pady=(8, 0))
 

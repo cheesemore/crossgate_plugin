@@ -13,6 +13,7 @@
   傻瓜补丁_*.exe --auto --burn-seal
   傻瓜补丁_*.exe --auto --burn-seal-slow
   傻瓜补丁_*.exe --auto --auto-catch
+  傻瓜补丁_*.exe --auto --auto-catch-nopet
 
 拒绝自愈时，界面可选手选干净目录恢复 hotfix（无默认源）后再打。
 """
@@ -96,12 +97,17 @@ def _profile_title() -> str:
 
 
 def _argv_mode() -> str | None:
-    """命令行模式：accel / accel_no_nine / burn / burn_slow / catch。"""
+    """命令行模式：accel / accel_no_nine / burn / burn_slow / catch / catch_nopet。"""
     argv = sys.argv[1:]
     if any(a in ("--burn-seal-slow", "--slow-burn-seal", "--auto-burn-slow", "/burn-seal-slow") for a in argv):
         return "burn_slow"
     if any(a in ("--burn-seal", "--burn-seal-cards", "--auto-burn", "/burn-seal") for a in argv):
         return "burn"
+    if any(
+        a in ("--auto-catch-nopet", "--catch-nopet", "--auto-catch-no-pet", "/auto-catch-nopet")
+        for a in argv
+    ):
+        return "catch_nopet"
     if any(a in ("--auto-catch", "--catch-pet", "/auto-catch") for a in argv):
         return "catch"
     if any(
@@ -114,18 +120,20 @@ def _argv_mode() -> str | None:
     return None
 
 
-def _mode_to_flags(mode: str) -> tuple[bool, bool, bool, bool]:
-    """enable_nine, burn, burn_slow, catch。"""
+def _mode_to_flags(mode: str) -> tuple[bool, bool, bool, bool, bool]:
+    """enable_nine, burn, burn_slow, catch, catch_nopet。"""
     if mode == "accel":
-        return NINE_PACK, False, False, False
+        return NINE_PACK, False, False, False, False
     if mode == "accel_no_nine":
-        return False, False, False, False
+        return False, False, False, False, False
     if mode == "burn":
-        return False, True, False, False
+        return False, True, False, False, False
     if mode == "burn_slow":
-        return False, False, True, False
+        return False, False, True, False, False
     if mode == "catch":
-        return False, False, False, True
+        return False, False, False, True, False
+    if mode == "catch_nopet":
+        return False, False, False, False, True
     raise FoolproofError("请选择一种模式（只能打一个）。")
 
 
@@ -141,6 +149,7 @@ def run_auto() -> int:
         lines.extend(
             [
                 "  --auto --auto-catch",
+                "  --auto --auto-catch-nopet",
                 "  --auto --burn-seal",
                 "  --auto --burn-seal-slow",
                 "可选：--no-daily（不打分享改日常；默认会打）",
@@ -149,7 +158,7 @@ def run_auto() -> int:
         show_popup(f"{_profile_title()} — 失败", "\n".join(lines), error=True)
         return 1
     try:
-        enable_nine, burn, burn_slow, catch = _mode_to_flags(mode)
+        enable_nine, burn, burn_slow, catch, catch_nopet = _mode_to_flags(mode)
         daily = not any(
             a in ("--no-daily", "--no-share-daily", "/no-daily") for a in sys.argv[1:]
         )
@@ -158,6 +167,7 @@ def run_auto() -> int:
             burn_seal=burn,
             burn_seal_slow=burn_slow,
             auto_catch=catch,
+            auto_catch_nopet=catch_nopet,
             daily_claim=daily,
             on_log=lambda line: print(line, flush=True),
         )
@@ -179,8 +189,8 @@ class FoolproofApp(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
         self.title(_profile_title())
-        self.geometry("780x620")
-        self.minsize(680, 480)
+        self.geometry("920x640")
+        self.minsize(780, 500)
 
         body = ttk.Frame(self, padding=12)
         body.pack(fill=tk.BOTH, expand=True)
@@ -195,18 +205,20 @@ class FoolproofApp(tk.Tk):
         ttk.Button(row, text="浏览…", command=self.browse).pack(side=tk.LEFT)
 
         pack_name = "九动版" if NINE_PACK else "融合版"
-        choice_n = "五选一" if NINE_PACK else "四选一"
+        choice_n = "六选一" if NINE_PACK else "五选一"
         tip = (
             f"本包：傻瓜补丁·{pack_name}（{choice_n}，只能打一种）\n"
-            f"· {ACCEL_LABEL}：VIP/非VIP 5x · 特效 2x · 跑速快 · 自动技能 · 长按 · 一级含蝙蝠/哥布林"
+            f"· {ACCEL_LABEL}：VIP/非VIP 5x · 特效 2x · 跑速快 · 长按 · 一级含蝙蝠/哥布林"
             + (" · 神奇九动·DLL" if NINE_PACK else " · 无九动")
             + "\n"
         )
         if NINE_PACK:
             tip += "· 无九动加速：同上加速组合，但不打九动\n"
         tip += (
-            "· 分享改日常（可选）：勾选后侧栏「分享」→ 领月卡每日/在线礼包可领档，并使用水晶碎片袋·高级水晶石·声望之花·生命之华·魔法结晶·高级声望勋章·时间水晶（间隔0.4s）；不占百科\n"
-            "· 自动抓宠：点百科 Tip；战斗 5x · 特效 2x；标题「★自动中★…」\n"
+            "· 分享改日常（可选）：勾选后侧栏「分享」→ 每日签到/领月卡每日/在线礼包可领档，并使用水晶碎片袋·高级水晶石·声望之花·生命之华·魔法结晶·高级声望勋章·时间水晶·工时小闹钟（间隔0.4s）；不占百科\n"
+            "· 客服→高级自动战斗：各模式默认带上（侧栏客服开自动技能设置；官方入口太深）\n"
+            "· 自动抓宠：点百科 Tip；战斗 5x · 特效 2x；标题「★自动中★…」；有宠时宠防御\n"
+            "· 自动抓宠（无宠人防御）：同上；无宠时 2动人物防御，1动仍 P2 放技能/其余防御\n"
             "· 自动烧卡：点百科 Tip；战斗 10x · 特效 5x；标题「★自动烧卡中★」\n"
             "· 慢速烧卡：烧卡逻辑同上，但无任何加速\n"
             "抓宠/烧卡/慢速烧卡 均不含九动（与加速模式互斥）。不含加速过场、助手桥接。\n"
@@ -224,6 +236,7 @@ class FoolproofApp(tk.Tk):
         mode_choices.extend(
             (
                 ("catch", "自动抓宠"),
+                ("catch_nopet", "自动抓宠（无宠人防御）"),
                 ("burn", "自动烧卡"),
                 ("burn_slow", "慢速烧卡"),
             )
@@ -239,7 +252,7 @@ class FoolproofApp(tk.Tk):
         self.daily_claim_var = tk.BooleanVar(value=True)
         ttk.Checkbutton(
             body,
-            text="分享改日常（各模式可叠加；取消则保留原版分享）",
+            text="分享改日常（默认开；各模式可叠加；取消则保留原版分享）",
             variable=self.daily_claim_var,
         ).pack(anchor=tk.W, pady=(0, 8))
 
@@ -387,7 +400,7 @@ class FoolproofApp(tk.Tk):
         """在工作线程或恢复后调用；结束后会解除 busy。"""
         game_root = self._game_root()
         try:
-            enable_nine, burn, burn_slow, catch = _mode_to_flags(self.mode_var.get())
+            enable_nine, burn, burn_slow, catch, catch_nopet = _mode_to_flags(self.mode_var.get())
         except FoolproofError as exc:
             messagebox.showerror(f"{_profile_title()} — 失败", str(exc))
             self._set_busy(False)
@@ -401,6 +414,7 @@ class FoolproofApp(tk.Tk):
                     burn_seal=burn,
                     burn_seal_slow=burn_slow,
                     auto_catch=catch,
+                    auto_catch_nopet=catch_nopet,
                     daily_claim=bool(self.daily_claim_var.get()),
                     on_log=lambda line: self.after(0, self._append, line),
                 )

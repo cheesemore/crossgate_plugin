@@ -5,13 +5,20 @@ using System.Reflection;
 using System.Threading;
 
 /// <summary>
-/// 自动抓宠 DLL。部署为 hotfixdata/SeqChapterAutoCatch.dll.bytes
-/// Pause 延迟加载后 Bootstrap；钩 AutoFight_PlayerAction / AutoFight_PetAction。
-/// 侧栏百科 = 手动开关：默认 PipelineEnabled=false；点百科切换开/关，并用 NotifyManager.Tip 提示。
+/// 自动抓宠 DLL。
+#if AUTO_CATCH_NOPET
+/// 无宠人防御分支：部署为 hotfixdata/SeqChapterAutoCatchNoPet.dll.bytes
+/// 一级时 1动：P1 扔卡、P2 一号技能、其余人物 G（与普通抓宠相同）；
+/// 无宠时人物有 2动：2动一律人物防御 G（替代原宠防御）。有宠仍走宠防御。
+#else
+/// 部署为 hotfixdata/SeqChapterAutoCatch.dll.bytes
 /// 场上有可抓一级敌宠时（LevelOneFlag 或 Level==1；排除迷你蝙蝠 101242；含哥布林 101800）：
 ///   P1(队长/队序0) 扔封印卡（无卡则走原自动）；
 ///   P2(队序1) 放 1 号技能（Config[0] 的 Skillindex/Techindex，即位置编号非 SkillId）；
 ///   其余人物防御 G；所有宠物防御（PetSkills 中 SkillId=74 的栏位，W|slot|petIndex）。
+#endif
+/// Pause 延迟加载后 Bootstrap；钩 AutoFight_PlayerAction / AutoFight_PlayerAction2 / AutoFight_PetAction。
+/// 侧栏百科 = 手动开关：默认 PipelineEnabled=false；点百科切换开/关，并用 NotifyManager.Tip 提示。
 /// 无「可抓一级」则走原自动。
 /// 退战后（仅队长，且 PipelineEnabled）：
 ///   1) 需停挂机时立刻发「停止挂机」；
@@ -19,9 +26,19 @@ using System.Threading;
 ///   3) 满 5 宠 → 存仓→终检；未满无卡已停挂机；已停挂机则不做存仓。
 /// 其余发包间隔 1 秒。与烧封印 / 桥接 / 九动 DLL 互斥。
 /// </summary>
+#if AUTO_CATCH_NOPET
+public static class SeqChapterAutoCatchNoPet
+#else
 public static class SeqChapterAutoCatch
+#endif
 {
+#if AUTO_CATCH_NOPET
+    public const string AssetPath = "hotfixdata/SeqChapterAutoCatchNoPet.dll.bytes";
+    public const string TypeName = "SeqChapterAutoCatchNoPet";
+#else
     public const string AssetPath = "hotfixdata/SeqChapterAutoCatch.dll.bytes";
+    public const string TypeName = "SeqChapterAutoCatch";
+#endif
 
     /// <summary>
     /// 流水线总开关。false 时：战斗内抓宠、退战改名/存仓/挂机、以及后续任何新环节均不触发。
@@ -227,14 +244,20 @@ public static class SeqChapterAutoCatch
                 Type t = null;
                 try
                 {
-                    t = asm.GetType("SeqChapterAutoCatch", false, false);
+                    t = asm.GetType(TypeName, false, false);
                 }
                 catch
                 {
                     continue;
                 }
 
-                if (t == null || t == typeof(SeqChapterAutoCatch))
+                if (t == null || t == typeof(
+#if AUTO_CATCH_NOPET
+                    SeqChapterAutoCatchNoPet
+#else
+                    SeqChapterAutoCatch
+#endif
+                    ))
                 {
                     continue;
                 }
@@ -263,14 +286,20 @@ public static class SeqChapterAutoCatch
                 Type t = null;
                 try
                 {
-                    t = asm.GetType("SeqChapterAutoCatch", false, false);
+                    t = asm.GetType(TypeName, false, false);
                 }
                 catch
                 {
                     continue;
                 }
 
-                if (t == null || t == typeof(SeqChapterAutoCatch))
+                if (t == null || t == typeof(
+#if AUTO_CATCH_NOPET
+                    SeqChapterAutoCatchNoPet
+#else
+                    SeqChapterAutoCatch
+#endif
+                    ))
                 {
                     continue;
                 }
@@ -322,6 +351,14 @@ public static class SeqChapterAutoCatch
                 return false;
             }
 
+#if AUTO_CATCH_NOPET
+            // 无宠时人物 2动：一律防御（FightProcessFlag.PlayerActionEnd 表示 1动已结束）
+            if (IsPlayerSecondAction(battleMgr))
+            {
+                return SendBattleCmd(battleMgr, uid, "G", setMagic: false);
+            }
+#endif
+
             var partySlot = GetPartySlot(uid);
             if (partySlot == 0)
             {
@@ -350,6 +387,46 @@ public static class SeqChapterAutoCatch
                     "S|" + skillIndex.ToString("X") + "|" + techIndex.ToString("X") + "|"
                     + targetIndex.ToString("X"),
                     setMagic: true);
+            }
+
+            return SendBattleCmd(battleMgr, uid, "G", setMagic: false);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// 人物 2动入口（钩 AutoFight_PlayerAction2）。
+    /// 有一级时一律防御，避免无宠时原版自动出手。
+    /// </summary>
+    public static bool TryPlayerAutoCatch2()
+    {
+        if (!IsPipelineActive())
+        {
+            return false;
+        }
+
+        try
+        {
+            if (!TryFindLevelOneEnemy(out _))
+            {
+                return false;
+            }
+
+            NoteLevelOneEncounterOnce();
+
+            var uid = GetStaticString("BattleDataHolder", "CurrentAccount");
+            if (string.IsNullOrEmpty(uid))
+            {
+                return false;
+            }
+
+            var battleMgr = GetManagerInstance("BattleManager");
+            if (battleMgr == null || !IsPlayerAlive(battleMgr))
+            {
+                return false;
             }
 
             return SendBattleCmd(battleMgr, uid, "G", setMagic: false);
@@ -511,7 +588,7 @@ public static class SeqChapterAutoCatch
                 }
             });
             thread.IsBackground = true;
-            thread.Name = "SeqChapterAutoCatch.ExitPipeline";
+            thread.Name = TypeName + ".ExitPipeline";
             thread.Start();
         }
         catch
@@ -1410,6 +1487,29 @@ public static class SeqChapterAutoCatch
         catch
         {
             return null;
+        }
+    }
+
+    /// <summary>
+    /// 人物是否已进入 2动：BattleManager.FightProcessFlag 含 PlayerActionEnd(1)。
+    /// 无宠时 AutoFight_PlayerAction 会再调一次，此时应防御。
+    /// </summary>
+    private static bool IsPlayerSecondAction(object battleMgr)
+    {
+        try
+        {
+            var flag = GetMember(battleMgr, "FightProcessFlag");
+            if (flag == null)
+            {
+                return false;
+            }
+
+            // FightProcessFlag.PlayerActionEnd = 1
+            return (Convert.ToInt32(flag) & 1) != 0;
+        }
+        catch
+        {
+            return false;
         }
     }
 

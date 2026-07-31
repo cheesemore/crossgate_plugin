@@ -24,8 +24,9 @@ PARTIALCONFIG_STREAMING_REL = Path(DATA_DIR) / "StreamingAssets" / "partialconfi
 KEEP_CHANNELS = frozenset({"1100", "1102"})
 DEFAULT_CHANNEL = "1101"
 OLD_HOTFIX_SIZE = 6_879_744
-EXPECTED_SIZE = 7_091_712
+EXPECTED_SIZE = 7_092_736
 KNOWN_OLD_SIZES: dict[int, str] = {
+    7_091_712: "自动标记：更新前旧版",
     7_089_152: "2026-07-28 ~ 2026-07-29",
     7_077_888: "自动标记：更新前旧版",
     7_077_376: "2026-07-24 早",
@@ -53,7 +54,7 @@ CUSTOMER_GM_LABELS = {
     "boss": "讨伐 Boss",
     "tower": "无尽之塔(已下架)",
     "ruby": "露比试炼",
-    "autoskill": "自动技能设置",
+    "autoskill": "高级自动战斗(自动技能)",
     "challengeboss": "讨伐令(3045)",
     "bravetrial": "英雄试炼(3047)",
     "familyhall": "公会领地(已下架)",

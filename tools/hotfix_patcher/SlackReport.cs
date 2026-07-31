@@ -39,7 +39,7 @@ internal static class SlackReport
         {
             Console.WriteLine(
                 "用法: HotfixPatcher slack-report --hotfix <hotfix.dll.bytes> [--json] [--check id1,id2,...]\n" +
-                "常见 id: vip, sprint, longpress, level_one_include_all, customer_gm, skill_effect, bridge, nine, nine_queue, nine_magics, nine_external, auto_seal_external, auto_catch_external, auto_sell_external");
+                "常见 id: vip, sprint, longpress, level_one_include_all, customer_gm, skill_effect, bridge, nine, nine_queue, nine_magics, nine_external, auto_seal_external, auto_catch_external, auto_catch_nopet_external, auto_sell_external");
             return 1;
         }
 
@@ -205,6 +205,14 @@ internal static class SlackReport
             "cecil_rewrite",
             false,
             "Cecil 整包重写+外置 DLL，不占用 raw 追加；与烧卡/桥接/九动DLL互斥，可与 IL 九动共存"));
+
+        list.Add(new PatchSlackProfile(
+            "auto_catch_nopet_external",
+            "自动抓宠·无宠人防御",
+            280,
+            "cecil_rewrite",
+            false,
+            "与普通自动抓宠互斥；一级时 P2 人物防御；Cecil 整包重写+外置 DLL"));
 
         list.Add(new PatchSlackProfile(
             "auto_sell_external",

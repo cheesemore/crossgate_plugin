@@ -114,7 +114,7 @@ internal static class DailyClaimExternalIlPatcher
             EntryName,
             TempDllSuffix,
             tipOn: "日常领取已开始",
-            tipOff: "日常领取进行中",
+            tipOff: "日常领取已停止",
             tipFail: "日常加载失败");
         Console.WriteLine("[DAILY] OnClickShareCallback -> OnShareClick（日常流水线）");
 

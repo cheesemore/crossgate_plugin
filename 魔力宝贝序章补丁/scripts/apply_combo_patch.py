@@ -361,6 +361,25 @@ def apply_auto_catch_external(hotfix: Path, source: Path) -> tuple[bool, str]:
     return True, "自动抓宠·DLL版：已部署 DLL + 战斗钩 + 百科开关"
 
 
+def apply_auto_catch_nopet_external(hotfix: Path, source: Path) -> tuple[bool, str]:
+    """自动抓宠·无宠人防御：SeqChapterAutoCatchNoPet.dll.bytes；一级时 P2 人物防御。"""
+    proc = run_patcher_capture(
+        [
+            "auto-catch-nopet-external-patch",
+            "--hotfix",
+            str(source),
+            "--output",
+            str(hotfix),
+        ]
+    )
+    out = (proc.stdout or "") + (proc.stderr or "")
+    if proc.returncode != 0:
+        return False, out.strip() or "自动抓宠·无宠人防御补丁失败"
+    if "[SKIP]" in out and ("自动抓宠" in out or "无宠" in out):
+        return True, "自动抓宠·无宠人防御：已是补丁状态（跳过）"
+    return True, "自动抓宠·无宠人防御：已部署 DLL + 战斗钩 + 百科开关"
+
+
 def apply_auto_sell_external(hotfix: Path, source: Path) -> tuple[bool, str]:
     """盗贼辅助·DLL版：SeqChapterAutoSell.dll.bytes + 百科开关；每10场退战远程出售魔石。"""
     proc = run_patcher_capture(
@@ -418,6 +437,7 @@ def _apply_gameplay_patches(
     battle_nine_external: bool,
     auto_seal_external: bool,
     auto_catch_external: bool,
+    auto_catch_nopet_external: bool = False,
     auto_sell_external: bool,
     plugin_host: bool,
     customer_gm: bool,
@@ -468,7 +488,7 @@ def _apply_gameplay_patches(
 
     if customer_gm:
         sniff_target = orig if orig.is_file() else hotfix
-        _emit_combo(messages, on_log, "正在打：客服入口→自动技能…")
+        _emit_combo(messages, on_log, "正在打：客服入口→高级自动战斗…")
         ok, sniff_out = sniff_customer_gm(sniff_target)
         if not ok:
             raise RuntimeError(f"客服入口嗅探失败:\n{sniff_out}")
@@ -544,6 +564,13 @@ def _apply_gameplay_patches(
             raise RuntimeError(msg)
         _emit_combo(messages, on_log, msg)
         work = hotfix
+    if auto_catch_nopet_external:
+        _emit_combo(messages, on_log, "正在打：自动抓宠·无宠人防御…")
+        ok, msg = apply_auto_catch_nopet_external(hotfix, work)
+        if not ok:
+            raise RuntimeError(msg)
+        _emit_combo(messages, on_log, msg)
+        work = hotfix
     if auto_sell_external:
         _emit_combo(messages, on_log, "正在打：盗贼辅助·DLL版…")
         ok, msg = apply_auto_sell_external(hotfix, work)
@@ -591,6 +618,7 @@ def apply_combo(
     battle_nine_external: bool = False,
     auto_seal_external: bool = False,
     auto_catch_external: bool = False,
+    auto_catch_nopet_external: bool = False,
     auto_sell_external: bool = False,
     plugin_host: bool = False,
     customer_gm: bool = False,
@@ -634,10 +662,13 @@ def apply_combo(
     if wiki_download_res and wiki_label:
         raise RuntimeError("百科→资源下载 与 百科文字→百科1 不能同时启用。")
 
-    if auto_catch_external and wiki_download_res:
+    if auto_catch_external and auto_catch_nopet_external:
+        raise RuntimeError("自动抓宠·DLL 与 自动抓宠·无宠人防御 不能同时启用，请只选一项。")
+
+    if (auto_catch_external or auto_catch_nopet_external) and wiki_download_res:
         raise RuntimeError("自动抓宠·DLL 已占用侧栏百科按钮，不能同时启用百科→资源下载。")
 
-    if auto_catch_external and wiki_label:
+    if (auto_catch_external or auto_catch_nopet_external) and wiki_label:
         raise RuntimeError("自动抓宠·DLL 已占用侧栏百科按钮，不能同时启用百科文字→百科1。")
 
     if auto_seal_external and wiki_download_res:
@@ -664,6 +695,7 @@ def apply_combo(
         ("神奇九动·DLL", battle_nine_external),
         ("自动烧卡·DLL", auto_seal_external),
         ("自动抓宠·DLL", auto_catch_external),
+        ("自动抓宠·无宠人防御", auto_catch_nopet_external),
         ("盗贼辅助·DLL", auto_sell_external),
         ("插件 Host", plugin_host),
         ("注入桥接·DLL", inject_bridge),
@@ -672,7 +704,8 @@ def apply_combo(
     if len(exclusive_on) > 1:
         raise RuntimeError(
             "战斗扩展 DLL 互斥（只能勾一类）："
-            "神奇九动·DLL / 自动烧卡·DLL / 自动抓宠·DLL / 盗贼辅助·DLL / 插件 Host / 注入桥接·DLL。\n"
+            "神奇九动·DLL / 自动烧卡·DLL / 自动抓宠·DLL / 自动抓宠·无宠人防御 / "
+            "盗贼辅助·DLL / 插件 Host / 注入桥接·DLL。\n"
             "（IL 九动可与盗贼辅助等同打；Host 一期暂与其它扩展 DLL 互斥）\n"
             f"当前同时勾选了：{'、'.join(exclusive_on)}"
         )
@@ -686,6 +719,7 @@ def apply_combo(
         battle_nine_external=battle_nine_external,
         auto_seal_external=auto_seal_external,
         auto_catch_external=auto_catch_external,
+        auto_catch_nopet_external=auto_catch_nopet_external,
         auto_sell_external=auto_sell_external,
         customer_gm=customer_gm,
         map_sprint=map_sprint,
@@ -707,6 +741,7 @@ def apply_combo(
         or battle_nine_external
         or auto_seal_external
         or auto_catch_external
+        or auto_catch_nopet_external
         or auto_sell_external
         or plugin_host
         or customer_gm
@@ -729,6 +764,7 @@ def apply_combo(
         battle_nine_external=battle_nine_external,
         auto_seal_external=auto_seal_external,
         auto_catch_external=auto_catch_external,
+        auto_catch_nopet_external=auto_catch_nopet_external,
         auto_sell_external=auto_sell_external,
         plugin_host=plugin_host,
         customer_gm=customer_gm,
@@ -775,6 +811,7 @@ def apply_combo(
         "battle_nine_external": battle_nine_external,
         "auto_seal_external": auto_seal_external,
         "auto_catch_external": auto_catch_external,
+        "auto_catch_nopet_external": auto_catch_nopet_external,
         "auto_sell_external": auto_sell_external,
         "plugin_host": plugin_host,
         "customer_gm": customer_gm,

@@ -15,7 +15,11 @@ public static class SeqChapterDailyClaim
 
     private const float StepSec = 0.4f;
     private const int WaitTicksMax = 12; // 约 4.8s
-    private const int MaxUsePerSlot = 99;
+    private const int MaxUsePerSlot = 20;
+    /// <summary>整条流水线最长 tick，超时强制结束（约 3 分钟）。</summary>
+    private const int MaxPipelineTicks = 450;
+    /// <summary>同格堆积数不变时最多连用次数，防止用不掉死循环。</summary>
+    private const int MaxStaleUsesPerSlot = 3;
 
     private static bool _bootstrapped;
     private static string _statusPath;
@@ -25,6 +29,7 @@ public static class SeqChapterDailyClaim
     private static int _waitTicks;
     private static List<string> _uids;
     private static int _uidIndex;
+    private static int _signTitleId;
     private static int _monthTitleId;
     private static int _onlineTitleId;
     private static List<object> _onlineClaimable;
@@ -32,6 +37,7 @@ public static class SeqChapterDailyClaim
     private static int _useUidIndex;
     private static int _useSlot;
     private static int _useAttempt;
+    private static int _signClaims;
     private static int _monthClaims;
     private static int _onlineClaims;
     private static int _itemUses;
@@ -49,11 +55,31 @@ public static class SeqChapterDailyClaim
         920050, 1005736,
         661318, 661319, 661320, 661321, 661322, 661323,
         661330, 661331, 661332, 661333, 661334, 661335, 661538,
+        // 工时小闹钟（含 3小时 / 6小时）— 使用后常弹 MessageBox 二次确认
+        661355, 661536, 920043,
     };
+
+    /// <summary>使用后需点 MessageBox 确定才会真正消耗的道具。</summary>
+    private static readonly HashSet<int> ConfirmUseItemIds = new HashSet<int>
+    {
+        661355, 661536, 920043,
+    };
+
+    private static bool _awaitingUseConfirm;
+    private static int _confirmWaitTicks;
+    private static int _pipelineTicks;
+    private static int _skipConfirmTicks;
+    private static int _staleUseCount;
+    private static int _stalePile;
+    private static int _staleItemId;
+    private static int _staleSlot;
 
     // states
     private const int StSendList = 1;
     private const int StWaitList = 2;
+    private const int StSendSignInfo = 13;
+    private const int StWaitSignInfo = 14;
+    private const int StClaimSign = 15;
     private const int StSendMonthInfo = 3;
     private const int StWaitMonthInfo = 4;
     private const int StClaimMonth = 5;
@@ -92,12 +118,16 @@ public static class SeqChapterDailyClaim
     }
 
 
-    /// <summary>分享：主线程启动日常。true=已开始；false=进行中。</summary>
+    /// <summary>
+    /// 分享：切换日常流水线。true=已开始（Tip 开启）；false=已停止（Tip 关闭）。
+    /// 进行中再点一次会强制中止（含 Timer / 用道具确认等待），避免关不掉。
+    /// </summary>
     public static bool OnShareClick()
     {
         Bootstrap();
-        if (_pipelineRunning)
+        if (_pipelineRunning || IsAnyCopyPipelineRunning())
         {
+            AbortDailyAllCopies();
             return false;
         }
 
@@ -105,10 +135,13 @@ public static class SeqChapterDailyClaim
         if (_uids == null || _uids.Count == 0)
         {
             Tip("日常：未找到角色");
-            return true;
+            // 返回 true 会 Tip「已开始」，这里改为 false 并自行提示
+            return false;
         }
 
         _pipelineRunning = true;
+        SyncPipelineRunningAllCopies(true);
+        _signClaims = 0;
         _monthClaims = 0;
         _onlineClaims = 0;
         _itemUses = 0;
@@ -117,7 +150,14 @@ public static class SeqChapterDailyClaim
         _waitTicks = 0;
         _onlineClaimable = null;
         _onlineClaimIndex = 0;
-        Tip("日常：开始领取/使用…");
+        _awaitingUseConfirm = false;
+        _confirmWaitTicks = 0;
+        _pipelineTicks = 0;
+        _skipConfirmTicks = 0;
+        _staleUseCount = 0;
+        _stalePile = -1;
+        _staleItemId = 0;
+        _staleSlot = -1;
         StartDailyTimer();
         return true;
     }
@@ -213,6 +253,12 @@ public static class SeqChapterDailyClaim
 
     private static void DailyTick()
     {
+        if (!_pipelineRunning)
+        {
+            StopDailyTimer();
+            return;
+        }
+
         try
         {
             StepDaily();
@@ -226,6 +272,18 @@ public static class SeqChapterDailyClaim
 
     private static void StepDaily()
     {
+        _pipelineTicks++;
+        if (_pipelineTicks > MaxPipelineTicks)
+        {
+            FinishDaily(string.Format(
+                "日常超时结束：签到{0} · 月卡{1} · 在线{2}档 · 用道具{3}次",
+                _signClaims,
+                _monthClaims,
+                _onlineClaims,
+                _itemUses));
+            return;
+        }
+
         switch (_state)
         {
             case StSendList:
@@ -251,9 +309,10 @@ public static class SeqChapterDailyClaim
                 if (list != null && TitlesOf(list).Count > 0)
                 {
                     var titles = TitlesOf(list);
+                    _signTitleId = FindTitleId(titles, "周期14日签到", "每日签到", "签到");
                     _monthTitleId = FindTitleId(titles, "特权月卡", "超值月卡");
                     _onlineTitleId = FindTitleId(titles, "累计在线奖励", "在线礼包", "在线奖励");
-                    _state = StSendMonthInfo;
+                    _state = StSendSignInfo;
                     return;
                 }
 
@@ -262,6 +321,52 @@ public static class SeqChapterDailyClaim
                     _state = StNextUid;
                 }
 
+                return;
+            }
+            case StSendSignInfo:
+            {
+                if (_signTitleId < 0)
+                {
+                    _state = StSendMonthInfo;
+                    return;
+                }
+
+                var uid = _uids[_uidIndex];
+                _expectUid = uid;
+                _expectInfoType = "周期14日签到";
+                SendActivity("活动信息", uid, _signTitleId, 0);
+                _waitTicks = 0;
+                _state = StWaitSignInfo;
+                return;
+            }
+            case StWaitSignInfo:
+            {
+                _waitTicks++;
+                var info = FindActivityInfo("周期14日签到", _uids[_uidIndex]);
+                if (info != null)
+                {
+                    _pendingInfo = info;
+                    _state = StClaimSign;
+                    return;
+                }
+
+                if (_waitTicks >= WaitTicksMax)
+                {
+                    _state = StSendMonthInfo;
+                }
+
+                return;
+            }
+            case StClaimSign:
+            {
+                var info = _pendingInfo;
+                _pendingInfo = null;
+                if (info != null && TryClaimSignIn(info, _uids[_uidIndex]))
+                {
+                    _signClaims++;
+                }
+
+                _state = StSendMonthInfo;
                 return;
             }
             case StSendMonthInfo:
@@ -387,15 +492,52 @@ public static class SeqChapterDailyClaim
                 _useUidIndex = 0;
                 _useSlot = 8;
                 _useAttempt = 0;
+                _awaitingUseConfirm = false;
+                _confirmWaitTicks = 0;
+                _skipConfirmTicks = 0;
+                _staleUseCount = 0;
+                _stalePile = -1;
+                _staleItemId = 0;
+                _staleSlot = -1;
                 _state = StUseTick;
                 return;
             }
             case StUseTick:
             {
-                if (_useUidIndex >= _uids.Count)
+                if (_uids == null || _useUidIndex >= _uids.Count)
                 {
                     _state = StDone;
                     return;
+                }
+
+                // 工时小闹钟等：仅在「刚用完等确认」时点 MessageBox；
+                // 禁止每 tick 无条件点弹窗（残留面板会导致死循环点确定）。
+                if (_awaitingUseConfirm)
+                {
+                    if (TryConfirmMessageBox())
+                    {
+                        _awaitingUseConfirm = false;
+                        _confirmWaitTicks = 0;
+                        _skipConfirmTicks = 2;
+                        return;
+                    }
+
+                    _confirmWaitTicks++;
+                    if (_confirmWaitTicks >= WaitTicksMax)
+                    {
+                        _awaitingUseConfirm = false;
+                        _confirmWaitTicks = 0;
+                        _useSlot++;
+                        _useAttempt = 0;
+                        _staleUseCount = 0;
+                    }
+
+                    return;
+                }
+
+                if (_skipConfirmTicks > 0)
+                {
+                    _skipConfirmTicks--;
                 }
 
                 if (TryUseOne())
@@ -408,7 +550,8 @@ public static class SeqChapterDailyClaim
             case StDone:
             {
                 FinishDaily(string.Format(
-                    "日常完成：月卡{0} · 在线{1}档 · 用道具{2}次",
+                    "日常完成：签到{0} · 月卡{1} · 在线{2}档 · 用道具{3}次",
+                    _signClaims,
                     _monthClaims,
                     _onlineClaims,
                     _itemUses));
@@ -418,6 +561,39 @@ public static class SeqChapterDailyClaim
     }
 
     private static object _pendingInfo;
+
+    /// <summary>
+    /// 周期14日签到：Status=可领天数(1-based)，Month[day-1]=是否已领。
+    /// 可领时 SendActivity("每日签到", uid, Status, ActivityId)。
+    /// </summary>
+    private static bool TryClaimSignIn(object info, string uid)
+    {
+        try
+        {
+            var status = Convert.ToInt32(GetMember(info, "Status") ?? 0);
+            var activityId = Convert.ToInt32(GetMember(info, "ActivityId") ?? 0);
+            if (status <= 0 || activityId <= 0)
+            {
+                return false;
+            }
+
+            var month = GetMember(info, "Month") as IList;
+            if (month != null && status - 1 < month.Count)
+            {
+                if (Convert.ToBoolean(month[status - 1]))
+                {
+                    return false; // 今日已签
+                }
+            }
+
+            SendActivity("每日签到", uid, status, activityId);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
 
     private static bool TryUseOne()
     {
@@ -465,6 +641,7 @@ public static class SeqChapterDailyClaim
                 {
                     _useSlot++;
                     _useAttempt = 0;
+                    _staleUseCount = 0;
                     continue;
                 }
 
@@ -472,7 +649,39 @@ public static class SeqChapterDailyClaim
                 {
                     _useSlot++;
                     _useAttempt = 0;
+                    _staleUseCount = 0;
                     continue;
+                }
+
+                var pile = 0;
+                try
+                {
+                    pile = Convert.ToInt32(GetMember(data, "Pile") ?? GetMember(slot, "Pile") ?? 0);
+                }
+                catch
+                {
+                    pile = 0;
+                }
+
+                // 同一格同一道具堆积数一直不变 → 服务端没用掉，跳过避免死循环
+                if (_staleSlot == _useSlot && _staleItemId == itemId && _stalePile == pile && _useAttempt > 0)
+                {
+                    _staleUseCount++;
+                    if (_staleUseCount >= MaxStaleUsesPerSlot)
+                    {
+                        _useSlot++;
+                        _useAttempt = 0;
+                        _staleUseCount = 0;
+                        _stalePile = -1;
+                        continue;
+                    }
+                }
+                else
+                {
+                    _staleSlot = _useSlot;
+                    _staleItemId = itemId;
+                    _stalePile = pile;
+                    _staleUseCount = 0;
                 }
 
                 var slotIndex = Convert.ToInt32(GetMember(data, "Index") ?? _useSlot);
@@ -480,10 +689,17 @@ public static class SeqChapterDailyClaim
                 {
                     _useSlot++;
                     _useAttempt = 0;
+                    _staleUseCount = 0;
                     continue;
                 }
 
                 _useAttempt++;
+                if (ConfirmUseItemIds.Contains(itemId))
+                {
+                    _awaitingUseConfirm = true;
+                    _confirmWaitTicks = 0;
+                }
+
                 return true;
             }
 
@@ -500,9 +716,216 @@ public static class SeqChapterDailyClaim
     {
         StopDailyTimer();
         _pipelineRunning = false;
+        SyncPipelineRunningAllCopies(false);
         _state = 0;
+        _awaitingUseConfirm = false;
+        _confirmWaitTicks = 0;
+        _pipelineTicks = 0;
+        _skipConfirmTicks = 0;
         Tip(tip);
         WriteStatus("daily_done", tip);
+    }
+
+    /// <summary>强制中止：停 Timer、清状态；并尽量同步其它已 Load 的 DLL 副本。</summary>
+    private static void AbortDailyAllCopies()
+    {
+        try
+        {
+            StopDailyTimer();
+        }
+        catch
+        {
+            // ignore
+        }
+
+        _pipelineRunning = false;
+        _state = 0;
+        _awaitingUseConfirm = false;
+        _confirmWaitTicks = 0;
+        _pipelineTicks = 0;
+        _skipConfirmTicks = 0;
+        _uids = null;
+        _onlineClaimable = null;
+        _pendingInfo = null;
+        WriteStatus("daily_aborted", "user_stop");
+
+        try
+        {
+            foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+            {
+                Type t = null;
+                try
+                {
+                    t = asm.GetType("SeqChapterDailyClaim", false, false);
+                }
+                catch
+                {
+                    continue;
+                }
+
+                if (t == null || t == typeof(SeqChapterDailyClaim))
+                {
+                    continue;
+                }
+
+                try
+                {
+                    var abort = t.GetMethod(
+                        "AbortDailyLocal",
+                        BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+                    if (abort != null)
+                    {
+                        abort.Invoke(null, null);
+                        continue;
+                    }
+                }
+                catch
+                {
+                    // fall through to field clear
+                }
+
+                try
+                {
+                    var f = t.GetField(
+                        "_pipelineRunning",
+                        BindingFlags.NonPublic | BindingFlags.Static);
+                    if (f != null && f.FieldType == typeof(bool))
+                    {
+                        f.SetValue(null, false);
+                    }
+
+                    var stop = t.GetMethod(
+                        "StopDailyTimer",
+                        BindingFlags.NonPublic | BindingFlags.Static);
+                    stop?.Invoke(null, null);
+                }
+                catch
+                {
+                    // ignore
+                }
+            }
+        }
+        catch
+        {
+            // ignore
+        }
+    }
+
+    /// <summary>供其它程序集副本反射调用：只清本副本。</summary>
+    public static void AbortDailyLocal()
+    {
+        try
+        {
+            StopDailyTimer();
+        }
+        catch
+        {
+            // ignore
+        }
+
+        _pipelineRunning = false;
+        _state = 0;
+        _awaitingUseConfirm = false;
+        _confirmWaitTicks = 0;
+        _pipelineTicks = 0;
+        _skipConfirmTicks = 0;
+        _uids = null;
+        _onlineClaimable = null;
+        _pendingInfo = null;
+    }
+
+    private static void SyncPipelineRunningAllCopies(bool running)
+    {
+        _pipelineRunning = running;
+        try
+        {
+            foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+            {
+                Type t = null;
+                try
+                {
+                    t = asm.GetType("SeqChapterDailyClaim", false, false);
+                }
+                catch
+                {
+                    continue;
+                }
+
+                if (t == null || t == typeof(SeqChapterDailyClaim))
+                {
+                    continue;
+                }
+
+                try
+                {
+                    var f = t.GetField(
+                        "_pipelineRunning",
+                        BindingFlags.NonPublic | BindingFlags.Static);
+                    if (f != null && f.FieldType == typeof(bool))
+                    {
+                        f.SetValue(null, running);
+                    }
+                }
+                catch
+                {
+                    // ignore
+                }
+            }
+        }
+        catch
+        {
+            // ignore
+        }
+    }
+
+    private static bool IsAnyCopyPipelineRunning()
+    {
+        if (_pipelineRunning)
+        {
+            return true;
+        }
+
+        try
+        {
+            foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+            {
+                Type t = null;
+                try
+                {
+                    t = asm.GetType("SeqChapterDailyClaim", false, false);
+                }
+                catch
+                {
+                    continue;
+                }
+
+                if (t == null)
+                {
+                    continue;
+                }
+
+                try
+                {
+                    var f = t.GetField(
+                        "_pipelineRunning",
+                        BindingFlags.NonPublic | BindingFlags.Static);
+                    if (f != null && f.FieldType == typeof(bool) && Convert.ToBoolean(f.GetValue(null)))
+                    {
+                        return true;
+                    }
+                }
+                catch
+                {
+                    // ignore
+                }
+            }
+        }
+        catch
+        {
+            // ignore
+        }
+
+        return false;
     }
 
     private static List<object> CollectClaimableTiers(object info)
@@ -554,6 +977,24 @@ public static class SeqChapterDailyClaim
             {
                 var child = GetUiChildPanel("MonthCardChildPanel");
                 var info = GetMember(child, "m_ActivityInfo");
+                if (InfoMatches(info, type, uid))
+                {
+                    return info;
+                }
+            }
+            catch
+            {
+                // ignore
+            }
+        }
+
+        // 3) SingInChildPanel.m_info（周期签到）
+        if (type.IndexOf("签到", StringComparison.Ordinal) >= 0)
+        {
+            try
+            {
+                var child = GetUiChildPanel("SingInChildPanel");
+                var info = GetMember(child, "m_info");
                 if (InfoMatches(info, type, uid))
                 {
                     return info;
@@ -835,6 +1276,85 @@ public static class SeqChapterDailyClaim
         {
             return false;
         }
+    }
+
+    /// <summary>
+    /// 点掉 MessageBoxPanel 二次确认（服务端 1049 / 客户端 ShowMessageBox）。
+    /// 工时小闹钟用后常见此弹窗；OnSubmit 会 SendMessageBox(btntype=0) 或执行客户端回调。
+    /// </summary>
+    private static bool TryConfirmMessageBox()
+    {
+        try
+        {
+            var panel = GetUiPanel("MessageBoxPanel");
+            if (panel == null || !IsUiPanelLikelyOpen(panel))
+            {
+                return false;
+            }
+
+            // 有服务端/客户端内容才点，避免空壳面板误点
+            var sever = GetMember(panel, "m_SeverInfo");
+            var client = GetMember(panel, "m_ClientInfo");
+            var type = Convert.ToString(GetMember(panel, "m_type") ?? "");
+            if (sever == null && client == null && string.IsNullOrEmpty(type))
+            {
+                return false;
+            }
+
+            var onSubmit = panel.GetType().GetMethod(
+                "OnSubmit",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+                null,
+                Type.EmptyTypes,
+                null);
+            if (onSubmit == null)
+            {
+                return false;
+            }
+
+            onSubmit.Invoke(panel, null);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool IsUiPanelLikelyOpen(object panel)
+    {
+        try
+        {
+            // UIPanel 常见：IsShow / isShow / m_IsShow
+            foreach (var name in new[] { "IsShow", "isShow", "m_IsShow", "IsOpen", "isOpen" })
+            {
+                var v = GetMember(panel, name);
+                if (v is bool b)
+                {
+                    return b;
+                }
+            }
+
+            var goProp = panel.GetType().GetProperty(
+                "gameObject",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            var go = goProp != null ? goProp.GetValue(panel, null) : GetMember(panel, "gameObject");
+            if (go != null)
+            {
+                var active = go.GetType().GetProperty("activeInHierarchy")
+                    ?? go.GetType().GetProperty("activeSelf");
+                if (active != null)
+                {
+                    return Convert.ToBoolean(active.GetValue(go, null));
+                }
+            }
+        }
+        catch
+        {
+            // fall through：看内容字段决定
+        }
+
+        return true;
     }
 
     private static List<string> CollectUids()
