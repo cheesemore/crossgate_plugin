@@ -148,6 +148,7 @@ class ComboPatchApp:
         self.skill_effect_speed_var = tk.BooleanVar(value=True)
         self.skill_effect_scale_var = tk.StringVar(value="2")
         self.daily_claim_var = tk.BooleanVar(value=True)
+        self.boss_key_fps_var = tk.BooleanVar(value=True)
 
         notebook = ttk.Notebook(body)
         notebook.pack(fill=tk.BOTH, expand=True, pady=(0, 8))
@@ -256,6 +257,12 @@ class ComboPatchApp:
             tab_common,
             text="分享改日常（默认开；侧栏「分享」→ 签到/月卡/在线礼包/指定道具；不占百科）",
             variable=self.daily_claim_var,
+        ).pack(anchor=tk.W, pady=(8, 0))
+
+        ttk.Checkbutton(
+            tab_common,
+            text="老板键限帧（默认开；隐藏客户端时 10FPS，恢复时还原；挂机省性能）",
+            variable=self.boss_key_fps_var,
         ).pack(anchor=tk.W, pady=(8, 0))
 
         # --- 战斗扩展 ---
@@ -703,6 +710,7 @@ class ComboPatchApp:
                 or self.transition_speed_var.get()
                 or self.skill_effect_speed_var.get()
                 or self.daily_claim_var.get()
+                or self.boss_key_fps_var.get()
                 or self.inject_bridge_var.get()
             ):
                 messagebox.showwarning("未选择", "请至少勾选一项补丁")
@@ -747,6 +755,7 @@ class ComboPatchApp:
                 skill_effect_speed=self.skill_effect_speed_var.get(),
                 skill_effect_scale=float(self.skill_effect_scale_var.get()),
                 daily_claim=self.daily_claim_var.get(),
+                boss_key_fps=self.boss_key_fps_var.get(),
                 inject_bridge=self.inject_bridge_var.get(),
                 from_orig=True,
                 game_root=root,

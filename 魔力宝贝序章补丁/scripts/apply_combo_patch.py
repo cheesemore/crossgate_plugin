@@ -323,6 +323,25 @@ def apply_daily_claim_external(hotfix: Path, source: Path) -> tuple[bool, str]:
     return True, "日常·分享：侧栏「分享」→ 月卡每日/在线礼包/指定道具"
 
 
+def apply_boss_key_fps_external(hotfix: Path, source: Path) -> tuple[bool, str]:
+    """老板键限帧：隐藏时 10FPS，恢复时还原（不占百科/Pause）。"""
+    proc = run_patcher_capture(
+        [
+            "boss-key-fps-patch",
+            "--hotfix",
+            str(source),
+            "--output",
+            str(hotfix),
+        ]
+    )
+    out = (proc.stdout or "") + (proc.stderr or "")
+    if proc.returncode != 0:
+        return False, out.strip() or "老板键限帧补丁失败"
+    if "[SKIP]" in out and "老板键" in out:
+        return True, "老板键限帧：已是补丁状态（跳过）"
+    return True, "老板键限帧：隐藏→10FPS（关 VSync），恢复→还原"
+
+
 def apply_auto_seal_external(hotfix: Path, source: Path) -> tuple[bool, str]:
     """自动烧卡·DLL版：SeqChapterAutoSeal.dll.bytes + Player 钩 + 百科开关。"""
     proc = run_patcher_capture(
@@ -454,6 +473,7 @@ def _apply_gameplay_patches(
     wiki_download_res: bool,
     wiki_label: bool = False,
     daily_claim: bool = True,
+    boss_key_fps: bool = True,
     on_log=None,
 ) -> tuple[list[str], Path]:
     """在现有 hotfix 上叠加玩法补丁（不还原 .orig）。返回 (messages, work_path)。"""
@@ -602,6 +622,15 @@ def _apply_gameplay_patches(
         _emit_combo(messages, on_log, msg)
         work = hotfix
 
+    # 老板键限帧：只改 HotfixEntry.Update 前缀，不占 Pause/百科/分享
+    if boss_key_fps:
+        _emit_combo(messages, on_log, "正在打：老板键限帧…")
+        ok, msg = apply_boss_key_fps_external(hotfix, work)
+        if not ok:
+            raise RuntimeError(msg)
+        _emit_combo(messages, on_log, msg)
+        work = hotfix
+
     if pet_equip_unlock:
         raise RuntimeError("宠物四装备孔补丁已停用（会导致宠物界面崩溃）")
 
@@ -635,6 +664,7 @@ def apply_combo(
     wiki_download_res: bool = False,
     wiki_label: bool = False,
     daily_claim: bool = True,
+    boss_key_fps: bool = True,
     inject_bridge: bool = False,
     from_orig: bool = False,
     game_root: Path | None = None,
@@ -754,6 +784,7 @@ def apply_combo(
         or wiki_download_res
         or wiki_label
         or daily_claim
+        or boss_key_fps
     )
 
     patch_kwargs = dict(
@@ -781,6 +812,7 @@ def apply_combo(
         wiki_download_res=wiki_download_res,
         wiki_label=wiki_label,
         daily_claim=daily_claim,
+        boss_key_fps=boss_key_fps,
         on_log=on_log,
     )
 
@@ -828,6 +860,7 @@ def apply_combo(
         "wiki_download_res": wiki_download_res,
         "wiki_label": wiki_label,
         "daily_claim": daily_claim,
+        "boss_key_fps": boss_key_fps,
         "inject_bridge": inject_bridge,
         "bridge_patched": is_bridge_patched(game_root),
         "bridge_variant": detect_bridge_variant(game_root),

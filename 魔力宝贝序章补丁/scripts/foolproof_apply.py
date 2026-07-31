@@ -428,6 +428,8 @@ def run_foolproof_patch(
     else:
         _emit(messages, on_log, "附加：不打分享改日常（保留原版分享）")
 
+    _emit(messages, on_log, "附加：老板键限帧（隐藏→10FPS，恢复→还原）")
+
     if burn_seal_slow:
         _emit(
             messages,

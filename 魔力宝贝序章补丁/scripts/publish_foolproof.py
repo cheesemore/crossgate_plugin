@@ -32,6 +32,7 @@ AUTO_SEAL_SRC = GAME_ROOT / "tools" / "seqchapter_auto_seal"
 AUTO_CATCH_SRC = GAME_ROOT / "tools" / "seqchapter_auto_catch"
 NINE_ACTION_SRC = GAME_ROOT / "tools" / "seqchapter_nine_action"
 DAILY_CLAIM_SRC = GAME_ROOT / "tools" / "seqchapter_daily_claim"
+BOSS_KEY_FPS_SRC = GAME_ROOT / "tools" / "seqchapter_boss_key_fps"
 
 _ARGV = sys.argv[1:]
 NINE_PACK = any(a in ("--nine-pack", "--with-nine-pack", "/nine-pack") for a in _ARGV)
@@ -305,6 +306,7 @@ def build_exe() -> Path:
         (AUTO_SEAL_SRC, "seqchapter_auto_seal"),
         (AUTO_CATCH_SRC, "seqchapter_auto_catch"),
         (DAILY_CLAIM_SRC, "seqchapter_daily_claim"),
+        (BOSS_KEY_FPS_SRC, "seqchapter_boss_key_fps"),
     ]
     if NINE_PACK:
         bundle_srcs.append((NINE_ACTION_SRC, "seqchapter_nine_action"))

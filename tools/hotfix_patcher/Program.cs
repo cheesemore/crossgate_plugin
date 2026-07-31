@@ -70,6 +70,11 @@ internal static class Program
             return DailyClaimExternalIlPatcher.Run(args.Skip(1).ToArray());
         }
 
+        if (args.Length > 0 && args[0] == "boss-key-fps-patch")
+        {
+            return BossKeyFpsExternalIlPatcher.Run(args.Skip(1).ToArray());
+        }
+
         if (args.Length > 0 && args[0] == "battle-nine-action-patch")
         {
             return BattleNineActionIlPatcher.Run(args.Skip(1).ToArray());

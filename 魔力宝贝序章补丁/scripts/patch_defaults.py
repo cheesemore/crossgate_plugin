@@ -26,6 +26,7 @@ DEFAULT_COMBO_KWARGS = {
     "wiki_download_res": False,
     "wiki_label": False,
     "daily_claim": True,
+    "boss_key_fps": True,
     "inject_bridge": False,
     "from_orig": True,
 }
@@ -107,5 +108,6 @@ LAUNCH_INJECT_PRESET = {
     "wiki_download_res": False,
     "wiki_label": False,
     "daily_claim": True,
+    "boss_key_fps": True,
     "from_orig": True,
 }
