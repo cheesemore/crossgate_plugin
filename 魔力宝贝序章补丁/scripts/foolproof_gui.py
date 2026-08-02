@@ -19,6 +19,8 @@
 """
 from __future__ import annotations
 
+import os
+import subprocess
 import sys
 import threading
 import tkinter as tk
@@ -166,6 +168,9 @@ def run_auto() -> int:
         gift = not any(
             a in ("--no-gift", "--no-newbie-gift", "/no-gift") for a in sys.argv[1:]
         )
+        apply_accel = not any(
+            a in ("--no-accel", "--no-speed", "/no-accel") for a in sys.argv[1:]
+        )
         msgs = run_foolproof_patch(
             enable_nine=enable_nine,
             burn_seal=burn,
@@ -174,6 +179,7 @@ def run_auto() -> int:
             auto_catch_nopet=catch_nopet,
             daily_claim=daily,
             newbie_gift_code=gift,
+            apply_accel=apply_accel,
             on_log=lambda line: print(line, flush=True),
         )
         detail = "\n".join(msgs[-8:]) if msgs else "补丁已打好。"
@@ -226,7 +232,9 @@ class FoolproofApp(tk.Tk):
             "· 自动抓宠（无宠人防御）：同上；无宠时 2动人物防御，1动仍 P2 放技能/其余防御\n"
             "· 自动烧卡：点百科 Tip；战斗 10x · 特效 5x；标题「★自动烧卡中★」\n"
             "· 慢速烧卡：烧卡逻辑同上，但无任何加速\n"
-            "抓宠/烧卡/慢速烧卡 均不含九动（与加速模式互斥）。不含加速过场、助手桥接。\n"
+            "· 打加速补丁（可选，默认开）：关掉则任意模式都不打战斗倍速/跑速/特效/过场\n"
+            "· 启动动画器：选皮肤/形象预览，写出 battle_appear.json（需已打进战形象补丁）\n"
+            "抓宠/烧卡/慢速烧卡 均不含九动（与加速模式互斥）。不含助手桥接。\n"
             "若提示客户端不干净：可点「从干净目录恢复…」（需你手动选目录，无默认源）。"
         )
         ttk.Label(body, text=tip, justify=tk.LEFT).pack(anchor=tk.W, pady=(10, 6))
@@ -266,6 +274,12 @@ class FoolproofApp(tk.Tk):
             text="新手礼包码领取（默认开；与日常同分享切页；最多5角色）",
             variable=self.newbie_gift_code_var,
         ).pack(anchor=tk.W, pady=(0, 2))
+        self.apply_accel_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(
+            body,
+            text="打加速补丁（默认开；关闭则不打战斗倍速/跑速/特效/过场）",
+            variable=self.apply_accel_var,
+        ).pack(anchor=tk.W, pady=(0, 2))
         ttk.Label(
             body,
             text="礼包码（一行一个，可改）",
@@ -279,6 +293,8 @@ class FoolproofApp(tk.Tk):
         btns.pack(fill=tk.X, pady=(0, 8))
         self.apply_btn = ttk.Button(btns, text="一键打补丁", command=self.on_apply)
         self.apply_btn.pack(side=tk.LEFT)
+        self.animator_btn = ttk.Button(btns, text="启动动画器", command=self.on_launch_animator)
+        self.animator_btn.pack(side=tk.LEFT, padx=(8, 0))
         self.restore_btn = ttk.Button(
             btns,
             text="从干净目录恢复…",
@@ -324,6 +340,81 @@ class FoolproofApp(tk.Tk):
         state = ["disabled"] if busy else ["!disabled"]
         self.apply_btn.state(state)
         self.restore_btn.state(state)
+        self.animator_btn.state(state)
+
+    def _animator_candidates(self) -> list[Path]:
+        """查找 pet_appear_gui.py：包内 animator/、游戏 tools/、开发 tools/。"""
+        cands: list[Path] = []
+        if getattr(sys, "frozen", False):
+            exe_dir = Path(sys.executable).resolve().parent
+            cands.extend(
+                [
+                    exe_dir / "animator" / "pet_appear_gui.py",
+                    exe_dir / "tools" / "pet_appear_gui.py",
+                ]
+            )
+            meipass = getattr(sys, "_MEIPASS", None)
+            if meipass:
+                cands.append(Path(meipass) / "animator" / "pet_appear_gui.py")
+        else:
+            scripts = Path(__file__).resolve().parent
+            cands.append(scripts.parent.parent / "tools" / "pet_appear_gui.py")
+        game = self._game_root()
+        if game is not None:
+            cands.append(Path(game) / "tools" / "pet_appear_gui.py")
+        out: list[Path] = []
+        seen: set[str] = set()
+        for p in cands:
+            try:
+                key = str(p.resolve())
+            except OSError:
+                continue
+            if key in seen or not p.is_file():
+                continue
+            seen.add(key)
+            out.append(p)
+        return out
+
+    def on_launch_animator(self) -> None:
+        """启动选皮肤动画预览 GUI（独立进程）。"""
+        if self._busy:
+            return
+        game = self._game_root()
+        env = os.environ.copy()
+        if game is not None:
+            env["SEQCHAPTER_ROOT"] = str(Path(game).resolve())
+
+        # 冻结包：用本 exe --run-animator（同进程依赖已打进包）
+        if getattr(sys, "frozen", False):
+            try:
+                subprocess.Popen(
+                    [sys.executable, "--run-animator"],
+                    env=env,
+                    cwd=str(Path(sys.executable).resolve().parent),
+                )
+                self._append("已启动动画器（独立进程）")
+            except Exception as exc:
+                messagebox.showerror(f"{_profile_title()} — 失败", f"无法启动动画器：\n{exc}")
+            return
+
+        cands = self._animator_candidates()
+        if not cands:
+            messagebox.showerror(
+                f"{_profile_title()} — 失败",
+                "找不到动画器脚本 pet_appear_gui.py。\n"
+                "请确认开发目录 tools/ 或发布包 animator/ 存在。",
+            )
+            return
+        script = cands[0]
+        try:
+            subprocess.Popen(
+                [sys.executable, str(script)],
+                env=env,
+                cwd=str(script.parent),
+            )
+            self._append(f"已启动动画器：{script}")
+        except Exception as exc:
+            messagebox.showerror(f"{_profile_title()} — 失败", f"无法启动动画器：\n{exc}")
 
     def on_restore_clean(self) -> None:
         if self._busy:
@@ -437,6 +528,7 @@ class FoolproofApp(tk.Tk):
                     daily_claim=bool(self.daily_claim_var.get()),
                     newbie_gift_code=bool(self.newbie_gift_code_var.get()),
                     gift_codes=self.gift_codes_box.get("1.0", "end"),
+                    apply_accel=bool(self.apply_accel_var.get()),
                     on_log=lambda line: self.after(0, self._append, line),
                 )
                 self.after(
@@ -473,8 +565,36 @@ class FoolproofApp(tk.Tk):
         self._apply_core()
 
 
+def _run_animator_entrypoint() -> int:
+    """冻结包 / 开发：直接进入动画预览 GUI。"""
+    # 优先 exe 旁 animator/（含数据文件），再 MEIPASS / 开发 tools
+    bases: list[Path] = []
+    if getattr(sys, "frozen", False):
+        exe_dir = Path(sys.executable).resolve().parent
+        meipass = getattr(sys, "_MEIPASS", None)
+        # 后 insert 的靠前：先列 fallback，再列首选
+        if meipass:
+            bases.extend([Path(meipass) / "tools", Path(meipass) / "animator", Path(meipass)])
+        bases.extend([exe_dir / "tools", exe_dir, exe_dir / "animator"])
+    else:
+        bases.append(Path(__file__).resolve().parent.parent.parent / "tools")
+    for b in bases:
+        if b.is_dir() and str(b) not in sys.path:
+            sys.path.insert(0, str(b))
+    try:
+        from pet_appear_gui import main as anim_main  # type: ignore
+    except Exception as exc:
+        show_popup(_profile_title() + " — 动画器", f"无法加载动画器：\n{exc}", error=True)
+        return 1
+    anim_main()
+    return 0
+
+
 def main() -> int:
-    if "--auto" in sys.argv[1:] or "/auto" in sys.argv[1:]:
+    argv = sys.argv[1:]
+    if any(a in ("--run-animator", "--animator", "/run-animator") for a in argv):
+        return _run_animator_entrypoint()
+    if "--auto" in argv or "/auto" in argv:
         return run_auto()
     app = FoolproofApp()
     app.mainloop()

@@ -7,7 +7,8 @@ namespace CrossgateMod.Patcher;
 
 /// <summary>
 /// 进战形象钩子：OnCommandCharCallback 末尾加载 SeqChapterBattleAppear.dll.bytes 并 Invoke OnBattleCharsReceived。
-/// 地图形象：EntityFactory.CreateCharacterEntity / CreatePetEntity 入口按本地 Uid 档改 CharacterData。
+/// 地图形象：CreateCharacterEntity / CreatePetEntity / GetPlayerCharacterData /
+/// EntityManager.OnUpdateObjCallback（UpdateObj 组装 CharacterData 后，覆盖队长本机与回程）。
 /// 不占用 Pause / 百科 / 分享；可与九动/抓宠/老板键等并存。
 /// </summary>
 internal static class BattleAppearExternalIlPatcher
@@ -189,8 +190,8 @@ internal static class BattleAppearExternalIlPatcher
     }
 
     /// <summary>
-    /// 创建人物/宠物 + 本机 GetPlayerCharacterData 时按本地 Uid 档改 CharacterData。
-    /// 不再钩 set_data（每次 UpdateObj 都反射，双开易崩）。
+    /// 创建人物/宠物 + GetPlayerCharacterData + OnUpdateObjCallback（组装 CharacterData 后）按本地 Uid 档改写。
+    /// UpdateObj 覆盖队长本机刷新与回程原地 SetData；钩内 MethodInfo 已缓存，避免旧 set_data 每帧反射崩。
     /// </summary>
     private static void EnsureWorldAppearHooks(ModuleDefinition module)
     {
@@ -225,14 +226,15 @@ internal static class BattleAppearExternalIlPatcher
         InjectWorldCall(factory, "CreateCharacterEntity", hook, kind: 0);
         InjectWorldCall(factory, "CreatePetEntity", hook, kind: 1);
         InjectGetPlayerCharacterDataCall(module, hook, charData);
+        InjectUpdateObjWorldAppearCall(module, hook, charData);
 
-        // 卸掉旧版 set_data 钩（高频反射会导致双开崩）
+        // 卸掉旧版 set_data 钩（DisplaySys 仍会按未改的 CharacterData 覆盖；改走 UpdateObj）
         var entity = module.Types.FirstOrDefault(t => t.Name == "CharacterEntity");
         var setData = entity?.Methods.FirstOrDefault(m => m.Name == "set_data" && m.HasBody);
         if (setData != null && IsWorldCallInstalled(setData))
         {
             StripWorldCallPrefix(setData);
-            Console.WriteLine("[APPEAR] 已移除 set_data 世界形象钩（改走 GetPlayerCharacterData）");
+            Console.WriteLine("[APPEAR] 已移除 set_data 世界形象钩（改走 UpdateObj）");
         }
     }
 
@@ -301,6 +303,84 @@ internal static class BattleAppearExternalIlPatcher
         }
 
         IlSerializer.RecalculateOffsets(body);
+    }
+
+    /// <summary>
+    /// EntityManager.OnUpdateObjCallback(Proto)：V_11 填完拷到 V_9 后立刻套皮，
+    /// 再进 SetData / DisplaySys.SetRide|Halo（否则队长本机与回程会被服务端原皮盖掉）。
+    /// kind = (charEntityType == Pet=3) ? 1 : 0。
+    /// </summary>
+    private static void InjectUpdateObjWorldAppearCall(
+        ModuleDefinition module,
+        MethodDefinition hook,
+        TypeDefinition charData)
+    {
+        var em = module.Types.FirstOrDefault(t => t.Name == "EntityManager")
+            ?? throw new InvalidOperationException("未找到 EntityManager");
+        var method = em.Methods.FirstOrDefault(m =>
+                m.Name == "OnUpdateObjCallback"
+                && m.HasBody
+                && m.Parameters.Count == 1
+                && m.Parameters[0].ParameterType.Name == "Proto_SC_UpdateObj")
+            ?? throw new InvalidOperationException("未找到 OnUpdateObjCallback(Proto_SC_UpdateObj)");
+
+        if (IsWorldCallInstalled(method))
+        {
+            Console.WriteLine("[APPEAR] OnUpdateObjCallback 世界形象钩已存在");
+            return;
+        }
+
+        var fType = charData.Fields.FirstOrDefault(f => f.Name == "charEntityType")
+            ?? throw new InvalidOperationException("CharacterData 无 charEntityType");
+
+        var body = method.Body;
+        var il = body.GetILProcessor();
+        Instruction? insertAfter = null;
+        VariableDefinition? targetLocal = null;
+
+        for (var i = 0; i < body.Instructions.Count - 1; i++)
+        {
+            var cur = body.Instructions[i];
+            var next = body.Instructions[i + 1];
+            if ((cur.OpCode != OpCodes.Ldloc_S && cur.OpCode != OpCodes.Ldloc)
+                || cur.Operand is not VariableDefinition src
+                || src.VariableType.Name != "CharacterData")
+            {
+                continue;
+            }
+
+            if ((next.OpCode != OpCodes.Stloc_S && next.OpCode != OpCodes.Stloc)
+                || next.Operand is not VariableDefinition dst
+                || dst.VariableType.Name != "CharacterData"
+                || ReferenceEquals(src, dst))
+            {
+                continue;
+            }
+
+            insertAfter = next;
+            targetLocal = dst;
+            break;
+        }
+
+        if (insertAfter == null || targetLocal == null)
+        {
+            throw new InvalidOperationException("OnUpdateObjCallback 未找到 CharacterData 赋值点 (ldloc/stloc)");
+        }
+
+        var nextInsn = insertAfter.Next
+            ?? throw new InvalidOperationException("OnUpdateObjCallback CharacterData 赋值后无后续指令");
+
+        // ldloca data; ldloca data; ldfld charEntityType; ldc.i4.3; ceq; call hook
+        il.InsertBefore(nextInsn, il.Create(OpCodes.Ldloca, targetLocal));
+        il.InsertBefore(nextInsn, il.Create(OpCodes.Ldloca, targetLocal));
+        il.InsertBefore(nextInsn, il.Create(OpCodes.Ldfld, module.ImportReference(fType)));
+        il.InsertBefore(nextInsn, il.Create(OpCodes.Ldc_I4_3));
+        il.InsertBefore(nextInsn, il.Create(OpCodes.Ceq));
+        il.InsertBefore(nextInsn, il.Create(OpCodes.Call, hook));
+
+        IlSerializer.RecalculateOffsets(body);
+        body.MaxStackSize = Math.Max(body.MaxStackSize, (short)4);
+        Console.WriteLine("[APPEAR] OnUpdateObjCallback → " + WorldHookMethodName + "(kind=Pet?1:0)");
     }
 
     private static void InjectGetPlayerCharacterDataCall(

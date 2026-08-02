@@ -39,6 +39,30 @@ LV1_AUTO_SRC = GAME_ROOT / "tools" / "seqchapter_lv1_auto"
 BATTLE_APPEAR_SRC = GAME_ROOT / "tools" / "seqchapter_battle_appear"
 BATTLE_APPEAR_JSON = GAME_ROOT / "tools" / "battle_appear.json"
 PET_RANK_BIN = GAME_ROOT / "tools" / "pet_rank.bin"
+TOOLS_SRC = GAME_ROOT / "tools"
+
+# 动画播放器（选皮肤）随包发布
+ANIMATOR_PY = [
+    "pet_appear_gui.py",
+    "battle_appear_codec.py",
+    "game_profile.py",
+    "pet_anim_manager.py",
+    "pet_preview.py",
+    "preview_rgba.py",
+    "pet_bundle_animdata.py",
+    "skill_effect_tint.py",
+    "parse_pet_table_v2.py",
+    "pet_head_manager.py",
+    "swap_pet_head.py",
+]
+ANIMATOR_DATA = [
+    "pet_appear.json",
+    "pet_appear.bin",
+    "ride_skin.json",
+    "role_halo.json",
+    "pet_max_crest.json",
+    "battle_appear.json",
+]
 
 _ARGV = sys.argv[1:]
 NINE_PACK = any(a in ("--nine-pack", "--with-nine-pack", "/nine-pack") for a in _ARGV)
@@ -140,12 +164,21 @@ README = f"""魔力宝贝：序章 — {APP_NAME}
 · 无任何加速（无战斗倍速、特效、跑速、过场）
 · 不含九动
 
-共同不含：加速过场、助手桥接。抓宠/烧卡请把封印卡放背包。
+【打加速补丁（界面可勾选，默认勾上）】
+· 关闭后：任意模式都不打战斗倍速 / 跑速 / 特效加速 / 过场加速
+· 九动 / 抓宠 / 烧卡逻辑 / 日常礼包 / 进战形象 不受影响
+
+【启动动画器】
+· 界面按钮「启动动画器」：打开选皮肤预览 GUI，写出 battle_appear.json
+· 需先打过带「进战形象」的补丁；配置会写到游戏目录 tools/battle_appear.json
+
+共同不含：助手桥接。抓宠/烧卡请把封印卡放背包。
 
 1. 关掉游戏
 2. 把本文件夹解压到游戏目录（和 cg37.exe 放一起，或放在子文件夹里也行）
 3. 双击「一键打补丁.bat」，在界面选择模式后打补丁
 4. 看弹窗：成功或失败都会提示
+5. 需要换皮时点「启动动画器」
 
 客户端更新后：先用启动器「更新」到最新，再运行本包（或换新版傻瓜补丁）。
 若提示客户端状态异常：可在界面点「从干净目录恢复…」，手动选择一份干净客户端目录
@@ -274,35 +307,91 @@ def build_exe() -> Path:
     except ImportError:
         _run([sys.executable, "-m", "pip", "install", "pyinstaller"])
 
-    if DIST_DIR.is_dir():
-        shutil.rmtree(DIST_DIR, ignore_errors=True)
+    # 只清本包输出，避免打九动版时删掉融合版目录（或反之）
+    app_out = DIST_DIR / APP_NAME
+    if app_out.is_dir():
+        shutil.rmtree(app_out, ignore_errors=True)
     if STAGING_DIR.is_dir():
         shutil.rmtree(STAGING_DIR, ignore_errors=True)
     DIST_DIR.mkdir(parents=True, exist_ok=True)
     STAGING_DIR.mkdir(parents=True, exist_ok=True)
 
-    _run(
-        [
-            sys.executable,
-            "-m",
-            "PyInstaller",
-            "--noconfirm",
-            "--clean",
-            "--onedir",
-            "--windowed",
-            "--name",
-            APP_NAME,
-            "--paths",
-            str(SCRIPTS_DIR),
-            "--distpath",
-            str(DIST_DIR),
-            "--workpath",
-            str(STAGING_DIR / "work"),
-            "--specpath",
-            str(STAGING_DIR / "spec"),
-            str(ENTRY),
-        ]
-    )
+    # 动画器依赖 UnityPy/PIL；勿 --collect-all（会拖进 torch/pandas 把包打到数百 MB）
+    pyi_cmd = [
+        sys.executable,
+        "-m",
+        "PyInstaller",
+        "--noconfirm",
+        "--clean",
+        "--onedir",
+        "--windowed",
+        "--name",
+        APP_NAME,
+        "--paths",
+        str(SCRIPTS_DIR),
+        "--paths",
+        str(TOOLS_SRC),
+        "--distpath",
+        str(DIST_DIR),
+        "--workpath",
+        str(STAGING_DIR / "work"),
+        "--specpath",
+        str(STAGING_DIR / "spec"),
+        "--collect-submodules",
+        "UnityPy",
+        "--collect-data",
+        "UnityPy",
+        "--hidden-import",
+        "PIL",
+        "--hidden-import",
+        "PIL.Image",
+        "--hidden-import",
+        "PIL.ImageTk",
+        "--hidden-import",
+        "UnityPy",
+        # 排除分析时偶发牵连的重型库
+        "--exclude-module",
+        "torch",
+        "--exclude-module",
+        "torchvision",
+        "--exclude-module",
+        "torchaudio",
+        "--exclude-module",
+        "pandas",
+        "--exclude-module",
+        "scipy",
+        "--exclude-module",
+        "matplotlib",
+        "--exclude-module",
+        "numba",
+        "--exclude-module",
+        "llvmlite",
+        "--exclude-module",
+        "sklearn",
+        "--exclude-module",
+        "cv2",
+    ]
+    for mod in (
+        "pet_appear_gui",
+        "battle_appear_codec",
+        "game_profile",
+        "pet_anim_manager",
+        "pet_preview",
+        "preview_rgba",
+        "pet_bundle_animdata",
+        "skill_effect_tint",
+        "parse_pet_table_v2",
+        "pet_head_manager",
+        "swap_pet_head",
+    ):
+        pyi_cmd.extend(["--hidden-import", mod])
+    for name in ANIMATOR_PY + ANIMATOR_DATA:
+        src = TOOLS_SRC / name
+        if src.is_file():
+            # onedir: 解到 MEIPASS/animator/
+            pyi_cmd.extend(["--add-data", f"{src};animator"])
+    pyi_cmd.append(str(ENTRY))
+    _run(pyi_cmd)
     out_dir = DIST_DIR / APP_NAME
     exe = out_dir / f"{APP_NAME}.exe"
     if not exe.is_file():
@@ -353,6 +442,23 @@ def build_exe() -> Path:
         print(f"[OK] battle_appear.json -> {tools_root}")
     else:
         print(f"[WARN] 缺少 {BATTLE_APPEAR_JSON}")
+
+    # 动画播放器（选皮肤）：旁路 animator/ + tools/ 各一份，便于启动与写配置
+    anim_dst = out_dir / "animator"
+    if anim_dst.is_dir():
+        shutil.rmtree(anim_dst, ignore_errors=True)
+    anim_dst.mkdir(parents=True, exist_ok=True)
+    copied_anim = 0
+    for name in ANIMATOR_PY + ANIMATOR_DATA:
+        src = TOOLS_SRC / name
+        if not src.is_file():
+            print(f"[WARN] 动画器缺少 {src}")
+            continue
+        shutil.copy2(src, anim_dst / name)
+        # 同步一份到 tools/，与开发布局一致
+        shutil.copy2(src, tools_root / name)
+        copied_anim += 1
+    print(f"[OK] animator -> {anim_dst} ({copied_anim} files)")
 
     (out_dir / BAT_NAME).write_text(BAT_CONTENT, encoding="utf-8")
     (out_dir / "使用说明.txt").write_text(README, encoding="utf-8")

@@ -393,6 +393,7 @@ def run_foolproof_patch(
     daily_claim: bool = True,
     newbie_gift_code: bool = True,
     gift_codes: list[str] | str | None = None,
+    apply_accel: bool = True,
     on_log: LogFn | None = None,
 ) -> list[str]:
     """一键诊断并打傻瓜补丁。成功返回消息列表；失败抛 FoolproofError。
@@ -405,6 +406,7 @@ def run_foolproof_patch(
     daily_claim：分享切页·日常领取（默认开）。
     newbie_gift_code：分享切页·新手礼包码（默认开）。
     gift_codes：可编辑礼包码（一行一个）；None 用默认 VIP/MLBB。
+    apply_accel：是否打加速类 IL（战斗倍速/跑速/特效/过场）；默认开。关闭则全部不打。
     """
     messages: list[str] = []
 
@@ -535,9 +537,20 @@ def run_foolproof_patch(
     kwargs["game_root"] = root
     kwargs["on_log"] = on_log
 
+    # 不打加速：关闭全部加速类 IL（倍速/跑速/特效/过场）
+    if not apply_accel:
+        kwargs["vip"] = False
+        kwargs["vip_non_vip"] = False
+        kwargs["map_sprint"] = False
+        kwargs["skill_effect_speed"] = False
+        kwargs["transition_speed"] = False
+        _emit(messages, on_log, "加速补丁：关（不打战斗倍速/跑速/特效/过场）")
+    else:
+        _emit(messages, on_log, "加速补丁：开")
+
     _emit(messages, on_log, "正在余量预检（启动补丁引擎，首次可能较慢）…")
     try:
-        if burn_seal_slow:
+        if burn_seal_slow or not apply_accel:
             precheck = ["longpress"]
         else:
             precheck = ["vip", "sprint", "longpress", "skill_effect"]
@@ -609,8 +622,8 @@ def run_foolproof_patch(
         tr_part = f" · 过场{tr}s"
     else:
         tr_part = " · 无加速过场"
-    if burn_seal_slow:
-        profile = "慢速烧卡 · "
+    if burn_seal_slow or not apply_accel:
+        profile = "慢速烧卡 · " if burn_seal_slow else ""
         _emit(
             messages,
             on_log,
