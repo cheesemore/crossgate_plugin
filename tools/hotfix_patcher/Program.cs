@@ -70,9 +70,24 @@ internal static class Program
             return DailyClaimExternalIlPatcher.Run(args.Skip(1).ToArray());
         }
 
+        if (args.Length > 0 && args[0] == "battle-appear-external-patch")
+        {
+            return BattleAppearExternalIlPatcher.Run(args.Skip(1).ToArray());
+        }
+
         if (args.Length > 0 && args[0] == "boss-key-fps-patch")
         {
             return BossKeyFpsExternalIlPatcher.Run(args.Skip(1).ToArray());
+        }
+
+        if (args.Length > 0 && args[0] == "wiki-fps-patch")
+        {
+            return WikiFpsExternalIlPatcher.Run(args.Skip(1).ToArray());
+        }
+
+        if (args.Length > 0 && args[0] == "wiki-test-ui-patch")
+        {
+            return TestUiExternalIlPatcher.Run(args.Skip(1).ToArray());
         }
 
         if (args.Length > 0 && args[0] == "battle-nine-action-patch")
@@ -93,6 +108,11 @@ internal static class Program
         if (args.Length > 0 && args[0] == "auto-catch-nopet-external-patch")
         {
             return AutoCatchExternalIlPatcher.RunNopet(args.Skip(1).ToArray());
+        }
+
+        if (args.Length > 0 && args[0] == "lv1-auto-external-patch")
+        {
+            return Lv1AutoExternalIlPatcher.Run(args.Skip(1).ToArray());
         }
 
         if (args.Length > 0 && args[0] == "auto-sell-external-patch")
@@ -158,6 +178,11 @@ internal static class Program
         if (args.Length > 0 && args[0] == "auto-battle-transmit-bypass-patch")
         {
             return AutoBattleTransmitBypassIlPatcher.Run(args.Skip(1).ToArray());
+        }
+
+        if (args.Length > 0 && args[0] == "vip-auto-monthcard-bypass-patch")
+        {
+            return VipAutoMonthCardBypassIlPatcher.Run(args.Skip(1).ToArray());
         }
 
         if (args.Length > 0 && args[0] == "battle-nav-show-patch")

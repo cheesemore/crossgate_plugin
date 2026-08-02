@@ -8,9 +8,14 @@ import subprocess
 import sys
 import tkinter as tk
 from pathlib import Path
-from tkinter import filedialog, messagebox, ttk
+from tkinter import filedialog, messagebox, scrolledtext, ttk
 
-from apply_combo_patch import apply_combo, get_status, restore_hotfix
+from apply_combo_patch import (
+    DEFAULT_GIFT_CODES,
+    apply_combo,
+    get_status,
+    restore_hotfix,
+)
 from patch_common import (
     CUSTOMER_GM_LABELS,
     DATA_DIR,
@@ -134,6 +139,7 @@ class ComboPatchApp:
         self.battle_nine_external_var = tk.BooleanVar(value=True)
         self.auto_seal_external_var = tk.BooleanVar(value=False)
         self.auto_catch_external_var = tk.BooleanVar(value=False)
+        self.lv1_auto_external_var = tk.BooleanVar(value=False)
         self.auto_sell_external_var = tk.BooleanVar(value=False)
         self.plugin_host_var = tk.BooleanVar(value=False)
         self.inject_bridge_var = tk.BooleanVar(value=False)
@@ -148,7 +154,11 @@ class ComboPatchApp:
         self.skill_effect_speed_var = tk.BooleanVar(value=True)
         self.skill_effect_scale_var = tk.StringVar(value="2")
         self.daily_claim_var = tk.BooleanVar(value=True)
-        self.boss_key_fps_var = tk.BooleanVar(value=True)
+        self.newbie_gift_code_var = tk.BooleanVar(value=True)
+        self.boss_key_fps_var = tk.BooleanVar(value=False)
+        self.wiki_fps_var = tk.BooleanVar(value=False)
+        self.wiki_test_ui_var = tk.BooleanVar(value=True)
+        self.battle_appear_var = tk.BooleanVar(value=True)
 
         notebook = ttk.Notebook(body)
         notebook.pack(fill=tk.BOTH, expand=True, pady=(0, 8))
@@ -255,14 +265,43 @@ class ComboPatchApp:
 
         ttk.Checkbutton(
             tab_common,
-            text="分享改日常（默认开；侧栏「分享」→ 签到/月卡/在线礼包/指定道具；不占百科）",
+            text="分享改日常（默认开；侧栏「分享」切页→日常领取；不占百科）",
             variable=self.daily_claim_var,
+        ).pack(anchor=tk.W, pady=(8, 0))
+        ttk.Checkbutton(
+            tab_common,
+            text="新手礼包码领取（默认开；与日常同分享切页；最多5角色）",
+            variable=self.newbie_gift_code_var,
+        ).pack(anchor=tk.W, pady=(4, 0))
+        ttk.Label(
+            tab_common,
+            text="礼包码（一行一个，可改；打补丁时写入游戏 hotfixdata）",
+            foreground="#555555",
+        ).pack(anchor=tk.W, padx=(18, 0), pady=(2, 0))
+        self.gift_codes_box = scrolledtext.ScrolledText(tab_common, height=5, width=40, wrap=tk.WORD)
+        self.gift_codes_box.pack(anchor=tk.W, padx=(18, 0), pady=(2, 0), fill=tk.X)
+        self.gift_codes_box.insert("1.0", "\n".join(DEFAULT_GIFT_CODES))
+
+        ttk.Checkbutton(
+            tab_common,
+            text="老板键限帧（默认关；隐藏客户端时 10FPS，恢复时还原）",
+            variable=self.boss_key_fps_var,
         ).pack(anchor=tk.W, pady=(8, 0))
 
         ttk.Checkbutton(
             tab_common,
-            text="老板键限帧（默认开；隐藏客户端时 10FPS，恢复时还原；挂机省性能）",
-            variable=self.boss_key_fps_var,
+            text="百科限帧（默认关；侧栏「百科」切换 10FPS；与测试UI/抓宠/烧卡互斥）",
+            variable=self.wiki_fps_var,
+        ).pack(anchor=tk.W, pady=(8, 0))
+        ttk.Checkbutton(
+            tab_common,
+            text="百科→测试UI（默认开；简陋 IMGUI 面板；与限帧/抓宠/烧卡百科互斥）",
+            variable=self.wiki_test_ui_var,
+        ).pack(anchor=tk.W, pady=(8, 0))
+        ttk.Checkbutton(
+            tab_common,
+            text="进战形象钩子（人物/光环/坐骑/宠形象/满档；百科→形象；按Uid存档）",
+            variable=self.battle_appear_var,
         ).pack(anchor=tk.W, pady=(8, 0))
 
         # --- 战斗扩展 ---
@@ -307,6 +346,19 @@ class ComboPatchApp:
         ttk.Label(
             tab_battle,
             text="默认关闭。点百科 Tip 开关。有一级：P1 扔卡 · P2 一号技能 · 其余人物 G · 宠物固定防御 W|0（SkillId74，不检技能栏）。与烧卡/盗贼辅助互斥。",
+            wraplength=500,
+            foreground="#666666",
+            font=("Microsoft YaHei UI", 8),
+        ).pack(anchor=tk.W, padx=(18, 0), pady=(2, 0))
+        ttk.Checkbutton(
+            tab_battle,
+            text="遇1级自动·DLL版（P1封印/P2技能1/其余防御；点百科 Tip 开关）",
+            variable=self.lv1_auto_external_var,
+            command=lambda: self._on_battle_exclusive_toggle("lv1"),
+        ).pack(anchor=tk.W, pady=(8, 0))
+        ttk.Label(
+            tab_battle,
+            text="默认关闭。仅 LevelOneFlag；无1级走原自动；开启时忽略「遇1级停」。与九动DLL/烧卡/抓宠/桥接互斥。",
             wraplength=500,
             foreground="#666666",
             font=("Microsoft YaHei UI", 8),
@@ -398,6 +450,7 @@ class ComboPatchApp:
             "nine_dll": self.battle_nine_external_var,
             "seal": self.auto_seal_external_var,
             "catch": self.auto_catch_external_var,
+            "lv1": self.lv1_auto_external_var,
             "sell": self.auto_sell_external_var,
             "host": self.plugin_host_var,
             "bridge": self.inject_bridge_var,
@@ -648,6 +701,7 @@ class ComboPatchApp:
                 battle_nine_external=self.battle_nine_external_var.get(),
                 auto_seal_external=self.auto_seal_external_var.get(),
                 auto_catch_external=self.auto_catch_external_var.get(),
+                lv1_auto_external=self.lv1_auto_external_var.get(),
                 auto_sell_external=self.auto_sell_external_var.get(),
                 customer_gm=self.customer_gm_var.get(),
                 map_sprint=self.map_sprint_var.get(),
@@ -701,6 +755,7 @@ class ComboPatchApp:
                 or self.battle_nine_external_var.get()
                 or self.auto_seal_external_var.get()
                 or self.auto_catch_external_var.get()
+                or self.lv1_auto_external_var.get()
                 or self.auto_sell_external_var.get()
                 or self.plugin_host_var.get()
                 or self.customer_gm_var.get()
@@ -710,7 +765,11 @@ class ComboPatchApp:
                 or self.transition_speed_var.get()
                 or self.skill_effect_speed_var.get()
                 or self.daily_claim_var.get()
+                or self.newbie_gift_code_var.get()
                 or self.boss_key_fps_var.get()
+                or self.wiki_fps_var.get()
+                or self.wiki_test_ui_var.get()
+                or self.battle_appear_var.get()
                 or self.inject_bridge_var.get()
             ):
                 messagebox.showwarning("未选择", "请至少勾选一项补丁")
@@ -719,6 +778,7 @@ class ComboPatchApp:
                 self.battle_nine_external_var.get(),
                 self.auto_seal_external_var.get(),
                 self.auto_catch_external_var.get(),
+                self.lv1_auto_external_var.get(),
                 self.auto_sell_external_var.get(),
                 self.plugin_host_var.get(),
                 self.inject_bridge_var.get(),
@@ -726,12 +786,27 @@ class ComboPatchApp:
             if sum(1 for x in dll_exclusive if x) > 1:
                 messagebox.showerror(
                     "互斥冲突",
-                    "DLL 扩展只能勾一类：神奇九动·DLL / 烧卡 / 抓宠 / 盗贼辅助 / 插件 Host / 桥接。\n"
+                    "DLL 扩展只能勾一类：神奇九动·DLL / 烧卡 / 抓宠 / 遇1级自动 / 盗贼辅助 / 插件 Host / 桥接。\n"
                     "（IL 九动可与盗贼辅助等同打；Host 一期暂与其它扩展 DLL 互斥）",
                 )
                 return
             if self.battle_nine_action_var.get() and self.battle_nine_external_var.get():
                 messagebox.showerror("互斥冲突", "神奇九动 IL原版 与 DLL版 不能同时勾选。")
+                return
+            wiki_exclusive = [
+                self.auto_seal_external_var.get(),
+                self.auto_catch_external_var.get(),
+                self.lv1_auto_external_var.get(),
+                self.auto_sell_external_var.get(),
+                self.plugin_host_var.get(),
+                self.wiki_fps_var.get(),
+                self.wiki_test_ui_var.get(),
+            ]
+            if sum(1 for x in wiki_exclusive if x) > 1:
+                messagebox.showerror(
+                    "互斥冲突",
+                    "侧栏百科只能占一类：烧卡 / 抓宠 / 遇1级自动 / 盗贼 / Host / 限帧 / 测试UI。",
+                )
                 return
 
             apply_combo(
@@ -742,6 +817,7 @@ class ComboPatchApp:
                 battle_nine_external=self.battle_nine_external_var.get(),
                 auto_seal_external=self.auto_seal_external_var.get(),
                 auto_catch_external=self.auto_catch_external_var.get(),
+                lv1_auto_external=self.lv1_auto_external_var.get(),
                 auto_sell_external=self.auto_sell_external_var.get(),
                 plugin_host=self.plugin_host_var.get(),
                 customer_gm=self.customer_gm_var.get(),
@@ -755,7 +831,12 @@ class ComboPatchApp:
                 skill_effect_speed=self.skill_effect_speed_var.get(),
                 skill_effect_scale=float(self.skill_effect_scale_var.get()),
                 daily_claim=self.daily_claim_var.get(),
+                newbie_gift_code=self.newbie_gift_code_var.get(),
+                gift_codes=self.gift_codes_box.get("1.0", "end"),
                 boss_key_fps=self.boss_key_fps_var.get(),
+                wiki_fps=self.wiki_fps_var.get(),
+                wiki_test_ui=self.wiki_test_ui_var.get(),
+                battle_appear=self.battle_appear_var.get(),
                 inject_bridge=self.inject_bridge_var.get(),
                 from_orig=True,
                 game_root=root,

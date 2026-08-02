@@ -215,6 +215,14 @@ internal static class SlackReport
             "与普通自动抓宠互斥；一级时 P2 人物防御；Cecil 整包重写+外置 DLL"));
 
         list.Add(new PatchSlackProfile(
+            "lv1_auto_external",
+            "遇1级自动·DLL版",
+            280,
+            "cecil_rewrite",
+            false,
+            "P1封印/P2技能1/其余防御；Cecil+外置 DLL；与烧卡/抓宠/九动DLL/桥接互斥"));
+
+        list.Add(new PatchSlackProfile(
             "auto_sell_external",
             "盗贼辅助·DLL版",
             200,

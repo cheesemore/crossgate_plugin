@@ -5,16 +5,18 @@ namespace CrossgateMod.Patcher;
 
 /// <summary>
 /// VIP 加速：改 get_BattleTimeScale 中 ldc.r4 1.5 → 3/5/10；可选 --non-vip 将默认 1.0 改为同倍速。
-/// 心跳 Echo.Speed 固定按 1.5 倍上报。
+/// 心跳 Echo.Speed：仅 VIP 加速时固定报 1.5；启用非 VIP 加速时固定报 1.0（防检测）。
 /// 同步：KickOff 打飞速度 MoveSpeed×4 → ×(4×倍速)，如 5x → 20。
 /// </summary>
 internal static class VipTimeScaleIlPatcher
 {
     private const float OriginalVipScale = 1.5f;
-    private const float EchoReportScale = 1.5f;
+    private const float EchoReportScaleVip = 1.5f;
+    private const float EchoReportScaleNonVip = 1.0f;
     private const float OriginalKickOffMul = 4f;
     private static readonly float[] AllowedScales = { 3f, 5f, 10f };
     private static readonly float[] KnownKickOffMuls = { 4f, 12f, 20f, 40f };
+    private static readonly float[] KnownEchoReportScales = { EchoReportScaleVip, EchoReportScaleNonVip };
 
     public static int Run(string[] args)
     {
@@ -86,6 +88,9 @@ internal static class VipTimeScaleIlPatcher
         }
 
         var kickOffTarget = OriginalKickOffMul * battleScale;
+        // 启用非 VIP 加速时回传 1.0；仅 VIP 加速时回传官方 1.5
+        var patchEcho = patchVipBranch || patchDefaultBranch;
+        var echoReportScale = patchDefaultBranch ? EchoReportScaleNonVip : EchoReportScaleVip;
 
         var origBytes = File.ReadAllBytes(sourcePath);
         var expectedSize = HotfixSize.Require(origBytes);
@@ -115,7 +120,7 @@ internal static class VipTimeScaleIlPatcher
         var kickOffBody = ReadMethodBodyFromPe(origBytes, kickOffMethod.RVA);
 
         var vipDone = !patchVipBranch || !ContainsLdcR4(getScaleBody, OriginalVipScale);
-        var echoDone = !patchVipBranch || IsEchoPatched(updateBody);
+        var echoDone = !patchEcho || IsEchoPatched(updateBody, echoReportScale);
         var defaultDone = !patchDefaultBranch || !ContainsLdcR4(getScaleBody, OriginalDefaultScale);
         var kickOffDone = ContainsLdcR4(kickOffBody, kickOffTarget)
             && !ContainsLdcR4(kickOffBody, OriginalKickOffMul);
@@ -143,12 +148,15 @@ internal static class VipTimeScaleIlPatcher
             }
         }
 
-        if (patchVipBranch && !PatchEchoSpeedInPlace(updateBody, getBattleTimeScale))
+        var wroteEcho = false;
+        if (patchEcho && !echoDone)
         {
-            if (!echoDone)
+            if (!PatchEchoSpeedInPlace(updateBody, getBattleTimeScale, echoReportScale))
             {
-                throw new InvalidOperationException("未找到 Echo.Speed 的 BattleTimeScale 读取（可能已打过补丁）");
+                throw new InvalidOperationException("未找到 Echo.Speed 的 BattleTimeScale 读取/旧上报常量（可能已打过补丁）");
             }
+
+            wroteEcho = true;
         }
 
         var wroteKickOff = false;
@@ -164,7 +172,6 @@ internal static class VipTimeScaleIlPatcher
         }
 
         var wroteScale = false;
-        var wroteEcho = false;
 
         if (patchVipBranch || patchDefaultBranch)
         {
@@ -172,10 +179,9 @@ internal static class VipTimeScaleIlPatcher
             wroteScale = true;
         }
 
-        if (patchVipBranch)
+        if (wroteEcho)
         {
             BinaryPeWriter.ReplaceMethodBody(data, update.RVA, updateBody, updateBody);
-            wroteEcho = true;
         }
 
         if (wroteKickOff)
@@ -209,9 +215,19 @@ internal static class VipTimeScaleIlPatcher
             Console.WriteLine($"[PATCH] BattleTimeScale 默认 已是 {battleScale}（跳过）");
         }
 
-        if (patchVipBranch)
+        if (patchEcho)
         {
-            Console.WriteLine($"[PATCH] Echo.Speed 固定上报: {EchoReportScale} x 100 = {(int)(EchoReportScale * 100)}");
+            if (wroteEcho)
+            {
+                Console.WriteLine(
+                    $"[PATCH] Echo.Speed 固定上报: {echoReportScale} x 100 = {(int)(echoReportScale * 100)}"
+                    + (patchDefaultBranch ? "（非VIP防检测）" : "（VIP官方倍）"));
+            }
+            else
+            {
+                Console.WriteLine(
+                    $"[PATCH] Echo.Speed 已是上报 {echoReportScale}x（跳过）");
+            }
         }
 
         if (wroteKickOff)
@@ -337,14 +353,18 @@ internal static class VipTimeScaleIlPatcher
         return false;
     }
 
-    private static bool PatchEchoSpeedInPlace(byte[] methodBody, MethodReference getBattleTimeScale)
+    private static bool PatchEchoSpeedInPlace(
+        byte[] methodBody,
+        MethodReference getBattleTimeScale,
+        float echoReportScale)
     {
-        var echoScale = BitConverter.GetBytes(EchoReportScale);
+        var echoScale = BitConverter.GetBytes(echoReportScale);
         var hundred = BitConverter.GetBytes(100f);
         var getScaleToken = BitConverter.GetBytes(getBattleTimeScale.MetadataToken.ToUInt32());
         var codeOffset = GetCodeOffset(methodBody);
         var codeSize = GetCodeSize(methodBody);
 
+        // 1) 原版：ldloc.0 + call + callvirt get_BattleTimeScale + ldc.r4 100
         for (var i = codeOffset; i <= codeOffset + codeSize - 16; i++)
         {
             if (methodBody[i] != (byte)OpCodes.Ldloc_0.Value
@@ -371,6 +391,38 @@ internal static class VipTimeScaleIlPatcher
             methodBody[i + 9] = (byte)OpCodes.Nop.Value;
             methodBody[i + 10] = (byte)OpCodes.Nop.Value;
             return true;
+        }
+
+        // 2) 已打过旧上报常量（如 1.5）：改成目标常量（如 1.0）
+        foreach (var oldScale in KnownEchoReportScales)
+        {
+            if (Math.Abs(oldScale - echoReportScale) < 0.001f)
+            {
+                continue;
+            }
+
+            var oldBytes = BitConverter.GetBytes(oldScale);
+            for (var i = codeOffset; i <= codeOffset + codeSize - 16; i++)
+            {
+                if (methodBody[i] != (byte)OpCodes.Ldloc_0.Value
+                    || methodBody[i + 1] != (byte)OpCodes.Ldc_R4.Value
+                    || methodBody[i + 2] != oldBytes[0]
+                    || methodBody[i + 3] != oldBytes[1]
+                    || methodBody[i + 4] != oldBytes[2]
+                    || methodBody[i + 5] != oldBytes[3]
+                    || methodBody[i + 6] != (byte)OpCodes.Nop.Value
+                    || methodBody[i + 11] != (byte)OpCodes.Ldc_R4.Value
+                    || methodBody[i + 12] != hundred[0]
+                    || methodBody[i + 13] != hundred[1]
+                    || methodBody[i + 14] != hundred[2]
+                    || methodBody[i + 15] != hundred[3])
+                {
+                    continue;
+                }
+
+                echoScale.CopyTo(methodBody, i + 2);
+                return true;
+            }
         }
 
         return false;
@@ -432,9 +484,9 @@ internal static class VipTimeScaleIlPatcher
         return false;
     }
 
-    private static bool IsEchoPatched(byte[] methodBody)
+    private static bool IsEchoPatched(byte[] methodBody, float echoReportScale)
     {
-        var echoScale = BitConverter.GetBytes(EchoReportScale);
+        var echoScale = BitConverter.GetBytes(echoReportScale);
         var hundred = BitConverter.GetBytes(100f);
         var codeOffset = GetCodeOffset(methodBody);
         var codeSize = GetCodeSize(methodBody);

@@ -1,0 +1,11 @@
+﻿{
+  "enabled": true,
+  "comment": "0=不配置。应用 char_anim/role_halo/ride_skin/pet_anim/perfect/max_crest。",
+  "slots": [
+    { "slot": 1, "pet_anim": 101905, "role_halo": 170189, "perfect": 1, "max_crest": 1, "char_anim": 105509, "ride_skin": 131001 },
+    { "slot": 2, "pet_anim": 101905, "role_halo": 170189, "perfect": 1, "max_crest": 4, "char_anim": 105509, "ride_skin": 131001 },
+    { "slot": 3, "pet_anim": 101905, "role_halo": 170189, "perfect": 1, "max_crest": 4, "char_anim": 105509, "ride_skin": 131001 },
+    { "slot": 4, "pet_anim": 101905, "role_halo": 170189, "perfect": 1, "max_crest": 5, "char_anim": 105509, "ride_skin": 131001 },
+    { "slot": 5, "pet_anim": 101905, "role_halo": 170189, "perfect": 1, "max_crest": 5, "char_anim": 105509, "ride_skin": 131001 }
+  ]
+}

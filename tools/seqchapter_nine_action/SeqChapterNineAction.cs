@@ -12,6 +12,9 @@ public static class SeqChapterNineAction
 {
     public const string AssetPath = "hotfixdata/SeqChapterNineAction.dll.bytes";
 
+    /// <summary>战斗模式面板开关；常规/抓宠/烧卡时关掉。</summary>
+    public static volatile bool ModeEnabled = true;
+
     private static bool _bootstrapped;
     private static string _statusPath;
     private static FieldInfo _acountListField;
@@ -44,6 +47,25 @@ public static class SeqChapterNineAction
         }
     }
 
+    public static bool IsEnabled()
+    {
+        return ModeEnabled;
+    }
+
+    public static void SetEnabled(bool enable)
+    {
+        Bootstrap();
+        ModeEnabled = enable;
+        try
+        {
+            WriteStatus(enable ? "mode_on" : "mode_off", "panel");
+        }
+        catch
+        {
+            // ignore
+        }
+    }
+
     public static void OnCommandPlayerEnd()
     {
         try
@@ -51,6 +73,11 @@ public static class SeqChapterNineAction
             if (!_bootstrapped)
             {
                 Bootstrap();
+            }
+
+            if (!ModeEnabled)
+            {
+                return;
             }
 
             ExpandAccountList();
@@ -70,6 +97,11 @@ public static class SeqChapterNineAction
 
     public static void ExpandAccountList()
     {
+        if (!ModeEnabled)
+        {
+            return;
+        }
+
         if (!ShouldExpandInCurrentBattleMode())
         {
             return;

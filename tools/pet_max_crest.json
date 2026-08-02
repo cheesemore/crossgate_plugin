@@ -1,0 +1,37 @@
+[
+  {
+    "id": 1,
+    "name": "炫光律动",
+    "nattr": "valRandVital",
+    "vattr": 200,
+    "effect": 1000
+  },
+  {
+    "id": 2,
+    "name": "星尘闪耀",
+    "nattr": "valRandAttack",
+    "vattr": 50,
+    "effect": 1001
+  },
+  {
+    "id": 3,
+    "name": "水灵漩涡",
+    "nattr": "valRandDefense",
+    "vattr": 50,
+    "effect": 1002
+  },
+  {
+    "id": 4,
+    "name": "烈焰之心",
+    "nattr": "valRandAgile",
+    "vattr": 50,
+    "effect": 1004
+  },
+  {
+    "id": 5,
+    "name": "燃焰之环",
+    "nattr": "valRandSprit",
+    "vattr": 10,
+    "effect": 1003
+  }
+]

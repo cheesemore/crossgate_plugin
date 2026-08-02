@@ -5,8 +5,10 @@ using System.IO;
 using System.Reflection;
 
 /// <summary>
-/// 日常 DLL。部署为 hotfixdata/SeqChapterDailyClaim.dll.bytes
-/// 侧栏分享 OnShareClick：日常流水线（主线程 Timer，不挂钩 NetManager，避免闪退）。
+/// 日常 / 新手礼包码 DLL。部署为 hotfixdata/SeqChapterDailyClaim.dll.bytes
+/// 侧栏分享 OnShareClick：切页（日常 | 新手礼包码）+ 再点开始（主线程 Timer）。
+/// 礼包码协议：ActivityManager.SendActivity("CDKey兑换", uid, id=0, activityId=4, code)
+///   （码含 "N_" 时改发 giftCode，与 Com_Cdkey 一致）。
 /// 不占用 OnApplicationPause / 百科，可与九动/抓宠/烧卡/加速并存。
 /// </summary>
 public static class SeqChapterDailyClaim
@@ -20,6 +22,20 @@ public static class SeqChapterDailyClaim
     private const int MaxPipelineTicks = 450;
     /// <summary>同格堆积数不变时最多连用次数，防止用不掉死循环。</summary>
     private const int MaxStaleUsesPerSlot = 3;
+    /// <summary>礼包码最多尝试角色数（与五开一致）。</summary>
+    private const int MaxGiftUids = 5;
+    /// <summary>切页后需在此毫秒内再点分享才开始，否则下次点击切换切页。</summary>
+    private const int ShareArmMs = 2000;
+
+    /// <summary>内置默认礼包码（无外部文件时使用）。</summary>
+    private static readonly string[] DefaultNewbieGiftCodes =
+    {
+        "VIP666", "VIP777", "VIP888", "VIP999",
+        "MLBB666", "MLBB777", "mlbb521", "mlbb24",
+    };
+
+    /// <summary>运行时列表：优先读 hotfixdata/seqchapter_gift_codes.txt（一行一个，# 注释）。</summary>
+    private static string[] _giftCodes;
 
     private static bool _bootstrapped;
     private static string _statusPath;
@@ -28,7 +44,17 @@ public static class SeqChapterDailyClaim
     private static int _state;
     private static int _waitTicks;
     private static List<string> _uids;
+    private static string _uidSource = "";
     private static int _uidIndex;
+    /// <summary>0=日常领取 1=新手礼包码。</summary>
+    private static int _sharePage;
+    private static int _shareArmStartTick;
+    private static bool _shareArmed;
+    private static int _giftUidIndex;
+    private static int _giftCodeIndex;
+    private static int _giftSent;
+    /// <summary>当前流水线是否礼包码页（决定 Trace 前缀）。</summary>
+    private static bool _runningGift;
     private static int _signTitleId;
     private static int _monthTitleId;
     private static int _onlineTitleId;
@@ -74,6 +100,12 @@ public static class SeqChapterDailyClaim
     private static int _staleItemId;
     private static int _staleSlot;
 
+    /// <summary>调试 Tip：状态变化必提示；同态每 5 tick（约 2 秒）心跳一次。</summary>
+    private static int _tracePrevState = -1;
+    private static int _traceSameTicks;
+    private const int TraceHeartbeatEvery = 5;
+
+
     // states
     private const int StSendList = 1;
     private const int StWaitList = 2;
@@ -90,6 +122,8 @@ public static class SeqChapterDailyClaim
     private const int StUsePrep = 10;
     private const int StUseTick = 11;
     private const int StDone = 12;
+    private const int StGiftSend = 20;
+    private const int StGiftDone = 21;
 
     public static void Bootstrap()
     {
@@ -102,7 +136,8 @@ public static class SeqChapterDailyClaim
         try
         {
             EnsureStatusPath();
-            WriteStatus("mounted", "daily_share_timer");
+            WriteStatus("mounted", "daily_share_timer_gift");
+            LoadShareOpts();
         }
         catch (Exception ex)
         {
@@ -117,10 +152,171 @@ public static class SeqChapterDailyClaim
         }
     }
 
+    /// <summary>opts：hotfixdata/seqchapter_share_opts.txt 内 daily=0/1 gift=0/1；缺省都开。</summary>
+    private static bool _optDaily = true;
+    private static bool _optGift = true;
+
+    private static string[] ActiveGiftCodes
+    {
+        get
+        {
+            if (_giftCodes != null && _giftCodes.Length > 0)
+            {
+                return _giftCodes;
+            }
+
+            return DefaultNewbieGiftCodes;
+        }
+    }
+
+    private static void LoadShareOpts()
+    {
+        _optDaily = true;
+        _optGift = true;
+        try
+        {
+            foreach (var path in HotfixdataFileCandidates("seqchapter_share_opts.txt"))
+            {
+                if (!File.Exists(path))
+                {
+                    continue;
+                }
+
+                var text = File.ReadAllText(path);
+                if (text.IndexOf("daily=0", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    _optDaily = false;
+                }
+
+                if (text.IndexOf("gift=0", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    _optGift = false;
+                }
+
+                WriteStatus("share_opts", path + " daily=" + (_optDaily ? 1 : 0) + " gift=" + (_optGift ? 1 : 0));
+                break;
+            }
+        }
+        catch
+        {
+            // ignore
+        }
+
+        if (!_optDaily && !_optGift)
+        {
+            _optDaily = true;
+        }
+
+        if (!_optDaily)
+        {
+            _sharePage = 1;
+        }
+        else if (!_optGift)
+        {
+            _sharePage = 0;
+        }
+
+        LoadGiftCodes();
+    }
+
+    /// <summary>从 seqchapter_gift_codes.txt 读可编辑礼包码；无文件/空则用内置默认。</summary>
+    private static void LoadGiftCodes()
+    {
+        _giftCodes = null;
+        try
+        {
+            foreach (var path in HotfixdataFileCandidates("seqchapter_gift_codes.txt"))
+            {
+                if (!File.Exists(path))
+                {
+                    continue;
+                }
+
+                var lines = File.ReadAllLines(path);
+                var list = new List<string>();
+                for (var i = 0; i < lines.Length; i++)
+                {
+                    var s = (lines[i] ?? "").Trim();
+                    if (s.Length == 0 || s[0] == '#')
+                    {
+                        continue;
+                    }
+
+                    list.Add(s);
+                }
+
+                if (list.Count > 0)
+                {
+                    _giftCodes = list.ToArray();
+                    WriteStatus("gift_codes", path + " n=" + list.Count);
+                    return;
+                }
+            }
+        }
+        catch
+        {
+            // ignore
+        }
+
+        WriteStatus("gift_codes", "default n=" + DefaultNewbieGiftCodes.Length);
+    }
+
+    private static List<string> HotfixdataFileCandidates(string fileName)
+    {
+        var list = new List<string>();
+        try
+        {
+            var dataPath = Convert.ToString(
+                FindType("UnityEngine.Application")
+                    ?.GetProperty("dataPath", BindingFlags.Public | BindingFlags.Static)
+                    ?.GetValue(null, null) ?? "") ?? "";
+            if (!string.IsNullOrEmpty(dataPath))
+            {
+                var gameRoot = Path.GetFullPath(Path.Combine(dataPath, ".."));
+                list.Add(Path.Combine(gameRoot, "cg37_Data", "assets", "hotfixdata", fileName));
+                list.Add(Path.Combine(gameRoot, "hotfixdata", fileName));
+            }
+        }
+        catch
+        {
+            // ignore
+        }
+
+        list.Add(Path.Combine("cg37_Data", "assets", "hotfixdata", fileName));
+        return list;
+    }
+
+    /// <summary>测试 UI / 脚本：开/停日常流水线（不经分享切页）。</summary>
+    public static bool ToggleDailyFromUi()
+    {
+        Bootstrap();
+        if (_pipelineRunning || IsAnyCopyPipelineRunning())
+        {
+            AbortDailyAllCopies();
+            Tip("日常：已停止");
+            return false;
+        }
+
+        return StartDailyPipeline();
+    }
+
+    /// <summary>测试 UI / 脚本：开/停新手礼包码流水线（读 seqchapter_gift_codes.txt）。</summary>
+    public static bool ToggleGiftFromUi()
+    {
+        Bootstrap();
+        if (_pipelineRunning || IsAnyCopyPipelineRunning())
+        {
+            AbortDailyAllCopies();
+            Tip("礼包码：已停止");
+            return false;
+        }
+
+        return StartGiftPipeline();
+    }
 
     /// <summary>
-    /// 分享：切换日常流水线。true=已开始（Tip 开启）；false=已停止（Tip 关闭）。
-    /// 进行中再点一次会强制中止（含 Timer / 用道具确认等待），避免关不掉。
+    /// 分享：切页（日常 / 新手礼包码）→ 限时内再点开始；进行中再点则停止。
+    /// 返回值仅兼容加载器；提示一律走 Tip()。
     /// </summary>
     public static bool OnShareClick()
     {
@@ -128,17 +324,84 @@ public static class SeqChapterDailyClaim
         if (_pipelineRunning || IsAnyCopyPipelineRunning())
         {
             AbortDailyAllCopies();
+            Tip("分享：已停止");
             return false;
         }
 
+        var now = Environment.TickCount;
+        if (_shareArmed)
+        {
+            var elapsed = now - _shareArmStartTick;
+            if (elapsed >= 0 && elapsed < ShareArmMs)
+            {
+                var started = StartSharePage(_sharePage);
+                _shareArmed = false;
+                return started;
+            }
+
+            // 超时后再点：切页并重新武装
+            ToggleSharePage();
+        }
+        else if (!_optDaily || !_optGift)
+        {
+            _sharePage = _optGift && !_optDaily ? 1 : 0;
+        }
+
+        _shareArmed = true;
+        _shareArmStartTick = now;
+        Tip(_sharePage == 0
+            ? "切页·日常领取 — 2秒内再点分享开始"
+            : "切页·新手礼包码 — 2秒内再点分享开始（最多5角色）");
+        return false;
+    }
+
+    private static void ToggleSharePage()
+    {
+        if (_optDaily && _optGift)
+        {
+            _sharePage = _sharePage == 0 ? 1 : 0;
+        }
+        else if (_optGift && !_optDaily)
+        {
+            _sharePage = 1;
+        }
+        else
+        {
+            _sharePage = 0;
+        }
+    }
+
+    private static bool StartSharePage(int page)
+    {
+        if (page == 1 && _optGift)
+        {
+            return StartGiftPipeline();
+        }
+
+        if (_optDaily)
+        {
+            return StartDailyPipeline();
+        }
+
+        if (_optGift)
+        {
+            return StartGiftPipeline();
+        }
+
+        Tip("分享：日常/礼包码均未启用");
+        return false;
+    }
+
+    private static bool StartDailyPipeline()
+    {
         _uids = CollectUids();
         if (_uids == null || _uids.Count == 0)
         {
             Tip("日常：未找到角色");
-            // 返回 true 会 Tip「已开始」，这里改为 false 并自行提示
             return false;
         }
 
+        _runningGift = false;
         _pipelineRunning = true;
         SyncPipelineRunningAllCopies(true);
         _signClaims = 0;
@@ -158,8 +421,136 @@ public static class SeqChapterDailyClaim
         _stalePile = -1;
         _staleItemId = 0;
         _staleSlot = -1;
+        _tracePrevState = -1;
+        _traceSameTicks = 0;
+        Tip(string.Format("日常：开始 角色{0}个（{1}）", _uids.Count, _uidSource));
         StartDailyTimer();
         return true;
+    }
+
+    private static bool StartGiftPipeline()
+    {
+        LoadGiftCodes();
+        if (ActiveGiftCodes.Length == 0)
+        {
+            Tip("礼包码：列表为空（请在补丁 GUI 填写或检查 seqchapter_gift_codes.txt）");
+            return false;
+        }
+
+        _uids = CollectUids();
+        if (_uids == null || _uids.Count == 0)
+        {
+            Tip("礼包码：未找到角色");
+            return false;
+        }
+
+        if (_uids.Count > MaxGiftUids)
+        {
+            _uids = _uids.GetRange(0, MaxGiftUids);
+        }
+
+        _runningGift = true;
+        _pipelineRunning = true;
+        SyncPipelineRunningAllCopies(true);
+        _giftUidIndex = 0;
+        _giftCodeIndex = 0;
+        _giftSent = 0;
+        _uidIndex = 0;
+        _state = StGiftSend;
+        _waitTicks = 0;
+        _pipelineTicks = 0;
+        _tracePrevState = -1;
+        _traceSameTicks = 0;
+        Tip(string.Format(
+            "新手礼包码：开始 角色{0}个×{1}码（{2}）",
+            _uids.Count,
+            ActiveGiftCodes.Length,
+            _uidSource));
+        StartDailyTimer();
+        return true;
+    }
+
+
+    private static string StateName(int state)
+    {
+        switch (state)
+        {
+            case StSendList: return "发列表";
+            case StWaitList: return "等列表";
+            case StSendSignInfo: return "发签到信息";
+            case StWaitSignInfo: return "等签到信息";
+            case StClaimSign: return "领签到";
+            case StSendMonthInfo: return "发月卡信息";
+            case StWaitMonthInfo: return "等月卡信息";
+            case StClaimMonth: return "领月卡";
+            case StSendOnlineInfo: return "发在线信息";
+            case StWaitOnlineInfo: return "等在线信息";
+            case StClaimOnline: return "领在线";
+            case StNextUid: return "下一角色";
+            case StUsePrep: return "用道具准备";
+            case StUseTick: return "用道具";
+            case StDone: return "完成";
+            case StGiftSend: return "发礼包码";
+            case StGiftDone: return "礼包码完成";
+            default: return "s" + state;
+        }
+    }
+
+    /// <summary>短 Tip：日常/礼包[态] t序号 角i/n · 详情</summary>
+    private static void TraceTip(string detail)
+    {
+        var uidN = _uids != null ? _uids.Count : 0;
+        var head = _runningGift ? "礼包" : "日常";
+        var ang = _runningGift ? _giftUidIndex : _uidIndex;
+        var msg = string.Format(
+            "{0}[{1}] t{2} 角{3}/{4} · {5}",
+            head,
+            StateName(_state),
+            _pipelineTicks,
+            ang,
+            uidN,
+            detail ?? "");
+        Tip(msg);
+        try
+        {
+            WriteStatus("daily_trace", msg);
+        }
+        catch
+        {
+            // ignore
+        }
+    }
+
+    private static void TraceStatePulse()
+    {
+        if (_state != _tracePrevState)
+        {
+            _tracePrevState = _state;
+            _traceSameTicks = 0;
+            TraceTip("进入");
+            return;
+        }
+
+        _traceSameTicks++;
+        if (_traceSameTicks % TraceHeartbeatEvery != 0)
+        {
+            return;
+        }
+
+        if (_state == StUseTick)
+        {
+            TraceTip(string.Format(
+                "心跳 用角{0} 格{1} 次{2} 等确认{3}/{4} stale{5}",
+                _useUidIndex,
+                _useSlot,
+                _useAttempt,
+                _awaitingUseConfirm ? 1 : 0,
+                _confirmWaitTicks,
+                _staleUseCount));
+            return;
+        }
+
+        TraceTip(string.Format("心跳 等待{0}/{1}", _waitTicks, WaitTicksMax));
     }
 
 
@@ -275,6 +666,7 @@ public static class SeqChapterDailyClaim
         _pipelineTicks++;
         if (_pipelineTicks > MaxPipelineTicks)
         {
+            TraceTip("整条流水线超时，强制结束");
             FinishDaily(string.Format(
                 "日常超时结束：签到{0} · 月卡{1} · 在线{2}档 · 用道具{3}次",
                 _signClaims,
@@ -284,12 +676,15 @@ public static class SeqChapterDailyClaim
             return;
         }
 
+        TraceStatePulse();
+
         switch (_state)
         {
             case StSendList:
             {
                 if (_uidIndex >= _uids.Count)
                 {
+                    TraceTip("列表角色已走完→用道具");
                     _state = StUsePrep;
                     return;
                 }
@@ -297,6 +692,7 @@ public static class SeqChapterDailyClaim
                 var uid = _uids[_uidIndex];
                 ClearActiveListInfo();
                 SendActivity("活动列表", uid, 0, 0);
+                TraceTip("已发活动列表");
                 _waitTicks = 0;
                 _state = StWaitList;
                 return;
@@ -312,12 +708,18 @@ public static class SeqChapterDailyClaim
                     _signTitleId = FindTitleId(titles, "周期14日签到", "每日签到", "签到");
                     _monthTitleId = FindTitleId(titles, "特权月卡", "超值月卡");
                     _onlineTitleId = FindTitleId(titles, "累计在线奖励", "在线礼包", "在线奖励");
+                    TraceTip(string.Format(
+                        "列表OK 签到{0} 月卡{1} 在线{2}",
+                        _signTitleId,
+                        _monthTitleId,
+                        _onlineTitleId));
                     _state = StSendSignInfo;
                     return;
                 }
 
                 if (_waitTicks >= WaitTicksMax)
                 {
+                    TraceTip("等列表超时→下一角色");
                     _state = StNextUid;
                 }
 
@@ -327,6 +729,7 @@ public static class SeqChapterDailyClaim
             {
                 if (_signTitleId < 0)
                 {
+                    TraceTip("无签到活动→月卡");
                     _state = StSendMonthInfo;
                     return;
                 }
@@ -335,6 +738,7 @@ public static class SeqChapterDailyClaim
                 _expectUid = uid;
                 _expectInfoType = "周期14日签到";
                 SendActivity("活动信息", uid, _signTitleId, 0);
+                TraceTip("已发签到信息 id=" + _signTitleId);
                 _waitTicks = 0;
                 _state = StWaitSignInfo;
                 return;
@@ -346,12 +750,14 @@ public static class SeqChapterDailyClaim
                 if (info != null)
                 {
                     _pendingInfo = info;
+                    TraceTip("签到信息到→领取");
                     _state = StClaimSign;
                     return;
                 }
 
                 if (_waitTicks >= WaitTicksMax)
                 {
+                    TraceTip("等签到信息超时→月卡");
                     _state = StSendMonthInfo;
                 }
 
@@ -364,6 +770,11 @@ public static class SeqChapterDailyClaim
                 if (info != null && TryClaimSignIn(info, _uids[_uidIndex]))
                 {
                     _signClaims++;
+                    TraceTip("签到已领 +" + _signClaims);
+                }
+                else
+                {
+                    TraceTip("签到跳过(已领/不可领)");
                 }
 
                 _state = StSendMonthInfo;
@@ -373,6 +784,7 @@ public static class SeqChapterDailyClaim
             {
                 if (_monthTitleId < 0)
                 {
+                    TraceTip("无月卡活动→在线");
                     _state = StSendOnlineInfo;
                     return;
                 }
@@ -381,6 +793,7 @@ public static class SeqChapterDailyClaim
                 _expectUid = uid;
                 _expectInfoType = "特权月卡";
                 SendActivity("活动信息", uid, _monthTitleId, 0);
+                TraceTip("已发月卡信息 id=" + _monthTitleId);
                 _waitTicks = 0;
                 _state = StWaitMonthInfo;
                 return;
@@ -392,13 +805,14 @@ public static class SeqChapterDailyClaim
                 if (info != null)
                 {
                     _state = StClaimMonth;
-                    // stash on field via unused: reuse _onlineClaimable as single-item? use static temp
                     _pendingInfo = info;
+                    TraceTip("月卡信息到→领取");
                     return;
                 }
 
                 if (_waitTicks >= WaitTicksMax)
                 {
+                    TraceTip("等月卡信息超时→在线");
                     _state = StSendOnlineInfo;
                 }
 
@@ -418,7 +832,20 @@ public static class SeqChapterDailyClaim
                     {
                         SendActivity("领取每日奖励", _uids[_uidIndex], 0, activityId);
                         _monthClaims++;
+                        TraceTip("月卡每日已领 +" + _monthClaims);
                     }
+                    else
+                    {
+                        TraceTip(string.Format(
+                            "月卡跳过 tqk={0} day={1} aid={2}",
+                            tqkTime,
+                            tqkbDay ? 1 : 0,
+                            activityId));
+                    }
+                }
+                else
+                {
+                    TraceTip("月卡无数据");
                 }
 
                 _state = StSendOnlineInfo;
@@ -428,6 +855,7 @@ public static class SeqChapterDailyClaim
             {
                 if (_onlineTitleId < 0)
                 {
+                    TraceTip("无在线活动→下一角色");
                     _state = StNextUid;
                     return;
                 }
@@ -436,6 +864,7 @@ public static class SeqChapterDailyClaim
                 _expectUid = uid;
                 _expectInfoType = "累计在线奖励";
                 SendActivity("活动信息", uid, _onlineTitleId, 0);
+                TraceTip("已发在线信息 id=" + _onlineTitleId);
                 _waitTicks = 0;
                 _state = StWaitOnlineInfo;
                 return;
@@ -449,12 +878,14 @@ public static class SeqChapterDailyClaim
                     _pendingInfo = info;
                     _onlineClaimable = CollectClaimableTiers(info);
                     _onlineClaimIndex = 0;
+                    TraceTip("在线信息到 可领档=" + (_onlineClaimable != null ? _onlineClaimable.Count : 0));
                     _state = StClaimOnline;
                     return;
                 }
 
                 if (_waitTicks >= WaitTicksMax)
                 {
+                    TraceTip("等在线信息超时→下一角色");
                     _state = StNextUid;
                 }
 
@@ -465,6 +896,7 @@ public static class SeqChapterDailyClaim
                 if (_onlineClaimable == null || _onlineClaimIndex >= _onlineClaimable.Count)
                 {
                     _pendingInfo = null;
+                    TraceTip("在线档领完→下一角色");
                     _state = StNextUid;
                     return;
                 }
@@ -476,14 +908,19 @@ public static class SeqChapterDailyClaim
                 {
                     SendActivity("累计在线奖励领取", _uids[_uidIndex], tierId, activityId);
                     _onlineClaims++;
+                    TraceTip(string.Format("领在线档 tier={0} 累计{1}", tierId, _onlineClaims));
+                }
+                else
+                {
+                    TraceTip(string.Format("在线档无效 aid={0} tier={1}", activityId, tierId));
                 }
 
-                // stay in StClaimOnline for next tier next tick
                 return;
             }
             case StNextUid:
             {
                 _uidIndex++;
+                TraceTip("切换下一角色");
                 _state = StSendList;
                 return;
             }
@@ -499,6 +936,7 @@ public static class SeqChapterDailyClaim
                 _stalePile = -1;
                 _staleItemId = 0;
                 _staleSlot = -1;
+                TraceTip("开始扫背包用道具");
                 _state = StUseTick;
                 return;
             }
@@ -506,6 +944,7 @@ public static class SeqChapterDailyClaim
             {
                 if (_uids == null || _useUidIndex >= _uids.Count)
                 {
+                    TraceTip("用道具角色扫完→结束");
                     _state = StDone;
                     return;
                 }
@@ -516,6 +955,7 @@ public static class SeqChapterDailyClaim
                 {
                     if (TryConfirmMessageBox())
                     {
+                        TraceTip("MessageBox已点确定");
                         _awaitingUseConfirm = false;
                         _confirmWaitTicks = 0;
                         _skipConfirmTicks = 2;
@@ -525,6 +965,7 @@ public static class SeqChapterDailyClaim
                     _confirmWaitTicks++;
                     if (_confirmWaitTicks >= WaitTicksMax)
                     {
+                        TraceTip("等确认超时→跳下一格");
                         _awaitingUseConfirm = false;
                         _confirmWaitTicks = 0;
                         _useSlot++;
@@ -555,6 +996,42 @@ public static class SeqChapterDailyClaim
                     _monthClaims,
                     _onlineClaims,
                     _itemUses));
+                return;
+            }
+            case StGiftSend:
+            {
+                if (_uids == null || _giftUidIndex >= _uids.Count)
+                {
+                    _state = StGiftDone;
+                    return;
+                }
+
+                var codes = ActiveGiftCodes;
+                if (_giftCodeIndex >= codes.Length)
+                {
+                    _giftCodeIndex = 0;
+                    _giftUidIndex++;
+                    if (_giftUidIndex >= _uids.Count)
+                    {
+                        _state = StGiftDone;
+                        return;
+                    }
+                }
+
+                var uid = _uids[_giftUidIndex];
+                var code = codes[_giftCodeIndex];
+                SendCdKeyExchange(uid, code);
+                _giftSent++;
+                TraceTip(string.Format("已发 {0} → 角{1}", code, _giftUidIndex + 1));
+                _giftCodeIndex++;
+                return;
+            }
+            case StGiftDone:
+            {
+                FinishDaily(string.Format(
+                    "新手礼包码完成：角色{0} · 已尝试发送{1}次（已领过会由服务端忽略）",
+                    _uids != null ? _uids.Count : 0,
+                    _giftSent));
                 return;
             }
         }
@@ -647,6 +1124,7 @@ public static class SeqChapterDailyClaim
 
                 if (_useAttempt >= MaxUsePerSlot)
                 {
+                    TraceTip(string.Format("格{0}用满{1}次跳过 id={2}", _useSlot, MaxUsePerSlot, itemId));
                     _useSlot++;
                     _useAttempt = 0;
                     _staleUseCount = 0;
@@ -669,6 +1147,11 @@ public static class SeqChapterDailyClaim
                     _staleUseCount++;
                     if (_staleUseCount >= MaxStaleUsesPerSlot)
                     {
+                        TraceTip(string.Format(
+                            "格{0}堆积不变跳过 id={1} pile={2}",
+                            _useSlot,
+                            itemId,
+                            pile));
                         _useSlot++;
                         _useAttempt = 0;
                         _staleUseCount = 0;
@@ -687,6 +1170,7 @@ public static class SeqChapterDailyClaim
                 var slotIndex = Convert.ToInt32(GetMember(data, "Index") ?? _useSlot);
                 if (!SendUseItem(slotIndex, uid))
                 {
+                    TraceTip(string.Format("用道具发包失败 格{0} id={1}", _useSlot, itemId));
                     _useSlot++;
                     _useAttempt = 0;
                     _staleUseCount = 0;
@@ -698,6 +1182,21 @@ public static class SeqChapterDailyClaim
                 {
                     _awaitingUseConfirm = true;
                     _confirmWaitTicks = 0;
+                    TraceTip(string.Format(
+                        "已用待确认 格{0} id={1} pile={2} 次{3}",
+                        _useSlot,
+                        itemId,
+                        pile,
+                        _useAttempt));
+                }
+                else
+                {
+                    TraceTip(string.Format(
+                        "已用 格{0} id={1} pile={2} 次{3}",
+                        _useSlot,
+                        itemId,
+                        pile,
+                        _useAttempt));
                 }
 
                 return true;
@@ -716,6 +1215,8 @@ public static class SeqChapterDailyClaim
     {
         StopDailyTimer();
         _pipelineRunning = false;
+        _runningGift = false;
+        _shareArmed = false;
         SyncPipelineRunningAllCopies(false);
         _state = 0;
         _awaitingUseConfirm = false;
@@ -739,6 +1240,8 @@ public static class SeqChapterDailyClaim
         }
 
         _pipelineRunning = false;
+        _runningGift = false;
+        _shareArmed = false;
         _state = 0;
         _awaitingUseConfirm = false;
         _confirmWaitTicks = 0;
@@ -1142,6 +1645,23 @@ public static class SeqChapterDailyClaim
 
     private static void SendActivity(string type, string uid, int id, int activityId)
     {
+        SendActivityFull(type, uid, id, activityId, "");
+    }
+
+    /// <summary>与 Com_Cdkey 一致：无 N_ → CDKey兑换；含 N_ → giftCode。activityId=4。</summary>
+    private static void SendCdKeyExchange(string uid, string code)
+    {
+        if (string.IsNullOrEmpty(code))
+        {
+            return;
+        }
+
+        var type = code.IndexOf("N_", StringComparison.Ordinal) >= 0 ? "giftCode" : "CDKey兑换";
+        SendActivityFull(type, uid, 0, 4, code);
+    }
+
+    private static void SendActivityFull(string type, string uid, int id, int activityId, string code)
+    {
         var mgr = GetManagerInstance("ActivityManager");
         if (mgr == null)
         {
@@ -1185,6 +1705,10 @@ public static class SeqChapterDailyClaim
             else if (i == 3)
             {
                 args[i] = activityId;
+            }
+            else if (i == 4 && psAll[i].ParameterType == typeof(string))
+            {
+                args[i] = code ?? "";
             }
             else if (psAll[i].HasDefaultValue)
             {
@@ -1357,25 +1881,41 @@ public static class SeqChapterDailyClaim
         return true;
     }
 
+    /// <summary>
+    /// 日常只扫「本账号多开在线」或「当前队伍」角色。
+    /// 禁止 GetAllPlayers：切队长/点头像后字典会堆历史角色，出现角8/22 这类假人数，需重进才清。
+    /// </summary>
     private static List<string> CollectUids()
     {
         var result = new List<string>();
+        _uidSource = "none";
+
+        // 1) 五开 MultiInfo：Online>=1 的本账号角色
         try
         {
-            var holder = FindType("PlayerDataHolder");
-            var getAll = holder?.GetMethod(
-                "GetAllPlayers",
-                BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic);
-            var dict = getAll?.Invoke(null, null) as IDictionary;
-            if (dict != null)
+            var teamMgr = GetManagerInstance("TeamManager");
+            var multi = GetMember(teamMgr, "MultiInfo");
+            var players = GetMember(multi, "Players") as IList;
+            if (players != null)
             {
-                foreach (DictionaryEntry kv in dict)
+                foreach (var p in players)
                 {
-                    var uid = Convert.ToString(kv.Key);
-                    if (!string.IsNullOrEmpty(uid))
+                    if (p == null)
                     {
-                        result.Add(uid);
+                        continue;
                     }
+
+                    var uid = Convert.ToString(GetMember(p, "Uid") ?? "");
+                    var online = Convert.ToInt32(GetMember(p, "Online") ?? 0);
+                    if (!string.IsNullOrEmpty(uid) && online >= 1)
+                    {
+                        AddUidUnique(result, uid);
+                    }
+                }
+
+                if (result.Count > 0)
+                {
+                    _uidSource = "multi";
                 }
             }
         }
@@ -1384,6 +1924,44 @@ public static class SeqChapterDailyClaim
             // ignore
         }
 
+        // 2) 当前队伍 teamData（UseFlag==1）
+        if (result.Count == 0)
+        {
+            try
+            {
+                var teamData = GetStaticMember("PlayerDataHolder", "teamData") as Array;
+                if (teamData != null)
+                {
+                    foreach (var slot in teamData)
+                    {
+                        if (slot == null)
+                        {
+                            continue;
+                        }
+
+                        if (Convert.ToInt32(GetMember(slot, "UseFlag") ?? 0) != 1)
+                        {
+                            continue;
+                        }
+
+                        var player = GetMember(slot, "Player");
+                        var uid = Convert.ToString(GetMember(player, "Uid") ?? "");
+                        AddUidUnique(result, uid);
+                    }
+
+                    if (result.Count > 0)
+                    {
+                        _uidSource = "team";
+                    }
+                }
+            }
+            catch
+            {
+                // ignore
+            }
+        }
+
+        // 3) 保底：主角色 / 当前选中
         if (result.Count == 0)
         {
             var main = Convert.ToString(GetStaticMember("PlayerDataHolder", "MainPlayerUid") ?? "");
@@ -1393,13 +1971,34 @@ public static class SeqChapterDailyClaim
                 main = Convert.ToString(GetMember(pd, "Uid") ?? GetMember(pd, "uid") ?? "");
             }
 
-            if (!string.IsNullOrEmpty(main))
+            AddUidUnique(result, main);
+            var select = Convert.ToString(GetStaticMember("PlayerDataHolder", "SelectPlayerUid") ?? "");
+            AddUidUnique(result, select);
+            if (result.Count > 0)
             {
-                result.Add(main);
+                _uidSource = "main";
             }
         }
 
         return result;
+    }
+
+    private static void AddUidUnique(List<string> list, string uid)
+    {
+        if (string.IsNullOrEmpty(uid))
+        {
+            return;
+        }
+
+        for (var i = 0; i < list.Count; i++)
+        {
+            if (list[i] == uid)
+            {
+                return;
+            }
+        }
+
+        list.Add(uid);
     }
 
     private static int GetServerTime()

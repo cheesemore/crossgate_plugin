@@ -1,3 +1,4 @@
+using System.Linq;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Mono.Cecil;
@@ -6,16 +7,16 @@ using Mono.Cecil.Cil;
 namespace CrossgateMod.Patcher;
 
 /// <summary>
-/// 日常/新手礼包码·分享入口：MapSidebarPanel.OnClickShareCallback → SeqChapterDailyClaim.OnShareClick。
-/// 切页：日常领取 | 新手礼包码（2 秒内再点开始）。不占用 Pause/百科。
+/// 百科→测试 UI：OnClickWiki → 加载 SeqChapterTestUi.dll.bytes 并调用 OnShareClick 风格 OnWikiClick。
+/// 简陋 IMGUI；与抓宠/烧卡/限帧/资源下载等百科占用项互斥。
 /// </summary>
-internal static class DailyClaimExternalIlPatcher
+internal static class TestUiExternalIlPatcher
 {
-    public const string AssetFileName = "SeqChapterDailyClaim.dll.bytes";
-    public const string TypeName = "SeqChapterDailyClaim";
-    public const string EntryName = "OnShareClick";
+    public const string AssetFileName = "SeqChapterTestUi.dll.bytes";
+    public const string TypeName = "SeqChapterTestUi";
+    public const string EntryName = "OnWikiClick";
     public const string DllAssetPath = "hotfixdata/" + AssetFileName;
-    public const string TempDllSuffix = "/seqchapter_daily_claim.dll";
+    public const string TempDllSuffix = "/seqchapter_test_ui.dll";
 
     public static int Run(string[] args)
     {
@@ -46,9 +47,9 @@ internal static class DailyClaimExternalIlPatcher
         if (string.IsNullOrWhiteSpace(source))
         {
             Console.WriteLine(
-                "用法: HotfixPatcher daily-claim-external-patch --hotfix <orig> --output <out>\n" +
-                "      HotfixPatcher daily-claim-external-patch --hotfix <file> --detect\n" +
-                "      HotfixPatcher daily-claim-external-patch --hotfix <orig> --output <out> --restore");
+                "用法: HotfixPatcher wiki-test-ui-patch --hotfix <orig> --output <out>\n" +
+                "      HotfixPatcher wiki-test-ui-patch --hotfix <file> --detect\n" +
+                "      HotfixPatcher wiki-test-ui-patch --hotfix <orig> --output <out> --restore");
             return 1;
         }
 
@@ -57,7 +58,7 @@ internal static class DailyClaimExternalIlPatcher
         if (detect)
         {
             var patched = IsPatched(source);
-            Console.WriteLine(patched ? "daily-claim" : "original");
+            Console.WriteLine(patched ? "wiki-test-ui" : "original");
             return patched ? 0 : 1;
         }
 
@@ -71,7 +72,7 @@ internal static class DailyClaimExternalIlPatcher
         try
         {
             Apply(source, output);
-            Console.WriteLine("[OK] 日常·分享入口补丁完成: " + output);
+            Console.WriteLine("[OK] 百科→测试UI 补丁完成: " + output);
             return 0;
         }
         catch (Exception ex)
@@ -86,10 +87,10 @@ internal static class DailyClaimExternalIlPatcher
         var origBytes = File.ReadAllBytes(sourcePath);
         var expectedSize = HotfixSize.Require(origBytes);
 
-        var dllPath = BuildDailyClaimDll(sourcePath);
+        var dllPath = BuildTestUiDll(sourcePath);
         var assetOut = Path.Combine(Path.GetDirectoryName(outputPath)!, AssetFileName);
         File.Copy(dllPath, assetOut, overwrite: true);
-        Console.WriteLine("[DAILY] 已部署 " + assetOut);
+        Console.WriteLine("[TEST-UI] 已部署 " + assetOut);
 
         var hotfixDir = Path.GetDirectoryName(sourcePath)!;
         var resolver = new HotfixAssemblyResolver(hotfixDir);
@@ -102,21 +103,20 @@ internal static class DailyClaimExternalIlPatcher
 
         var mapSidebar = asm.MainModule.Types.FirstOrDefault(t => t.Name == "MapSidebarPanel")
             ?? throw new InvalidOperationException("未找到 MapSidebarPanel");
-        var onClickShare = mapSidebar.Methods.FirstOrDefault(m => m.Name == "OnClickShareCallback" && m.HasBody)
-            ?? throw new InvalidOperationException("未找到 MapSidebarPanel.OnClickShareCallback");
+        var onClickWiki = mapSidebar.Methods.FirstOrDefault(m => m.Name == "OnClickWiki" && m.HasBody)
+            ?? throw new InvalidOperationException("未找到 MapSidebarPanel.OnClickWiki");
 
-        // Tip 由 DLL 内 OnShareClick 自行弹出（切页/开始/停止），此处不套 tipOn/tipOff
         BridgeLoaderIlBuilder.BuildLoadAndAlwaysInvokeBody(
-            onClickShare,
+            onClickWiki,
             asm.MainModule,
             DllAssetPath,
             TypeName,
             EntryName,
             TempDllSuffix,
-            tipOn: null,
-            tipOff: null,
-            tipFail: "分享功能加载失败");
-        Console.WriteLine("[DAILY] OnClickShareCallback -> OnShareClick（日常/新手礼包码切页）");
+            tipOn: "面板已打开",
+            tipOff: "面板已关闭",
+            tipFail: "面板加载失败");
+        Console.WriteLine("[TEST-UI] OnClickWiki -> OnWikiClick（百科开/关总面板）");
 
         using var ms = new MemoryStream();
         asm.Write(ms);
@@ -134,22 +134,8 @@ internal static class DailyClaimExternalIlPatcher
         var outBytes = File.ReadAllBytes(outputPath);
         var growth = (long)PeLayout.GetSection(outBytes, ".text").VirtualSize
                      - (long)PeLayout.GetSection(origBytes, ".text").VirtualSize;
-        Console.WriteLine($"[DAILY] .text VirtualSize {(growth >= 0 ? "+" : "")}{growth}");
+        Console.WriteLine($"[TEST-UI] .text VirtualSize {(growth >= 0 ? "+" : "")}{growth}");
         HotfixSize.EnsureUnchanged(outBytes, expectedSize);
-
-        // 默认两页都开；apply_combo 可再覆盖
-        try
-        {
-            var optsDir = Path.GetDirectoryName(assetOut)!;
-            File.WriteAllText(
-                Path.Combine(optsDir, "seqchapter_share_opts.txt"),
-                "daily=1\ngift=1\n");
-            Console.WriteLine("[DAILY] 已写 seqchapter_share_opts.txt (daily=1 gift=1)");
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine("[WARN] 写 share opts 失败: " + ex.Message);
-        }
     }
 
     public static bool IsPatched(string hotfixPath)
@@ -159,7 +145,6 @@ internal static class DailyClaimExternalIlPatcher
             var pe = File.ReadAllBytes(hotfixPath);
             if (!ContainsUtf16Le(pe, TypeName)
                 && !ContainsUtf16Le(pe, AssetFileName)
-                && !ContainsUtf16Le(pe, EntryName)
                 && !ContainsAscii(pe, TypeName)
                 && !ContainsAscii(pe, AssetFileName))
             {
@@ -172,14 +157,30 @@ internal static class DailyClaimExternalIlPatcher
                 AssemblyResolver = resolver,
                 InMemory = true,
             });
-            var share = asm.MainModule.Types.FirstOrDefault(t => t.Name == "MapSidebarPanel")
-                ?.Methods.FirstOrDefault(m => m.Name == "OnClickShareCallback" && m.HasBody);
-            return share != null && IsShareClickPatched(share);
+            var wiki = asm.MainModule.Types.FirstOrDefault(t => t.Name == "MapSidebarPanel")
+                ?.Methods.FirstOrDefault(m => m.Name == "OnClickWiki" && m.HasBody);
+            return wiki != null && IsWikiClickPatched(wiki);
         }
         catch
         {
             return false;
         }
+    }
+
+    private static bool IsWikiClickPatched(MethodDefinition method)
+    {
+        foreach (var insn in method.Body.Instructions)
+        {
+            if (insn.OpCode == OpCodes.Ldstr && insn.Operand is string s
+                && (s == TypeName || s == TypeName + ", " + TypeName || s == EntryName
+                    || s == DllAssetPath || s.IndexOf("TestUi", StringComparison.Ordinal) >= 0
+                    || s.IndexOf("测试UI", StringComparison.Ordinal) >= 0))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static bool ContainsUtf16Le(byte[] pe, string text)
@@ -189,8 +190,7 @@ internal static class DailyClaimExternalIlPatcher
             return false;
         }
 
-        var needle = System.Text.Encoding.Unicode.GetBytes(text);
-        return IndexOfBytes(pe, needle) >= 0;
+        return IndexOfBytes(pe, System.Text.Encoding.Unicode.GetBytes(text)) >= 0;
     }
 
     private static bool ContainsAscii(byte[] pe, string text)
@@ -200,8 +200,7 @@ internal static class DailyClaimExternalIlPatcher
             return false;
         }
 
-        var needle = System.Text.Encoding.ASCII.GetBytes(text);
-        return IndexOfBytes(pe, needle) >= 0;
+        return IndexOfBytes(pe, System.Text.Encoding.ASCII.GetBytes(text)) >= 0;
     }
 
     private static int IndexOfBytes(byte[] haystack, byte[] needle)
@@ -233,57 +232,90 @@ internal static class DailyClaimExternalIlPatcher
         return -1;
     }
 
-    private static bool IsShareClickPatched(MethodDefinition method)
-    {
-        foreach (var insn in method.Body.Instructions)
-        {
-            if (insn.OpCode == OpCodes.Ldstr && insn.Operand is string s
-                && (s == TypeName || s == TypeName + ", " + TypeName || s == EntryName
-                    || s == DllAssetPath || s.IndexOf("DailyClaim", StringComparison.Ordinal) >= 0))
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    private static string BuildDailyClaimDll(string hotfixPath)
+    private static string BuildTestUiDll(string hotfixPath)
     {
         var srcDir = ResolveSourceDir(hotfixPath);
-        var csPath = Path.Combine(srcDir, "SeqChapterDailyClaim.cs");
+        var csPath = Path.Combine(srcDir, "SeqChapterTestUi.cs");
+        var stubPath = Path.Combine(srcDir, "UnityEngine.Stub.cs");
         if (!File.Exists(csPath))
         {
-            throw new FileNotFoundException("找不到 SeqChapterDailyClaim.cs", csPath);
+            throw new FileNotFoundException("找不到 SeqChapterTestUi.cs", csPath);
+        }
+
+        if (!File.Exists(stubPath))
+        {
+            throw new FileNotFoundException("找不到 UnityEngine.Stub.cs", stubPath);
         }
 
         var hotfixDataDir = Path.GetDirectoryName(hotfixPath)!;
-        var outDir = Path.Combine(Path.GetTempPath(), "seqchapter_daily_" + Guid.NewGuid().ToString("N"));
+        var outDir = Path.Combine(Path.GetTempPath(), "seqchapter_testui_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(outDir);
-        var dllPath = Path.Combine(outDir, "SeqChapterDailyClaim.dll");
+        var stubDll = Path.Combine(outDir, "UnityEngine.dll");
+        var dllPath = Path.Combine(outDir, "SeqChapterTestUi.dll");
 
-        var refs = new List<MetadataReference>();
+        var runtimeRefs = new List<MetadataReference>();
         foreach (var name in new[] { "mscorlib.dll.bytes", "system.dll.bytes", "system.core.dll.bytes" })
         {
             var path = Path.Combine(hotfixDataDir, name);
             if (File.Exists(path))
             {
-                refs.Add(MetadataReference.CreateFromFile(path));
+                runtimeRefs.Add(MetadataReference.CreateFromFile(path));
             }
         }
 
-        if (refs.Count == 0)
+        if (runtimeRefs.Count == 0)
         {
-            throw new InvalidOperationException("未找到 hotfixdata 内 mscorlib/system，无法编译日常 DLL");
+            throw new InvalidOperationException("未找到 hotfixdata 内 mscorlib/system，无法编译测试UI DLL");
         }
 
-        var syntax = CSharpSyntaxTree.ParseText(
-            File.ReadAllText(csPath),
-            path: csPath,
+        // 1) 单独编译 UnityEngine 桩程序集（运行时由游戏真 Unity 解析同名引用）
+        var stubTree = CSharpSyntaxTree.ParseText(
+            File.ReadAllText(stubPath),
+            path: stubPath,
             encoding: System.Text.Encoding.UTF8);
+        var stubCompile = CSharpCompilation.Create(
+            "UnityEngine",
+            new[] { stubTree },
+            runtimeRefs,
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary)
+                .WithOptimizationLevel(OptimizationLevel.Release)
+                .WithAssemblyIdentityComparer(DesktopAssemblyIdentityComparer.Default));
+        using (var stubMs = new MemoryStream())
+        {
+            var stubResult = stubCompile.Emit(stubMs);
+            if (!stubResult.Success)
+            {
+                var errors = string.Join(
+                    Environment.NewLine,
+                    stubResult.Diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error).Select(d => d.ToString()));
+                throw new InvalidOperationException("Roslyn 编译 UnityEngine 桩失败:\n" + errors);
+            }
+
+            File.WriteAllBytes(stubDll, stubMs.ToArray());
+        }
+
+        // 2) 编译测试 UI（引用桩 UnityEngine.dll，勿把桩源码编进同一程序集）
+        // 同目录下除 UnityEngine.Stub.cs 外的全部 .cs（含 BossStatEstimator 等）
+        var refs = new List<MetadataReference>(runtimeRefs)
+        {
+            MetadataReference.CreateFromFile(stubDll),
+        };
+        var csFiles = Directory.GetFiles(srcDir, "*.cs")
+            .Where(p => !string.Equals(Path.GetFileName(p), "UnityEngine.Stub.cs", StringComparison.OrdinalIgnoreCase))
+            .OrderBy(p => p, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (csFiles.Length == 0)
+        {
+            throw new FileNotFoundException("seqchapter_test_ui 下无 .cs", srcDir);
+        }
+
+        var trees = csFiles.Select(p => CSharpSyntaxTree.ParseText(
+            File.ReadAllText(p),
+            path: p,
+            encoding: System.Text.Encoding.UTF8)).ToArray();
         var compile = CSharpCompilation.Create(
-            "SeqChapterDailyClaim",
-            new[] { syntax },
+            "SeqChapterTestUi",
+            trees,
             refs,
             new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary)
                 .WithOptimizationLevel(OptimizationLevel.Release));
@@ -295,11 +327,11 @@ internal static class DailyClaimExternalIlPatcher
             var errors = string.Join(
                 Environment.NewLine,
                 result.Diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error).Select(d => d.ToString()));
-            throw new InvalidOperationException("Roslyn 编译 SeqChapterDailyClaim 失败:\n" + errors);
+            throw new InvalidOperationException("Roslyn 编译 SeqChapterTestUi 失败:\n" + errors);
         }
 
         File.WriteAllBytes(dllPath, ms.ToArray());
-        Console.WriteLine($"[DAILY] 已编译日常 DLL（{refs.Count} 个引用）");
+        Console.WriteLine($"[TEST-UI] 已编译测试UI DLL（{refs.Count} 个引用，含 UnityEngine 桩）");
         return dllPath;
     }
 
@@ -310,43 +342,31 @@ internal static class DailyClaimExternalIlPatcher
             ?? AppContext.BaseDirectory;
         var candidates = new List<string>
         {
-            Path.GetFullPath(Path.Combine(exeDir, "seqchapter_daily_claim")),
-            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "seqchapter_daily_claim")),
-            Path.GetFullPath(Path.Combine(exeDir, "..", "tools", "seqchapter_daily_claim")),
-            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "tools", "seqchapter_daily_claim")),
-            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "seqchapter_daily_claim")),
-            Path.GetFullPath(Path.Combine(hotfixDir, "..", "..", "..", "tools", "seqchapter_daily_claim")),
+            Path.GetFullPath(Path.Combine(exeDir, "seqchapter_test_ui")),
+            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "seqchapter_test_ui")),
+            Path.GetFullPath(Path.Combine(exeDir, "..", "tools", "seqchapter_test_ui")),
+            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "tools", "seqchapter_test_ui")),
+            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "seqchapter_test_ui")),
+            Path.GetFullPath(Path.Combine(hotfixDir, "..", "..", "..", "tools", "seqchapter_test_ui")),
         };
 
-        for (var dir = hotfixDir; ; dir = Path.GetDirectoryName(dir)!)
+        for (var dir = hotfixDir; !string.IsNullOrEmpty(dir); dir = Path.GetDirectoryName(dir)!)
         {
-            if (string.IsNullOrEmpty(dir))
-            {
-                break;
-            }
-
-            var probe = Path.Combine(dir, "tools", "seqchapter_daily_claim");
+            var probe = Path.Combine(dir, "tools", "seqchapter_test_ui");
             if (!candidates.Contains(probe, StringComparer.OrdinalIgnoreCase))
             {
                 candidates.Add(probe);
-            }
-
-            var parent = Path.GetDirectoryName(dir);
-            if (string.IsNullOrEmpty(parent))
-            {
-                break;
             }
         }
 
         foreach (var dir in candidates)
         {
-            if (File.Exists(Path.Combine(dir, "SeqChapterDailyClaim.cs")))
+            if (File.Exists(Path.Combine(dir, "SeqChapterTestUi.cs")))
             {
                 return dir;
             }
         }
 
-        throw new DirectoryNotFoundException(
-            "找不到 tools/seqchapter_daily_claim 目录（请把 seqchapter_daily_claim 放在 HotfixPatcher.exe 同级，或游戏根目录 tools/ 下）");
+        throw new DirectoryNotFoundException("找不到 tools/seqchapter_test_ui 目录");
     }
 }

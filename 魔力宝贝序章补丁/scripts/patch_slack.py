@@ -85,6 +85,7 @@ def combo_check_ids(
     auto_seal_external: bool = False,
     auto_catch_external: bool = False,
     auto_catch_nopet_external: bool = False,
+    lv1_auto_external: bool = False,
     auto_sell_external: bool = False,
     customer_gm: bool = False,
     map_sprint: bool = False,
@@ -107,6 +108,8 @@ def combo_check_ids(
         ids.append("auto_catch_external")
     if auto_catch_nopet_external:
         ids.append("auto_catch_nopet_external")
+    if lv1_auto_external:
+        ids.append("lv1_auto_external")
     if auto_sell_external:
         ids.append("auto_sell_external")
     if customer_gm:
@@ -136,6 +139,7 @@ def assert_combo_slack_ok(
     auto_seal_external: bool = False,
     auto_catch_external: bool = False,
     auto_catch_nopet_external: bool = False,
+    lv1_auto_external: bool = False,
     auto_sell_external: bool = False,
     customer_gm: bool = False,
     map_sprint: bool = False,
@@ -157,6 +161,7 @@ def assert_combo_slack_ok(
         auto_seal_external=auto_seal_external,
         auto_catch_external=auto_catch_external,
         auto_catch_nopet_external=auto_catch_nopet_external,
+        lv1_auto_external=lv1_auto_external,
         auto_sell_external=auto_sell_external,
         customer_gm=customer_gm,
         map_sprint=map_sprint,

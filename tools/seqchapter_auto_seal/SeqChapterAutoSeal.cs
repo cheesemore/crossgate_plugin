@@ -51,9 +51,16 @@ public static class SeqChapterAutoSeal
     {
         Bootstrap();
         var enable = !IsPipelineActive();
+        SetEnabled(enable);
+        return enable;
+    }
+
+    /// <summary>面板/外部：显式开/关（互斥模式用）。</summary>
+    public static void SetEnabled(bool enable)
+    {
+        Bootstrap();
         SetPipelineEnabledAllCopies(enable);
         RefreshWindowTitle();
-        return enable;
     }
 
     /// <summary>

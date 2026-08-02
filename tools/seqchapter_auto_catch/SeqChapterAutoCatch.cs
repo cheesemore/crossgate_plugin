@@ -102,11 +102,22 @@ public static class SeqChapterAutoCatch
     {
         Bootstrap();
         var enable = !IsPipelineActive();
-        SetPipelineEnabledAllCopies(enable);
-        _levelOneMeetCount = 0;
-        _countedLevelOneThisBattle = false;
-        RefreshWindowTitle();
+        SetEnabled(enable);
         return enable;
+    }
+
+    /// <summary>面板/外部：显式开/关（互斥模式用）。</summary>
+    public static void SetEnabled(bool enable)
+    {
+        Bootstrap();
+        SetPipelineEnabledAllCopies(enable);
+        if (!enable)
+        {
+            _levelOneMeetCount = 0;
+            _countedLevelOneThisBattle = false;
+        }
+
+        RefreshWindowTitle();
     }
 
     /// <summary>本场首次发现可抓一级时 +1，并刷新标题 ★自动中★遇到1级N只。</summary>

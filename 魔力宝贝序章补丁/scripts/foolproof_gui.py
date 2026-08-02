@@ -25,6 +25,7 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, scrolledtext, ttk
 
+from apply_combo_patch import DEFAULT_GIFT_CODES
 from foolproof_apply import (
     FoolproofError,
     is_unclean_client_error,
@@ -152,7 +153,7 @@ def run_auto() -> int:
                 "  --auto --auto-catch-nopet",
                 "  --auto --burn-seal",
                 "  --auto --burn-seal-slow",
-                "可选：--no-daily（不打分享改日常；默认会打）",
+                "可选：--no-daily（不打日常切页） --no-gift（不打新手礼包码切页）",
             ]
         )
         show_popup(f"{_profile_title()} — 失败", "\n".join(lines), error=True)
@@ -162,6 +163,9 @@ def run_auto() -> int:
         daily = not any(
             a in ("--no-daily", "--no-share-daily", "/no-daily") for a in sys.argv[1:]
         )
+        gift = not any(
+            a in ("--no-gift", "--no-newbie-gift", "/no-gift") for a in sys.argv[1:]
+        )
         msgs = run_foolproof_patch(
             enable_nine=enable_nine,
             burn_seal=burn,
@@ -169,6 +173,7 @@ def run_auto() -> int:
             auto_catch=catch,
             auto_catch_nopet=catch_nopet,
             daily_claim=daily,
+            newbie_gift_code=gift,
             on_log=lambda line: print(line, flush=True),
         )
         detail = "\n".join(msgs[-8:]) if msgs else "补丁已打好。"
@@ -252,9 +257,23 @@ class FoolproofApp(tk.Tk):
         self.daily_claim_var = tk.BooleanVar(value=True)
         ttk.Checkbutton(
             body,
-            text="分享改日常（默认开；各模式可叠加；取消则保留原版分享）",
+            text="分享改日常（默认开；分享切页·日常领取）",
             variable=self.daily_claim_var,
-        ).pack(anchor=tk.W, pady=(0, 8))
+        ).pack(anchor=tk.W, pady=(0, 2))
+        self.newbie_gift_code_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(
+            body,
+            text="新手礼包码领取（默认开；与日常同分享切页；最多5角色）",
+            variable=self.newbie_gift_code_var,
+        ).pack(anchor=tk.W, pady=(0, 2))
+        ttk.Label(
+            body,
+            text="礼包码（一行一个，可改）",
+            foreground="#555555",
+        ).pack(anchor=tk.W, padx=(18, 0))
+        self.gift_codes_box = scrolledtext.ScrolledText(body, height=4, width=36, wrap=tk.WORD)
+        self.gift_codes_box.pack(anchor=tk.W, padx=(18, 0), pady=(2, 8), fill=tk.X)
+        self.gift_codes_box.insert("1.0", "\n".join(DEFAULT_GIFT_CODES))
 
         btns = ttk.Frame(body)
         btns.pack(fill=tk.X, pady=(0, 8))
@@ -416,6 +435,8 @@ class FoolproofApp(tk.Tk):
                     auto_catch=catch,
                     auto_catch_nopet=catch_nopet,
                     daily_claim=bool(self.daily_claim_var.get()),
+                    newbie_gift_code=bool(self.newbie_gift_code_var.get()),
+                    gift_codes=self.gift_codes_box.get("1.0", "end"),
                     on_log=lambda line: self.after(0, self._append, line),
                 )
                 self.after(

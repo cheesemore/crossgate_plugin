@@ -112,3 +112,10 @@ tools/hotfix_patcher/_nine_out.txt
 tools/hotfix_patcher/_oncmd_*.txt
 tools/hotfix_patcher/_vip_test.bytes
 tools/hotfix_patcher/ref_stubs/**/*.dll
+
+SeqChapterTestUi.log
+SeqChapterTestUi.log.bak
+*_tmp_*
+tools/_tmp_*/
+tools/hotfix.dll.bytes*.bak*
+

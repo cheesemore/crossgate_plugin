@@ -33,6 +33,12 @@ AUTO_CATCH_SRC = GAME_ROOT / "tools" / "seqchapter_auto_catch"
 NINE_ACTION_SRC = GAME_ROOT / "tools" / "seqchapter_nine_action"
 DAILY_CLAIM_SRC = GAME_ROOT / "tools" / "seqchapter_daily_claim"
 BOSS_KEY_FPS_SRC = GAME_ROOT / "tools" / "seqchapter_boss_key_fps"
+WIKI_FPS_SRC = GAME_ROOT / "tools" / "seqchapter_wiki_fps"
+TEST_UI_SRC = GAME_ROOT / "tools" / "seqchapter_test_ui"
+LV1_AUTO_SRC = GAME_ROOT / "tools" / "seqchapter_lv1_auto"
+BATTLE_APPEAR_SRC = GAME_ROOT / "tools" / "seqchapter_battle_appear"
+BATTLE_APPEAR_JSON = GAME_ROOT / "tools" / "battle_appear.json"
+PET_RANK_BIN = GAME_ROOT / "tools" / "pet_rank.bin"
 
 _ARGV = sys.argv[1:]
 NINE_PACK = any(a in ("--nine-pack", "--with-nine-pack", "/nine-pack") for a in _ARGV)
@@ -101,12 +107,18 @@ README = f"""魔力宝贝：序章 — {APP_NAME}
 · VIP/非VIP 5x · 特效 2x · 跑速快 · 长按详情 · 遇敌一级含哥布林/蝙蝠
 {"· 含神奇九动·DLL版（本包不打 IL 九动，适配余量紧张客户端）" if NINE_PACK else "· 不含神奇九动"}
 {_NO_NINE_ACCEL_BLOCK}
-【分享改日常（界面可勾选，默认勾上）】
-· 勾选后侧栏「分享」：每日签到 + 领超值月卡每日 + 在线礼包可领档 + 使用水晶碎片袋/高级水晶石/声望之花/生命之华/魔法结晶/高级声望勋章/时间水晶/工时小闹钟（间隔0.4s）
-· 不占用百科按钮（抓宠/烧卡仍用百科 Tip）；取消勾选则保留原版分享
+【分享切页（界面可勾选，默认勾上）】
+· 侧栏「分享」：Tip 切页（日常 / 新手礼包码），2 秒内再点开始
+· 日常：签到 + 月卡每日 + 在线礼包 + 指定道具（间隔0.4s）
+· 新手礼包码：最多5角色兑换 VIP666/777/888/999、MLBB666/777、mlbb521、mlbb24（已领过不管）
+· 不占用百科（抓宠/烧卡仍用百科 Tip）
 
 【客服→高级自动战斗】
 · 各模式默认带上：侧栏「客服」→ 自动技能设置（高级自动战斗）；官方入口太深
+
+【进战形象（九动加速 / 无九动加速 默认带；抓宠/烧卡模式百科另作他用）】
+· 侧栏「百科」→ 测试面板「形象」：粘贴/推荐方案/按账号 Uid 存档
+· 进战后覆盖我方人物形象、光环、坐骑、宠物形象/满档/满档光环
 
 【自动抓宠】
 · 默认关闭。点侧栏「百科」Tip 开关；标题「★自动中★遇到1级N只」
@@ -301,12 +313,16 @@ def build_exe() -> Path:
     shutil.copy2(PATCHER_STAGING / "HotfixPatcher.exe", patcher_dst / "HotfixPatcher.exe")
     _copy_ref_stubs(patcher_dst / "ref_stubs")
 
-    # 两包都带烧卡+抓宠+日常源；九动版额外带九动 DLL 源
+    # 两包都带烧卡+抓宠+日常+测试UI+进战形象源；九动版额外带九动 DLL 源
     bundle_srcs: list[tuple[Path, str]] = [
         (AUTO_SEAL_SRC, "seqchapter_auto_seal"),
         (AUTO_CATCH_SRC, "seqchapter_auto_catch"),
         (DAILY_CLAIM_SRC, "seqchapter_daily_claim"),
         (BOSS_KEY_FPS_SRC, "seqchapter_boss_key_fps"),
+        (WIKI_FPS_SRC, "seqchapter_wiki_fps"),
+        (TEST_UI_SRC, "seqchapter_test_ui"),
+        (LV1_AUTO_SRC, "seqchapter_lv1_auto"),
+        (BATTLE_APPEAR_SRC, "seqchapter_battle_appear"),
     ]
     if NINE_PACK:
         bundle_srcs.append((NINE_ACTION_SRC, "seqchapter_nine_action"))
@@ -323,6 +339,20 @@ def build_exe() -> Path:
         if tools_dst.is_dir():
             shutil.rmtree(tools_dst, ignore_errors=True)
         shutil.copytree(src, tools_dst)
+
+    # 超级AI 档位表 + 进战形象默认配置（运行时从游戏根/tools 或开发路径加载）
+    tools_root = out_dir / "tools"
+    tools_root.mkdir(parents=True, exist_ok=True)
+    if PET_RANK_BIN.is_file():
+        shutil.copy2(PET_RANK_BIN, tools_root / "pet_rank.bin")
+        print(f"[OK] pet_rank.bin -> {tools_root}")
+    else:
+        print(f"[WARN] 缺少 {PET_RANK_BIN}，超级AI估属性可能不可用")
+    if BATTLE_APPEAR_JSON.is_file():
+        shutil.copy2(BATTLE_APPEAR_JSON, tools_root / "battle_appear.json")
+        print(f"[OK] battle_appear.json -> {tools_root}")
+    else:
+        print(f"[WARN] 缺少 {BATTLE_APPEAR_JSON}")
 
     (out_dir / BAT_NAME).write_text(BAT_CONTENT, encoding="utf-8")
     (out_dir / "使用说明.txt").write_text(README, encoding="utf-8")

@@ -12,6 +12,7 @@ from pathlib import Path
 from patch_common import (
     CUSTOMER_GM_LABELS,
     CUSTOMER_GM_MODES,
+    GAME_ROOT,
     normalize_customer_gm_mode,
     EXPECTED_SIZE,
     bridge_variant_label,
@@ -34,6 +35,43 @@ from patch_common import (
 from patch_slack import assert_combo_slack_ok, format_slack_summary
 
 STATE_PATH = toolkit_root() / "combo_patch_state.json"
+
+DEFAULT_GIFT_CODES = [
+    "VIP666",
+    "VIP777",
+    "VIP888",
+    "VIP999",
+    "MLBB666",
+    "MLBB777",
+    "mlbb521",
+    "mlbb24",
+]
+
+
+def normalize_gift_codes(codes: list[str] | str | None) -> list[str]:
+    """一行一个礼包码；去空行与 # 注释。"""
+    if codes is None:
+        return list(DEFAULT_GIFT_CODES)
+    if isinstance(codes, str):
+        lines = codes.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    else:
+        lines = [str(x) for x in codes]
+    out: list[str] = []
+    for line in lines:
+        s = line.strip()
+        if not s or s.startswith("#"):
+            continue
+        out.append(s)
+    return out or list(DEFAULT_GIFT_CODES)
+
+
+def write_gift_codes_file(hotfix_dir: Path, codes: list[str] | str | None) -> Path:
+    """写出 hotfixdata/seqchapter_gift_codes.txt（与 DLL 读取路径一致）。"""
+    path = hotfix_dir / "seqchapter_gift_codes.txt"
+    rows = normalize_gift_codes(codes)
+    body = "# 新手礼包码（一行一个；# 开头为注释）\n" + "\n".join(rows) + "\n"
+    path.write_text(body, encoding="utf-8")
+    return path
 
 
 def apply_vip(
@@ -70,7 +108,8 @@ def apply_vip(
         parts.append(f"VIP {scale}x")
     if non_vip:
         parts.append(f"非VIP {scale}x")
-    return True, "战斗倍速：" + "、".join(parts) + f"（打飞×{int(scale) * 4}）"
+    echo = "回传1.0x" if non_vip else "回传1.5x"
+    return True, "战斗倍速：" + "、".join(parts) + f"（打飞×{int(scale) * 4}，心跳{echo}）"
 
 
 MAP_SPRINT_SCALES = (8, 10, 12)
@@ -304,8 +343,15 @@ def apply_battle_nine_external(hotfix: Path, source: Path) -> tuple[bool, str]:
     return True, "神奇九动·DLL版：已部署 DLL + 加载钩 + Magics"
 
 
-def apply_daily_claim_external(hotfix: Path, source: Path) -> tuple[bool, str]:
-    """日常·分享入口：SeqChapterDailyClaim.dll.bytes + 侧栏分享按钮（不占百科/Pause）。"""
+def apply_daily_claim_external(
+    hotfix: Path,
+    source: Path,
+    *,
+    daily: bool = True,
+    gift: bool = True,
+    gift_codes: list[str] | str | None = None,
+) -> tuple[bool, str]:
+    """日常/新手礼包码·分享入口：SeqChapterDailyClaim.dll.bytes + 侧栏分享切页。"""
     proc = run_patcher_capture(
         [
             "daily-claim-external-patch",
@@ -318,9 +364,61 @@ def apply_daily_claim_external(hotfix: Path, source: Path) -> tuple[bool, str]:
     out = (proc.stdout or "") + (proc.stderr or "")
     if proc.returncode != 0:
         return False, out.strip() or "日常·分享入口补丁失败"
+
+    # 覆盖切页开关 + 可编辑礼包码（与 GUI 一致）
+    opts_dir = hotfix.parent
+    try:
+        (opts_dir / "seqchapter_share_opts.txt").write_text(
+            f"daily={1 if daily else 0}\ngift={1 if gift else 0}\n",
+            encoding="utf-8",
+        )
+        codes = normalize_gift_codes(gift_codes)
+        write_gift_codes_file(opts_dir, codes)
+    except OSError as exc:
+        return False, f"分享 opts/礼包码 写入失败: {exc}"
+
+    parts = []
+    if daily:
+        parts.append("日常领取")
+    if gift:
+        parts.append(f"新手礼包码×{len(normalize_gift_codes(gift_codes))}")
+    label = "+".join(parts) if parts else "（未启用页）"
     if "[SKIP]" in out and "日常" in out:
-        return True, "日常·分享：已是补丁状态（跳过）"
-    return True, "日常·分享：侧栏「分享」→ 月卡每日/在线礼包/指定道具"
+        return True, f"分享切页：已是补丁状态（opts→{label}）"
+    return True, f"分享切页：侧栏「分享」→ {label}（2秒内再点开始）"
+
+
+def apply_battle_appear_external(hotfix: Path, source: Path) -> tuple[bool, str]:
+    """进战形象钩子：OnCommandCharCallback → SeqChapterBattleAppear + battle_appear.json。"""
+    proc = run_patcher_capture(
+        [
+            "battle-appear-external-patch",
+            "--hotfix",
+            str(source),
+            "--output",
+            str(hotfix),
+        ]
+    )
+    out = (proc.stdout or "") + (proc.stderr or "")
+    if proc.returncode != 0:
+        return False, out.strip() or "进战形象钩子补丁失败"
+    # 确保配置存在
+    cfg_src = GAME_ROOT / "tools" / "battle_appear.json"
+    cfg_dst = hotfix.parent / "battle_appear.json"
+    tools_bin = GAME_ROOT / "tools" / "pet_appear.bin"
+    try:
+        if cfg_src.is_file():
+            # 不覆盖玩家已改配置
+            if not cfg_dst.is_file():
+                shutil.copy2(cfg_src, cfg_dst)
+        if tools_bin.is_file():
+            # 形象表供预览工具；钩子本身只读 json
+            pass
+    except OSError as exc:
+        return False, f"形象钩子配置复制失败: {exc}"
+    if "[APPEAR] OnCommandCharCallback 钩已存在" in out:
+        return True, "进战形象钩子：已是补丁状态（刷新 DLL）"
+    return True, "进战形象钩子：进战按 battle_appear.json 替换我方1~5形象"
 
 
 def apply_boss_key_fps_external(hotfix: Path, source: Path) -> tuple[bool, str]:
@@ -340,6 +438,63 @@ def apply_boss_key_fps_external(hotfix: Path, source: Path) -> tuple[bool, str]:
     if "[SKIP]" in out and "老板键" in out:
         return True, "老板键限帧：已是补丁状态（跳过）"
     return True, "老板键限帧：隐藏→10FPS（关 VSync），恢复→还原"
+
+
+def apply_wiki_fps_external(hotfix: Path, source: Path) -> tuple[bool, str]:
+    """百科限帧：侧栏百科切换 10FPS（与抓宠/烧卡百科互斥）。已停用默认；保留补丁入口。"""
+    proc = run_patcher_capture(
+        [
+            "wiki-fps-patch",
+            "--hotfix",
+            str(source),
+            "--output",
+            str(hotfix),
+        ]
+    )
+    out = (proc.stdout or "") + (proc.stderr or "")
+    if proc.returncode != 0:
+        return False, out.strip() or "百科限帧补丁失败"
+    if "[SKIP]" in out and "限帧" in out:
+        return True, "百科限帧：已是补丁状态（跳过）"
+    return True, "百科限帧：侧栏「百科」切换 10FPS / 恢复"
+
+
+def apply_wiki_test_ui_external(hotfix: Path, source: Path) -> tuple[bool, str]:
+    """百科→测试 UI：简陋 IMGUI 面板（与抓宠/烧卡/限帧等百科互斥）。"""
+    proc = run_patcher_capture(
+        [
+            "wiki-test-ui-patch",
+            "--hotfix",
+            str(source),
+            "--output",
+            str(hotfix),
+        ]
+    )
+    out = (proc.stdout or "") + (proc.stderr or "")
+    if proc.returncode != 0:
+        return False, out.strip() or "百科→测试UI 补丁失败"
+    if "[SKIP]" in out and "测试UI" in out:
+        return True, "百科→测试UI：已是补丁状态（跳过）"
+    return True, "百科→总面板：概况 / 战斗模式 / 简单脚本"
+
+
+def apply_vip_auto_monthcard_bypass(hotfix: Path, source: Path) -> tuple[bool, str]:
+    """DoAutoFight 跳过月卡：无 VIP 但开关开着仍走 DoVip*。"""
+    proc = run_patcher_capture(
+        [
+            "vip-auto-monthcard-bypass-patch",
+            "--hotfix",
+            str(source),
+            "--output",
+            str(hotfix),
+        ]
+    )
+    out = (proc.stdout or "") + (proc.stderr or "")
+    if proc.returncode != 0:
+        return False, out.strip() or "VIP自动月卡 bypass 失败"
+    if "[SKIP]" in out and "bypass" in out:
+        return True, "VIP自动月卡 bypass：已是补丁状态（跳过）"
+    return True, "VIP自动月卡 bypass：开关开着即走 VIP 自动逻辑"
 
 
 def apply_auto_seal_external(hotfix: Path, source: Path) -> tuple[bool, str]:
@@ -397,6 +552,26 @@ def apply_auto_catch_nopet_external(hotfix: Path, source: Path) -> tuple[bool, s
     if "[SKIP]" in out and ("自动抓宠" in out or "无宠" in out):
         return True, "自动抓宠·无宠人防御：已是补丁状态（跳过）"
     return True, "自动抓宠·无宠人防御：已部署 DLL + 战斗钩 + 百科开关"
+
+
+
+def apply_lv1_auto_external(hotfix: Path, source: Path) -> tuple[bool, str]:
+    """遇1级自动·DLL版：SeqChapterLv1Auto.dll.bytes + Player/Pet/VIP 钩 + 百科开关。"""
+    proc = run_patcher_capture(
+        [
+            "lv1-auto-external-patch",
+            "--hotfix",
+            str(source),
+            "--output",
+            str(hotfix),
+        ]
+    )
+    out = (proc.stdout or "") + (proc.stderr or "")
+    if proc.returncode != 0:
+        return False, out.strip() or "遇1级自动·DLL版补丁失败"
+    if "[SKIP]" in out and "遇1级" in out:
+        return True, "遇1级自动·DLL版：已是补丁状态（跳过）"
+    return True, "遇1级自动·DLL版：P1封印/P2技能1/其余防御 + 百科开关"
 
 
 def apply_auto_sell_external(hotfix: Path, source: Path) -> tuple[bool, str]:
@@ -457,6 +632,7 @@ def _apply_gameplay_patches(
     auto_seal_external: bool,
     auto_catch_external: bool,
     auto_catch_nopet_external: bool = False,
+    lv1_auto_external: bool = False,
     auto_sell_external: bool,
     plugin_host: bool,
     customer_gm: bool,
@@ -473,7 +649,12 @@ def _apply_gameplay_patches(
     wiki_download_res: bool,
     wiki_label: bool = False,
     daily_claim: bool = True,
-    boss_key_fps: bool = True,
+    newbie_gift_code: bool = True,
+    gift_codes: list[str] | str | None = None,
+    boss_key_fps: bool = False,
+    wiki_fps: bool = False,
+    wiki_test_ui: bool = False,
+    battle_appear: bool = False,
     on_log=None,
 ) -> tuple[list[str], Path]:
     """在现有 hotfix 上叠加玩法补丁（不还原 .orig）。返回 (messages, work_path)。"""
@@ -497,6 +678,14 @@ def _apply_gameplay_patches(
             raise RuntimeError(msg)
         _emit_combo(messages, on_log, msg)
         work = hotfix
+
+    # 无月卡也能走 VIP 自动：仅旁路 MonthCardOpen，开关仍由玩家控制
+    _emit_combo(messages, on_log, "正在打：VIP自动月卡 bypass…")
+    ok, msg = apply_vip_auto_monthcard_bypass(hotfix, work)
+    if not ok:
+        raise RuntimeError(msg)
+    _emit_combo(messages, on_log, msg)
+    work = hotfix
 
     if battle_nine_action:
         _emit_combo(messages, on_log, "正在打：神奇九动·IL原版…")
@@ -591,6 +780,13 @@ def _apply_gameplay_patches(
             raise RuntimeError(msg)
         _emit_combo(messages, on_log, msg)
         work = hotfix
+    if lv1_auto_external:
+        _emit_combo(messages, on_log, "正在打：遇1级自动·DLL版…")
+        ok, msg = apply_lv1_auto_external(hotfix, work)
+        if not ok:
+            raise RuntimeError(msg)
+        _emit_combo(messages, on_log, msg)
+        work = hotfix
     if auto_sell_external:
         _emit_combo(messages, on_log, "正在打：盗贼辅助·DLL版…")
         ok, msg = apply_auto_sell_external(hotfix, work)
@@ -613,19 +809,51 @@ def _apply_gameplay_patches(
         _emit_combo(messages, on_log, msg)
         work = hotfix
 
-    # 日常最后打：只改分享按钮，不碰百科/Pause，各模式均可叠加
-    if daily_claim:
-        _emit_combo(messages, on_log, "正在打：日常·分享入口…")
-        ok, msg = apply_daily_claim_external(hotfix, work)
+    # 分享切页最后打：日常 / 新手礼包码（只改分享按钮）
+    if daily_claim or newbie_gift_code:
+        _emit_combo(messages, on_log, "正在打：分享切页（日常/新手礼包码）…")
+        ok, msg = apply_daily_claim_external(
+            hotfix,
+            work,
+            daily=bool(daily_claim),
+            gift=bool(newbie_gift_code),
+            gift_codes=gift_codes,
+        )
         if not ok:
             raise RuntimeError(msg)
         _emit_combo(messages, on_log, msg)
         work = hotfix
 
-    # 老板键限帧：只改 HotfixEntry.Update 前缀，不占 Pause/百科/分享
+    # 老板键限帧：默认关（已去除）；仅手动勾选时打
     if boss_key_fps:
         _emit_combo(messages, on_log, "正在打：老板键限帧…")
         ok, msg = apply_boss_key_fps_external(hotfix, work)
+        if not ok:
+            raise RuntimeError(msg)
+        _emit_combo(messages, on_log, msg)
+        work = hotfix
+
+    # 百科限帧：默认关（已去除）；占百科按钮
+    if wiki_fps:
+        _emit_combo(messages, on_log, "正在打：百科限帧…")
+        ok, msg = apply_wiki_fps_external(hotfix, work)
+        if not ok:
+            raise RuntimeError(msg)
+        _emit_combo(messages, on_log, msg)
+        work = hotfix
+
+    # 百科→测试 UI：占百科按钮（与限帧/抓宠等互斥）
+    if wiki_test_ui:
+        _emit_combo(messages, on_log, "正在打：百科→测试UI…")
+        ok, msg = apply_wiki_test_ui_external(hotfix, work)
+        if not ok:
+            raise RuntimeError(msg)
+        _emit_combo(messages, on_log, msg)
+        work = hotfix
+
+    if battle_appear:
+        _emit_combo(messages, on_log, "正在打：进战形象钩子…")
+        ok, msg = apply_battle_appear_external(hotfix, work)
         if not ok:
             raise RuntimeError(msg)
         _emit_combo(messages, on_log, msg)
@@ -648,6 +876,7 @@ def apply_combo(
     auto_seal_external: bool = False,
     auto_catch_external: bool = False,
     auto_catch_nopet_external: bool = False,
+    lv1_auto_external: bool = False,
     auto_sell_external: bool = False,
     plugin_host: bool = False,
     customer_gm: bool = False,
@@ -664,7 +893,12 @@ def apply_combo(
     wiki_download_res: bool = False,
     wiki_label: bool = False,
     daily_claim: bool = True,
-    boss_key_fps: bool = True,
+    newbie_gift_code: bool = True,
+    gift_codes: list[str] | str | None = None,
+    boss_key_fps: bool = False,
+    wiki_fps: bool = False,
+    wiki_test_ui: bool = False,
+    battle_appear: bool = False,
     inject_bridge: bool = False,
     from_orig: bool = False,
     game_root: Path | None = None,
@@ -694,6 +928,24 @@ def apply_combo(
 
     if auto_catch_external and auto_catch_nopet_external:
         raise RuntimeError("自动抓宠·DLL 与 自动抓宠·无宠人防御 不能同时启用，请只选一项。")
+
+    wiki_users = [
+        ("自动抓宠·DLL", auto_catch_external or auto_catch_nopet_external),
+        ("遇1级自动·DLL", lv1_auto_external),
+        ("自动烧卡·DLL", auto_seal_external),
+        ("盗贼辅助·DLL", auto_sell_external),
+        ("插件 Host", plugin_host),
+        ("百科→资源下载", wiki_download_res),
+        ("百科文字→百科1", wiki_label),
+        ("百科限帧", wiki_fps),
+        ("百科→测试UI", wiki_test_ui),
+    ]
+    wiki_on = [name for name, on in wiki_users if on]
+    if len(wiki_on) > 1:
+        raise RuntimeError(
+            "侧栏百科按钮互斥，只能选一类：\n"
+            + "、".join(wiki_on)
+        )
 
     if (auto_catch_external or auto_catch_nopet_external) and wiki_download_res:
         raise RuntimeError("自动抓宠·DLL 已占用侧栏百科按钮，不能同时启用百科→资源下载。")
@@ -726,6 +978,7 @@ def apply_combo(
         ("自动烧卡·DLL", auto_seal_external),
         ("自动抓宠·DLL", auto_catch_external),
         ("自动抓宠·无宠人防御", auto_catch_nopet_external),
+        ("遇1级自动·DLL", lv1_auto_external),
         ("盗贼辅助·DLL", auto_sell_external),
         ("插件 Host", plugin_host),
         ("注入桥接·DLL", inject_bridge),
@@ -734,7 +987,7 @@ def apply_combo(
     if len(exclusive_on) > 1:
         raise RuntimeError(
             "战斗扩展 DLL 互斥（只能勾一类）："
-            "神奇九动·DLL / 自动烧卡·DLL / 自动抓宠·DLL / 自动抓宠·无宠人防御 / "
+            "神奇九动·DLL / 自动烧卡·DLL / 自动抓宠·DLL / 自动抓宠·无宠人防御 / 遇1级自动·DLL / "
             "盗贼辅助·DLL / 插件 Host / 注入桥接·DLL。\n"
             "（IL 九动可与盗贼辅助等同打；Host 一期暂与其它扩展 DLL 互斥）\n"
             f"当前同时勾选了：{'、'.join(exclusive_on)}"
@@ -750,6 +1003,7 @@ def apply_combo(
         auto_seal_external=auto_seal_external,
         auto_catch_external=auto_catch_external,
         auto_catch_nopet_external=auto_catch_nopet_external,
+        lv1_auto_external=lv1_auto_external,
         auto_sell_external=auto_sell_external,
         customer_gm=customer_gm,
         map_sprint=map_sprint,
@@ -772,6 +1026,7 @@ def apply_combo(
         or auto_seal_external
         or auto_catch_external
         or auto_catch_nopet_external
+        or lv1_auto_external
         or auto_sell_external
         or plugin_host
         or customer_gm
@@ -784,7 +1039,11 @@ def apply_combo(
         or wiki_download_res
         or wiki_label
         or daily_claim
+        or newbie_gift_code
         or boss_key_fps
+        or wiki_fps
+        or wiki_test_ui
+        or battle_appear
     )
 
     patch_kwargs = dict(
@@ -796,6 +1055,7 @@ def apply_combo(
         auto_seal_external=auto_seal_external,
         auto_catch_external=auto_catch_external,
         auto_catch_nopet_external=auto_catch_nopet_external,
+        lv1_auto_external=lv1_auto_external,
         auto_sell_external=auto_sell_external,
         plugin_host=plugin_host,
         customer_gm=customer_gm,
@@ -812,7 +1072,12 @@ def apply_combo(
         wiki_download_res=wiki_download_res,
         wiki_label=wiki_label,
         daily_claim=daily_claim,
+        newbie_gift_code=newbie_gift_code,
+        gift_codes=gift_codes,
         boss_key_fps=boss_key_fps,
+        wiki_fps=wiki_fps,
+        wiki_test_ui=wiki_test_ui,
+        battle_appear=battle_appear,
         on_log=on_log,
     )
 
@@ -844,6 +1109,7 @@ def apply_combo(
         "auto_seal_external": auto_seal_external,
         "auto_catch_external": auto_catch_external,
         "auto_catch_nopet_external": auto_catch_nopet_external,
+        "lv1_auto_external": lv1_auto_external,
         "auto_sell_external": auto_sell_external,
         "plugin_host": plugin_host,
         "customer_gm": customer_gm,
@@ -860,7 +1126,12 @@ def apply_combo(
         "wiki_download_res": wiki_download_res,
         "wiki_label": wiki_label,
         "daily_claim": daily_claim,
+        "newbie_gift_code": newbie_gift_code,
+        "gift_codes": normalize_gift_codes(gift_codes) if newbie_gift_code else [],
         "boss_key_fps": boss_key_fps,
+        "wiki_fps": wiki_fps,
+        "wiki_test_ui": wiki_test_ui,
+        "battle_appear": battle_appear,
         "inject_bridge": inject_bridge,
         "bridge_patched": is_bridge_patched(game_root),
         "bridge_variant": detect_bridge_variant(game_root),

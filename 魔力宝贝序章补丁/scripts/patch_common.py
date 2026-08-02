@@ -548,9 +548,13 @@ def _sync_patcher_tree(src_dir: Path, dst_dir: Path) -> bool:
 _EXTERNAL_PATCH_SOURCES = (
     ("seqchapter_auto_seal", "SeqChapterAutoSeal.cs"),
     ("seqchapter_auto_catch", "SeqChapterAutoCatch.cs"),
+    ("seqchapter_lv1_auto", "SeqChapterLv1Auto.cs"),
     ("seqchapter_auto_sell", "SeqChapterAutoSell.cs"),
     ("seqchapter_nine_action", "SeqChapterNineAction.cs"),
     ("seqchapter_daily_claim", "SeqChapterDailyClaim.cs"),
+    ("seqchapter_wiki_fps", "SeqChapterWikiFps.cs"),
+    ("seqchapter_test_ui", "SeqChapterTestUi.cs"),
+    ("seqchapter_battle_appear", "SeqChapterBattleAppear.cs"),
     ("seqchapter_plugin_host", "SeqChapterPluginHost.cs"),
 )
 

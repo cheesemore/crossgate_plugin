@@ -15,6 +15,7 @@
 """
 from __future__ import annotations
 
+import shutil
 import subprocess
 import sys
 import time
@@ -390,6 +391,8 @@ def run_foolproof_patch(
     auto_catch_nopet: bool = False,
     catch_pet: bool | None = None,
     daily_claim: bool = True,
+    newbie_gift_code: bool = True,
+    gift_codes: list[str] | str | None = None,
     on_log: LogFn | None = None,
 ) -> list[str]:
     """一键诊断并打傻瓜补丁。成功返回消息列表；失败抛 FoolproofError。
@@ -399,7 +402,9 @@ def run_foolproof_patch(
     burn_seal_slow：慢速烧卡版（烧卡逻辑同 burn_seal，但无任何加速）。
     auto_catch：自动抓宠版（强制无九动 + 自动抓宠）。catch_pet 为 auto_catch 旧别名。
     auto_catch_nopet：自动抓宠·无宠人防御（一级时 P2 人物防御；与普通抓宠互斥）。
-    daily_claim：分享改日常（侧栏「分享」触发日常流水线；默认开）。
+    daily_claim：分享切页·日常领取（默认开）。
+    newbie_gift_code：分享切页·新手礼包码（默认开）。
+    gift_codes：可编辑礼包码（一行一个）；None 用默认 VIP/MLBB。
     """
     messages: list[str] = []
 
@@ -423,10 +428,15 @@ def run_foolproof_patch(
     _emit(messages, on_log, "正在检查 hotfix / 底稿…")
     _ensure_clean_baseline(root, messages, on_log=on_log)
 
-    if daily_claim:
-        _emit(messages, on_log, "附加：分享改日常（侧栏「分享」→ 月卡每日/在线礼包/指定道具）")
+    if daily_claim or newbie_gift_code:
+        pages = []
+        if daily_claim:
+            pages.append("日常")
+        if newbie_gift_code:
+            pages.append("新手礼包码")
+        _emit(messages, on_log, "附加：分享切页 → " + "+".join(pages))
     else:
-        _emit(messages, on_log, "附加：不打分享改日常（保留原版分享）")
+        _emit(messages, on_log, "附加：不打分享切页（保留原版分享）")
 
     _emit(messages, on_log, "附加：老板键限帧（隐藏→10FPS，恢复→还原）")
 
@@ -520,6 +530,8 @@ def run_foolproof_patch(
     kwargs["from_orig"] = True
     kwargs["inject_bridge"] = False
     kwargs["daily_claim"] = bool(daily_claim)
+    kwargs["newbie_gift_code"] = bool(newbie_gift_code)
+    kwargs["gift_codes"] = gift_codes
     kwargs["game_root"] = root
     kwargs["on_log"] = on_log
 
@@ -582,7 +594,14 @@ def run_foolproof_patch(
         catch_part = " · 自动抓宠"
     else:
         catch_part = ""
-    daily_part = " · 分享改日常" if kwargs.get("daily_claim") else ""
+    daily_part = ""
+    if kwargs.get("daily_claim") or kwargs.get("newbie_gift_code"):
+        bits = []
+        if kwargs.get("daily_claim"):
+            bits.append("日常")
+        if kwargs.get("newbie_gift_code"):
+            bits.append("礼包码")
+        daily_part = " · 分享切页(" + "+".join(bits) + ")"
     gm_part = " · 客服→高级自动战斗" if kwargs.get("customer_gm") else ""
     nine_part = f" · 九动{nine_label}" if enable_nine else " · 无九动"
     if kwargs.get("transition_speed"):
@@ -633,5 +652,37 @@ def run_foolproof_patch(
     except Exception as exc:
         _emit(messages, on_log, f"警告：标记指纹失败（{exc}）")
 
+    if kwargs.get("wiki_test_ui"):
+        _deploy_pet_rank_bin(root, messages, on_log=on_log)
+
+    if kwargs.get("battle_appear"):
+        _emit(messages, on_log, "进战形象：已打钩子（百科→形象 / 推荐方案 / 按Uid存档）")
+
     _emit(messages, on_log, "完成。请启动游戏验证。")
     return messages
+
+
+def _deploy_pet_rank_bin(
+    game_root: Path,
+    messages: list[str],
+    *,
+    on_log: LogFn | None = None,
+) -> None:
+    """把超级AI用的 pet_rank.bin 拷到游戏根 tools/（包内或开发目录均尝试）。"""
+    candidates: list[Path] = []
+    if _is_frozen():
+        base = Path(sys.executable).resolve().parent
+        candidates.append(base / "tools" / "pet_rank.bin")
+    here = Path(__file__).resolve().parent
+    candidates.append(here.parent.parent / "tools" / "pet_rank.bin")
+    src = next((p for p in candidates if p.is_file()), None)
+    if src is None:
+        return
+    dst_dir = game_root / "tools"
+    dst = dst_dir / "pet_rank.bin"
+    try:
+        dst_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, dst)
+        _emit(messages, on_log, f"已部署档位表: {dst}")
+    except OSError as exc:
+        _emit(messages, on_log, f"警告：部署 pet_rank.bin 失败（{exc}）")
