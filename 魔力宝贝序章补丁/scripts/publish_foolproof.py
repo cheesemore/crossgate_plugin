@@ -140,9 +140,9 @@ README = f"""魔力宝贝：序章 — {APP_NAME}
 【客服→高级自动战斗】
 · 各模式默认带上：侧栏「客服」→ 自动技能设置（高级自动战斗）；官方入口太深
 
-【进战形象（九动加速 / 无九动加速 默认带；抓宠/烧卡模式百科另作他用）】
-· 侧栏「百科」→ 测试面板「形象」：粘贴/推荐方案/按账号 Uid 存档
-· 进战后覆盖我方人物形象、光环、坐骑、宠物形象/满档/满档光环
+【助手面板（百科入口，各模式默认带）】
+· 侧栏「百科」→ 助手面板「战斗」：九动版加速为 常规/九动/抓宠/烧卡；融合版为 常规/抓宠/烧卡；形象/脚本另页
+· 进战形象：「形象」页粘贴/推荐方案/按账号 Uid 存档
 
 【自动抓宠】
 · 默认关闭。点侧栏「百科」Tip 开关；标题「★自动中★遇到1级N只」
@@ -402,7 +402,7 @@ def build_exe() -> Path:
     shutil.copy2(PATCHER_STAGING / "HotfixPatcher.exe", patcher_dst / "HotfixPatcher.exe")
     _copy_ref_stubs(patcher_dst / "ref_stubs")
 
-    # 两包都带烧卡+抓宠+日常+测试UI+进战形象源；九动版额外带九动 DLL 源
+    # 两包都带烧卡+抓宠+日常+助手面板+进战形象源；九动版额外带九动 DLL 源
     bundle_srcs: list[tuple[Path, str]] = [
         (AUTO_SEAL_SRC, "seqchapter_auto_seal"),
         (AUTO_CATCH_SRC, "seqchapter_auto_catch"),

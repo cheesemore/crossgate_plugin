@@ -7,8 +7,8 @@ using Mono.Cecil.Cil;
 namespace CrossgateMod.Patcher;
 
 /// <summary>
-/// 百科→测试 UI：OnClickWiki → 加载 SeqChapterTestUi.dll.bytes 并调用 OnShareClick 风格 OnWikiClick。
-/// 简陋 IMGUI；与抓宠/烧卡/限帧/资源下载等百科占用项互斥。
+/// 百科→助手面板：OnClickWiki → 加载 SeqChapterTestUi.dll.bytes 并调用 OnWikiClick。
+/// 抓宠/烧卡/九动等由面板内切换（DLL 面板模式部署）；勿再独占百科 Tip。
 /// </summary>
 internal static class TestUiExternalIlPatcher
 {
@@ -72,7 +72,7 @@ internal static class TestUiExternalIlPatcher
         try
         {
             Apply(source, output);
-            Console.WriteLine("[OK] 百科→测试UI 补丁完成: " + output);
+            Console.WriteLine("[OK] 百科→助手面板 补丁完成: " + output);
             return 0;
         }
         catch (Exception ex)
@@ -113,10 +113,10 @@ internal static class TestUiExternalIlPatcher
             TypeName,
             EntryName,
             TempDllSuffix,
-            tipOn: "面板已打开",
-            tipOff: "面板已关闭",
-            tipFail: "面板加载失败");
-        Console.WriteLine("[TEST-UI] OnClickWiki -> OnWikiClick（百科开/关总面板）");
+            tipOn: "助手面板已打开",
+            tipOff: "助手面板已关闭",
+            tipFail: "助手面板加载失败");
+        Console.WriteLine("[HELPER] OnClickWiki -> 助手面板");
 
         using var ms = new MemoryStream();
         asm.Write(ms);
@@ -174,7 +174,8 @@ internal static class TestUiExternalIlPatcher
             if (insn.OpCode == OpCodes.Ldstr && insn.Operand is string s
                 && (s == TypeName || s == TypeName + ", " + TypeName || s == EntryName
                     || s == DllAssetPath || s.IndexOf("TestUi", StringComparison.Ordinal) >= 0
-                    || s.IndexOf("测试UI", StringComparison.Ordinal) >= 0))
+                    || s.IndexOf("测试UI", StringComparison.Ordinal) >= 0
+                    || s.IndexOf("助手面板", StringComparison.Ordinal) >= 0))
             {
                 return true;
             }
@@ -265,7 +266,7 @@ internal static class TestUiExternalIlPatcher
 
         if (runtimeRefs.Count == 0)
         {
-            throw new InvalidOperationException("未找到 hotfixdata 内 mscorlib/system，无法编译测试UI DLL");
+            throw new InvalidOperationException("未找到 hotfixdata 内 mscorlib/system，无法编译助手面板 DLL");
         }
 
         // 1) 单独编译 UnityEngine 桩程序集（运行时由游戏真 Unity 解析同名引用）
@@ -331,7 +332,7 @@ internal static class TestUiExternalIlPatcher
         }
 
         File.WriteAllBytes(dllPath, ms.ToArray());
-        Console.WriteLine($"[TEST-UI] 已编译测试UI DLL（{refs.Count} 个引用，含 UnityEngine 桩）");
+        Console.WriteLine($"[HELPER] 已编译助手面板 DLL（{refs.Count} 个引用，含 UnityEngine 桩）");
         return dllPath;
     }
 

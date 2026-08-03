@@ -9,7 +9,8 @@ using System.Text;
 using UnityEngine;
 
 /// <summary>
-/// 百科总面板：概况 / 战斗模式 / 简单脚本 / 任务护航 / 导航。Update+UGUI（HybridCLR 无 OnGUI）。
+/// 助手面板（百科入口）：概况 / 战斗模式 / 简单脚本 / 任务护航 / 导航 / 形象。
+/// 抓宠·烧卡·九动等在「战斗模式」页互斥切换。Update+UGUI（HybridCLR 无 OnGUI）。
 /// 部署 hotfixdata/SeqChapterTestUi.dll.bytes；日志 SeqChapterTestUi.log。
 /// </summary>
 public static class SeqChapterTestUi
@@ -292,6 +293,8 @@ public static class SeqChapterTestUi
             if (_visible)
             {
                 EnsurePanel();
+                // 同步战斗模式（关掉默认九动等），保证面板选项与 DLL 开关一致
+                ApplyBattleMode(_battleMode);
                 SetPanelActive(true);
                 SetMinimized(false);
                 ShowTab(_tab);

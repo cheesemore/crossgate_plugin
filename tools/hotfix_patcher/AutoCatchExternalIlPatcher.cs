@@ -6,14 +6,14 @@ using Mono.Cecil.Cil;
 namespace CrossgateMod.Patcher;
 
 /// <summary>
-/// 自动抓宠·DLL版：Pause 加载 SeqChapterAutoCatch.dll.bytes（或无宠人防 SeqChapterAutoCatchNoPet.dll.bytes），
-/// 钩 AutoFight_PlayerAction / AutoFight_PetAction，以及月卡 VIP 路径
-/// DoVipPlayerAutoFight / DoVipPetAutoFight（否则 VIP 自动技会绕过抓宠防御）。
-/// 并将 MapSidebarPanel.OnClickWiki 改为 OnWikiClick（点百科 Tip 切换流水线开/关）。
-/// 与烧封印/助手桥接/神奇九动·DLL版互斥（共用 OnApplicationPause）；可与 IL 九动共存。
+/// 自动抓宠·DLL版：部署 SeqChapterAutoCatch.dll.bytes（或无宠人防），
+/// 钩 AutoFight_* 与 DoVip*（否则 VIP 自动技会绕过抓宠）。
+/// 默认另占 Pause / 百科 Tip；<c>--panel</c> 时只打 DLL+战斗钩，百科留给助手面板切换。
 /// </summary>
 internal static class AutoCatchExternalIlPatcher
 {
+    /// <summary>面板模式：不改 Pause/百科，由 SeqChapterTestUi 加载并 SetEnabled。</summary>
+    private static bool _panelMode;
     public const string AssetFileName = "SeqChapterAutoCatch.dll.bytes";
     public const string TypeName = "SeqChapterAutoCatch";
     public const string NoPetAssetFileName = "SeqChapterAutoCatchNoPet.dll.bytes";
@@ -62,6 +62,10 @@ internal static class AutoCatchExternalIlPatcher
                 case "--nopet":
                     _noPetHumanDefend = true;
                     break;
+                case "--panel":
+                case "--hooks-only":
+                    _panelMode = true;
+                    break;
             }
         }
 
@@ -69,9 +73,10 @@ internal static class AutoCatchExternalIlPatcher
         {
             var cmd = _noPetHumanDefend ? "auto-catch-nopet-external-patch" : "auto-catch-external-patch";
             Console.WriteLine(
-                $"用法: HotfixPatcher {cmd} --hotfix <orig> --output <out>\n" +
+                $"用法: HotfixPatcher {cmd} --hotfix <orig> --output <out> [--panel]\n" +
                 $"      HotfixPatcher {cmd} --hotfix <file> --detect\n" +
-                $"      HotfixPatcher {cmd} --hotfix <orig> --output <out> --restore");
+                $"      HotfixPatcher {cmd} --hotfix <orig> --output <out> --restore\n" +
+                "      --panel：只部署 DLL+战斗钩，不占百科/Pause（给助手面板切换用）");
             return 1;
         }
 
@@ -93,7 +98,7 @@ internal static class AutoCatchExternalIlPatcher
 
         try
         {
-            Apply(source, output, _noPetHumanDefend);
+            Apply(source, output, _noPetHumanDefend, _panelMode);
             Console.WriteLine(_noPetHumanDefend
                 ? "[OK] 自动抓宠·无宠人防御 补丁完成: " + output
                 : "[OK] 自动抓宠·DLL版补丁完成: " + output);
@@ -107,11 +112,19 @@ internal static class AutoCatchExternalIlPatcher
     }
 
     public static void Apply(string sourcePath, string outputPath) =>
-        Apply(sourcePath, outputPath, noPetHumanDefend: false);
+        Apply(sourcePath, outputPath, noPetHumanDefend: false, panelMode: false);
 
-    public static void Apply(string sourcePath, string outputPath, bool noPetHumanDefend)
+    public static void Apply(string sourcePath, string outputPath, bool noPetHumanDefend) =>
+        Apply(sourcePath, outputPath, noPetHumanDefend, panelMode: false);
+
+    public static void Apply(
+        string sourcePath,
+        string outputPath,
+        bool noPetHumanDefend,
+        bool panelMode)
     {
         _noPetHumanDefend = noPetHumanDefend;
+        _panelMode = panelMode;
         var origBytes = File.ReadAllBytes(sourcePath);
         var expectedSize = HotfixSize.Require(origBytes);
 
@@ -133,11 +146,15 @@ internal static class AutoCatchExternalIlPatcher
                 Console.WriteLine(LogTag + " 已删除互斥 " + Path.GetFileName(other));
             }
 
-            var lv1 = Path.Combine(Path.GetDirectoryName(outputPath)!, "SeqChapterLv1Auto.dll.bytes");
-            if (File.Exists(lv1))
+            // 面板模式保留 Lv1/烧卡 DLL，供助手面板互斥切换
+            if (!_panelMode)
             {
-                File.Delete(lv1);
-                Console.WriteLine(LogTag + " 已删除互斥 SeqChapterLv1Auto.dll.bytes");
+                var lv1 = Path.Combine(Path.GetDirectoryName(outputPath)!, "SeqChapterLv1Auto.dll.bytes");
+                if (File.Exists(lv1))
+                {
+                    File.Delete(lv1);
+                    Console.WriteLine(LogTag + " 已删除互斥 SeqChapterLv1Auto.dll.bytes");
+                }
             }
 
             var hotfixDir = Path.GetDirectoryName(sourcePath)!;
@@ -149,23 +166,29 @@ internal static class AutoCatchExternalIlPatcher
                 ReadWrite = true,
             });
 
-            var hotfixEntry = asm.MainModule.Types.First(t => t.Name == "HotfixEntry");
-            var pauseMethod = hotfixEntry.Methods.First(m => m.Name == "OnApplicationPause" && m.HasBody);
-            var quitMethod = hotfixEntry.Methods.First(m => m.Name == "OnApplicationQuit" && m.HasBody);
-            var entryStartMethod = hotfixEntry.Methods.First(m => m.Name == "Start" && m.HasBody);
-            var userStrings = UserStringHeap.FromPe(origBytes);
+            if (!_panelMode)
+            {
+                var hotfixEntry = asm.MainModule.Types.First(t => t.Name == "HotfixEntry");
+                var pauseMethod = hotfixEntry.Methods.First(m => m.Name == "OnApplicationPause" && m.HasBody);
+                var quitMethod = hotfixEntry.Methods.First(m => m.Name == "OnApplicationQuit" && m.HasBody);
+                var entryStartMethod = hotfixEntry.Methods.First(m => m.Name == "Start" && m.HasBody);
+                var userStrings = UserStringHeap.FromPe(origBytes);
 
-            // Pause / 百科统一 Assembly.Load(bytes)（与助手桥接相同），避免 LoadFrom 落盘失败静默无反应
-            BridgeLoaderIlBuilder.BuildLoaderBodyInPlace(
-                pauseMethod,
-                asm.MainModule,
-                userStrings,
-                skipIfTypeLoaded: true,
-                dllAssetPath: ActiveDllAssetPath,
-                typeName: ActiveTypeName,
-                bootstrapName: BootstrapName);
-            BridgeLoaderIlBuilder.BuildQuitTriggersPauseBody(quitMethod, pauseMethod, asm.MainModule);
-            BridgeLoaderIlBuilder.ApplyDeferredTimerStartHook(entryStartMethod.Body, quitMethod, asm.MainModule);
+                BridgeLoaderIlBuilder.BuildLoaderBodyInPlace(
+                    pauseMethod,
+                    asm.MainModule,
+                    userStrings,
+                    skipIfTypeLoaded: true,
+                    dllAssetPath: ActiveDllAssetPath,
+                    typeName: ActiveTypeName,
+                    bootstrapName: BootstrapName);
+                BridgeLoaderIlBuilder.BuildQuitTriggersPauseBody(quitMethod, pauseMethod, asm.MainModule);
+                BridgeLoaderIlBuilder.ApplyDeferredTimerStartHook(entryStartMethod.Body, quitMethod, asm.MainModule);
+            }
+            else
+            {
+                Console.WriteLine(LogTag + " 面板模式：跳过 Pause/百科（由助手面板加载）");
+            }
 
             var battleProcesser = asm.MainModule.Types.First(t => t.Name == "BattleProcesser");
             var playerAction = battleProcesser.Methods.First(
@@ -187,24 +210,50 @@ internal static class AutoCatchExternalIlPatcher
                 m => m.Name == "AutoFight_PetAction" && m.HasBody && m.Parameters.Count == 0);
             InjectBoolHook(petAction, asm.MainModule, PetEntryName, "PetAction");
 
-            var mapSidebar = asm.MainModule.Types.FirstOrDefault(t => t.Name == "MapSidebarPanel")
-                ?? throw new InvalidOperationException("未找到 MapSidebarPanel");
-            var onClickWiki = mapSidebar.Methods.FirstOrDefault(m => m.Name == "OnClickWiki" && m.HasBody)
-                ?? throw new InvalidOperationException("未找到 MapSidebarPanel.OnClickWiki");
-            var tipOn = _noPetHumanDefend ? "自动抓宠(无宠人防)已开启" : "自动抓宠已开启";
-            var tipOff = _noPetHumanDefend ? "自动抓宠(无宠人防)已关闭" : "自动抓宠已关闭";
-            var tipFail = _noPetHumanDefend ? "自动抓宠(无宠人防)加载失败" : "自动抓宠加载失败";
-            BridgeLoaderIlBuilder.BuildLoadAndAlwaysInvokeBody(
-                onClickWiki,
-                asm.MainModule,
-                ActiveDllAssetPath,
-                ActiveTypeName,
-                WikiEntryName,
-                TempDllSuffix,
-                tipOn: tipOn,
-                tipOff: tipOff,
-                tipFail: tipFail);
-            Console.WriteLine(LogTag + " OnClickWiki -> OnWikiClick + 原版 Tip");
+            // VIP 路径：月卡 bypass 后开关开会走 DoVip*，不钩则抓宠永不触发（表现为「不识别一级」）
+            var vipPlayer = battleProcesser.Methods.FirstOrDefault(
+                m => m.Name == "DoVipPlayerAutoFight" && m.HasBody);
+            if (vipPlayer != null)
+            {
+                InjectBoolHook(vipPlayer, asm.MainModule, EntryName, "VipPlayer");
+            }
+            else
+            {
+                Console.WriteLine(LogTag + " 警告：未找到 DoVipPlayerAutoFight");
+            }
+
+            var vipPet = battleProcesser.Methods.FirstOrDefault(
+                m => m.Name == "DoVipPetAutoFight" && m.HasBody);
+            if (vipPet != null)
+            {
+                InjectBoolHook(vipPet, asm.MainModule, PetEntryName, "VipPet");
+            }
+            else
+            {
+                Console.WriteLine(LogTag + " 警告：未找到 DoVipPetAutoFight");
+            }
+
+            if (!_panelMode)
+            {
+                var mapSidebar = asm.MainModule.Types.FirstOrDefault(t => t.Name == "MapSidebarPanel")
+                    ?? throw new InvalidOperationException("未找到 MapSidebarPanel");
+                var onClickWiki = mapSidebar.Methods.FirstOrDefault(m => m.Name == "OnClickWiki" && m.HasBody)
+                    ?? throw new InvalidOperationException("未找到 MapSidebarPanel.OnClickWiki");
+                var tipOn = _noPetHumanDefend ? "自动抓宠(无宠人防)已开启" : "自动抓宠已开启";
+                var tipOff = _noPetHumanDefend ? "自动抓宠(无宠人防)已关闭" : "自动抓宠已关闭";
+                var tipFail = _noPetHumanDefend ? "自动抓宠(无宠人防)加载失败" : "自动抓宠加载失败";
+                BridgeLoaderIlBuilder.BuildLoadAndAlwaysInvokeBody(
+                    onClickWiki,
+                    asm.MainModule,
+                    ActiveDllAssetPath,
+                    ActiveTypeName,
+                    WikiEntryName,
+                    TempDllSuffix,
+                    tipOn: tipOn,
+                    tipOff: tipOff,
+                    tipFail: tipFail);
+                Console.WriteLine(LogTag + " OnClickWiki -> OnWikiClick + 原版 Tip");
+            }
 
             using var ms = new MemoryStream();
             asm.Write(ms);
@@ -364,24 +413,13 @@ internal static class AutoCatchExternalIlPatcher
                 return false;
             }
 
-            // 整文件 Unicode.GetString 可能错位漏检；用字节级 UTF-16 搜用户字符串
-            if (!ContainsUtf16(pe, "OnWikiClick") && !ascii.Contains("OnWikiClick") && !uni.Contains("OnWikiClick"))
-            {
-                return false;
-            }
-
+            // 面板模式可不占百科；有战斗钩即可。旧版独占百科时仍含 OnWikiClick。
             var resolver = new HotfixAssemblyResolver(Path.GetDirectoryName(hotfixPath)!);
             using var asm = AssemblyDefinition.ReadAssembly(hotfixPath, new ReaderParameters
             {
                 AssemblyResolver = resolver,
                 InMemory = true,
             });
-            var pause = asm.MainModule.Types.First(t => t.Name == "HotfixEntry")
-                .Methods.First(m => m.Name == "OnApplicationPause" && m.HasBody);
-            if (pause.Body.Instructions.Count <= 8)
-            {
-                return false;
-            }
 
             var battleProcesser = asm.MainModule.Types.FirstOrDefault(t => t.Name == "BattleProcesser");
             var playerAction = battleProcesser?.Methods.FirstOrDefault(
@@ -390,9 +428,15 @@ internal static class AutoCatchExternalIlPatcher
                 m => m.Name == "AutoFight_PlayerAction2" && m.HasBody && m.Parameters.Count == 0);
             var petAction = battleProcesser?.Methods.FirstOrDefault(
                 m => m.Name == "AutoFight_PetAction" && m.HasBody && m.Parameters.Count == 0);
+            var vipPlayer = battleProcesser?.Methods.FirstOrDefault(
+                m => m.Name == "DoVipPlayerAutoFight" && m.HasBody);
+            var vipPet = battleProcesser?.Methods.FirstOrDefault(
+                m => m.Name == "DoVipPetAutoFight" && m.HasBody);
             return playerAction != null && IsHookInstalled(playerAction, EntryName)
                    && petAction != null && IsHookInstalled(petAction, PetEntryName)
-                   && (playerAction2 == null || IsHookInstalled(playerAction2, Player2EntryName));
+                   && (playerAction2 == null || IsHookInstalled(playerAction2, Player2EntryName))
+                   && (vipPlayer == null || IsHookInstalled(vipPlayer, EntryName))
+                   && (vipPet == null || IsHookInstalled(vipPet, PetEntryName));
         }
         catch
         {

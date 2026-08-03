@@ -12,8 +12,8 @@ public static class SeqChapterNineAction
 {
     public const string AssetPath = "hotfixdata/SeqChapterNineAction.dll.bytes";
 
-    /// <summary>战斗模式面板开关；常规/抓宠/烧卡时关掉。</summary>
-    public static volatile bool ModeEnabled = true;
+    /// <summary>战斗模式面板开关；默认关，助手选「九动」才开。</summary>
+    public static volatile bool ModeEnabled = false;
 
     private static bool _bootstrapped;
     private static string _statusPath;

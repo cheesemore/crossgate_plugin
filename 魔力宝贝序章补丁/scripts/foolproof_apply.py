@@ -415,6 +415,7 @@ def run_foolproof_patch(
     seal_modes = sum(bool(x) for x in (burn_seal, burn_seal_slow, auto_catch, auto_catch_nopet))
     if seal_modes > 1:
         raise FoolproofError("自动烧卡 / 慢速烧卡 / 自动抓宠 / 自动抓宠（无宠人防御）只能选一个。")
+    # 抓宠/烧卡档：只改加速预设，助手面板仍带抓宠+烧卡；九动仅「九动版·加速」带
     if burn_seal or burn_seal_slow or auto_catch or auto_catch_nopet:
         enable_nine = False
 
@@ -446,14 +447,15 @@ def run_foolproof_patch(
         _emit(
             messages,
             on_log,
-            "预设：慢速烧卡（点百科 Tip 开关 · 无九动 · 无任何加速 · 一级含蝙蝠/哥布林）",
+            "预设：慢速烧卡档（助手面板：常规/抓宠/烧卡 · 无九动 · 无任何加速 · 一级含蝙蝠/哥布林）",
         )
         kwargs = dict(FOOLPROOF_BURN_SEAL_SLOW_COMBO_KWARGS)
         kwargs["battle_nine_action"] = False
         kwargs["battle_nine_external"] = False
         kwargs["auto_seal_external"] = True
-        kwargs["auto_catch_external"] = False
+        kwargs["auto_catch_external"] = True
         kwargs["auto_catch_nopet_external"] = False
+        kwargs["wiki_test_ui"] = True
         kwargs["level_one_include_all"] = True
         kwargs["vip"] = False
         kwargs["vip_non_vip"] = False
@@ -462,70 +464,91 @@ def run_foolproof_patch(
         kwargs["transition_speed"] = False
         nine_label = "无"
         nine_checks: list[str] = []
-        extra_checks = ["auto_seal_external", "level_one_include_all"]
+        extra_checks = ["auto_seal_external", "auto_catch_external", "level_one_include_all"]
     elif burn_seal:
-        _emit(messages, on_log, "预设：自动烧卡（点百科 Tip 开关 · 无九动 · 倍速10x/特效5x · 一级含蝙蝠/哥布林）")
+        _emit(
+            messages,
+            on_log,
+            "预设：烧卡加速档（助手面板：常规/抓宠/烧卡 · 无九动 · 倍速10x/特效5x · 一级含蝙蝠/哥布林）",
+        )
         kwargs = dict(FOOLPROOF_BURN_SEAL_COMBO_KWARGS)
         kwargs["battle_nine_action"] = False
         kwargs["battle_nine_external"] = False
         kwargs["auto_seal_external"] = True
-        kwargs["auto_catch_external"] = False
+        kwargs["auto_catch_external"] = True
         kwargs["auto_catch_nopet_external"] = False
+        kwargs["wiki_test_ui"] = True
         kwargs["level_one_include_all"] = True
         kwargs["vip_scale"] = 10
         kwargs["skill_effect_speed"] = True
         kwargs["skill_effect_scale"] = 5.0
         nine_label = "无"
         nine_checks: list[str] = []
-        extra_checks = ["auto_seal_external", "level_one_include_all"]
+        extra_checks = ["auto_seal_external", "auto_catch_external", "level_one_include_all"]
     elif auto_catch_nopet:
         _emit(
             messages,
             on_log,
-            "预设：自动抓宠·无宠人防御（点百科 Tip · 无九动 · 一级时 P2 人物防御）",
+            "预设：抓宠(无宠人防)档（助手面板：常规/抓宠无宠/烧卡 · 无九动 · 一级时 P2 人物防御）",
         )
         kwargs = dict(FOOLPROOF_AUTO_CATCH_NOPET_COMBO_KWARGS)
         kwargs["battle_nine_action"] = False
         kwargs["battle_nine_external"] = False
-        kwargs["auto_seal_external"] = False
+        kwargs["auto_seal_external"] = True
         kwargs["auto_catch_external"] = False
         kwargs["auto_catch_nopet_external"] = True
+        kwargs["wiki_test_ui"] = True
         kwargs["level_one_include_all"] = True
         nine_label = "无"
         nine_checks = []
-        extra_checks = ["auto_catch_nopet_external", "level_one_include_all"]
+        extra_checks = ["auto_catch_nopet_external", "auto_seal_external", "level_one_include_all"]
     elif auto_catch:
         _emit(
             messages,
             on_log,
-            "预设：自动抓宠（点百科 Tip 开关 · 无九动）",
+            "预设：抓宠加速档（助手面板：常规/抓宠/烧卡 · 无九动 · 5x）",
         )
         kwargs = dict(FOOLPROOF_AUTO_CATCH_COMBO_KWARGS)
         kwargs["battle_nine_action"] = False
         kwargs["battle_nine_external"] = False
-        kwargs["auto_seal_external"] = False
+        kwargs["auto_seal_external"] = True
         kwargs["auto_catch_external"] = True
         kwargs["auto_catch_nopet_external"] = False
+        kwargs["wiki_test_ui"] = True
         kwargs["level_one_include_all"] = True
         nine_label = "无"
         nine_checks = []
-        extra_checks = ["auto_catch_external", "level_one_include_all"]
+        extra_checks = ["auto_catch_external", "auto_seal_external", "level_one_include_all"]
     elif enable_nine:
         use_il = False
         nine_label = "DLL版"
-        _emit(messages, on_log, "神奇九动：固定 DLL版（本包不再打 IL 九动）")
+        _emit(
+            messages,
+            on_log,
+            "预设：九动版加速（助手面板四选一：常规/九动/抓宠/烧卡 · 九动 DLL）",
+        )
         kwargs = dict(FOOLPROOF_COMBO_KWARGS)
         kwargs["battle_nine_action"] = False
         kwargs["battle_nine_external"] = True
+        kwargs["auto_seal_external"] = True
+        kwargs["auto_catch_external"] = True
+        kwargs["wiki_test_ui"] = True
         nine_checks = ["nine_external"]
         extra_checks = ["level_one_include_all"] if kwargs.get("level_one_include_all") else []
     else:
         use_il = False
         nine_label = "无"
-        _emit(messages, on_log, "神奇九动：本包不打九动")
+        _emit(
+            messages,
+            on_log,
+            "预设：融合/无九动加速（助手面板三选一：常规/抓宠/烧卡）",
+        )
         kwargs = dict(FOOLPROOF_NO_NINE_COMBO_KWARGS)
         kwargs["battle_nine_action"] = False
         kwargs["battle_nine_external"] = False
+        kwargs["auto_seal_external"] = True
+        kwargs["auto_catch_external"] = True
+        kwargs["wiki_test_ui"] = True
         nine_checks = []
         extra_checks = ["level_one_include_all"] if kwargs.get("level_one_include_all") else []
 

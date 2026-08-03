@@ -290,12 +290,12 @@ class ComboPatchApp:
 
         ttk.Checkbutton(
             tab_common,
-            text="百科限帧（默认关；侧栏「百科」切换 10FPS；与测试UI/抓宠/烧卡互斥）",
+            text="百科限帧（默认关；侧栏「百科」切换 10FPS；与助手面板/抓宠/烧卡互斥）",
             variable=self.wiki_fps_var,
         ).pack(anchor=tk.W, pady=(8, 0))
         ttk.Checkbutton(
             tab_common,
-            text="百科→测试UI（默认开；简陋 IMGUI 面板；与限帧/抓宠/烧卡百科互斥）",
+            text="百科→助手面板（默认开；抓宠/烧卡等在面板内切换；与限帧互斥）",
             variable=self.wiki_test_ui_var,
         ).pack(anchor=tk.W, pady=(8, 0))
         ttk.Checkbutton(
@@ -805,7 +805,7 @@ class ComboPatchApp:
             if sum(1 for x in wiki_exclusive if x) > 1:
                 messagebox.showerror(
                     "互斥冲突",
-                    "侧栏百科只能占一类：烧卡 / 抓宠 / 遇1级自动 / 盗贼 / Host / 限帧 / 测试UI。",
+                    "侧栏百科只能占一类：烧卡 / 抓宠 / 遇1级自动 / 盗贼 / Host / 限帧 / 助手面板。",
                 )
                 return
 

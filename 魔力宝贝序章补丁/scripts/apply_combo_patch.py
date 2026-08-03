@@ -460,7 +460,7 @@ def apply_wiki_fps_external(hotfix: Path, source: Path) -> tuple[bool, str]:
 
 
 def apply_wiki_test_ui_external(hotfix: Path, source: Path) -> tuple[bool, str]:
-    """百科→测试 UI：简陋 IMGUI 面板（与抓宠/烧卡/限帧等百科互斥）。"""
+    """百科→助手面板：抓宠/烧卡等在面板内切换（玩法 DLL 用 panel 模式部署）。"""
     proc = run_patcher_capture(
         [
             "wiki-test-ui-patch",
@@ -472,10 +472,10 @@ def apply_wiki_test_ui_external(hotfix: Path, source: Path) -> tuple[bool, str]:
     )
     out = (proc.stdout or "") + (proc.stderr or "")
     if proc.returncode != 0:
-        return False, out.strip() or "百科→测试UI 补丁失败"
-    if "[SKIP]" in out and "测试UI" in out:
-        return True, "百科→测试UI：已是补丁状态（跳过）"
-    return True, "百科→总面板：概况 / 战斗模式 / 简单脚本"
+        return False, out.strip() or "百科→助手面板 补丁失败"
+    if "[SKIP]" in out and ("助手面板" in out or "测试UI" in out):
+        return True, "百科→助手面板：已是补丁状态（跳过）"
+    return True, "百科→助手面板：概况 / 战斗模式 / 抓宠烧卡切换 / 形象"
 
 
 def apply_vip_auto_monthcard_bypass(hotfix: Path, source: Path) -> tuple[bool, str]:
@@ -497,61 +497,76 @@ def apply_vip_auto_monthcard_bypass(hotfix: Path, source: Path) -> tuple[bool, s
     return True, "VIP自动月卡 bypass：开关开着即走 VIP 自动逻辑"
 
 
-def apply_auto_seal_external(hotfix: Path, source: Path) -> tuple[bool, str]:
-    """自动烧卡·DLL版：SeqChapterAutoSeal.dll.bytes + Player 钩 + 百科开关。"""
-    proc = run_patcher_capture(
-        [
-            "auto-seal-external-patch",
-            "--hotfix",
-            str(source),
-            "--output",
-            str(hotfix),
-        ]
-    )
+def apply_auto_seal_external(
+    hotfix: Path, source: Path, *, panel: bool = False
+) -> tuple[bool, str]:
+    """自动烧卡·DLL版：DLL + 战斗钩；panel=True 时不占百科/Pause（助手面板切换）。"""
+    args = [
+        "auto-seal-external-patch",
+        "--hotfix",
+        str(source),
+        "--output",
+        str(hotfix),
+    ]
+    if panel:
+        args.append("--panel")
+    proc = run_patcher_capture(args)
     out = (proc.stdout or "") + (proc.stderr or "")
     if proc.returncode != 0:
         return False, out.strip() or "自动烧卡·DLL版补丁失败"
     if "[SKIP]" in out and "自动" in out:
         return True, "自动烧卡·DLL版：已是补丁状态（跳过）"
+    if panel:
+        return True, "自动烧卡·DLL版：已部署 DLL + 战斗钩（面板模式）"
     return True, "自动烧卡·DLL版：已部署 DLL + 战斗钩 + 百科开关"
 
 
-def apply_auto_catch_external(hotfix: Path, source: Path) -> tuple[bool, str]:
-    """自动抓宠·DLL版：SeqChapterAutoCatch.dll.bytes + Player/Pet 钩 + 百科开关。"""
-    proc = run_patcher_capture(
-        [
-            "auto-catch-external-patch",
-            "--hotfix",
-            str(source),
-            "--output",
-            str(hotfix),
-        ]
-    )
+def apply_auto_catch_external(
+    hotfix: Path, source: Path, *, panel: bool = False
+) -> tuple[bool, str]:
+    """自动抓宠·DLL版：DLL + AutoFight/DoVip 钩；panel=True 时不占百科/Pause。"""
+    args = [
+        "auto-catch-external-patch",
+        "--hotfix",
+        str(source),
+        "--output",
+        str(hotfix),
+    ]
+    if panel:
+        args.append("--panel")
+    proc = run_patcher_capture(args)
     out = (proc.stdout or "") + (proc.stderr or "")
     if proc.returncode != 0:
         return False, out.strip() or "自动抓宠·DLL版补丁失败"
     if "[SKIP]" in out and "自动抓宠" in out:
         return True, "自动抓宠·DLL版：已是补丁状态（跳过）"
-    return True, "自动抓宠·DLL版：已部署 DLL + 战斗钩 + 百科开关"
+    if panel:
+        return True, "自动抓宠·DLL版：已部署 DLL + AutoFight/DoVip 钩（面板模式）"
+    return True, "自动抓宠·DLL版：已部署 DLL + AutoFight/DoVip 钩 + 百科开关"
 
 
-def apply_auto_catch_nopet_external(hotfix: Path, source: Path) -> tuple[bool, str]:
-    """自动抓宠·无宠人防御：SeqChapterAutoCatchNoPet.dll.bytes；一级时 P2 人物防御。"""
-    proc = run_patcher_capture(
-        [
-            "auto-catch-nopet-external-patch",
-            "--hotfix",
-            str(source),
-            "--output",
-            str(hotfix),
-        ]
-    )
+def apply_auto_catch_nopet_external(
+    hotfix: Path, source: Path, *, panel: bool = False
+) -> tuple[bool, str]:
+    """自动抓宠·无宠人防御；panel=True 时不占百科/Pause。"""
+    args = [
+        "auto-catch-nopet-external-patch",
+        "--hotfix",
+        str(source),
+        "--output",
+        str(hotfix),
+    ]
+    if panel:
+        args.append("--panel")
+    proc = run_patcher_capture(args)
     out = (proc.stdout or "") + (proc.stderr or "")
     if proc.returncode != 0:
         return False, out.strip() or "自动抓宠·无宠人防御补丁失败"
     if "[SKIP]" in out and ("自动抓宠" in out or "无宠" in out):
         return True, "自动抓宠·无宠人防御：已是补丁状态（跳过）"
-    return True, "自动抓宠·无宠人防御：已部署 DLL + 战斗钩 + 百科开关"
+    if panel:
+        return True, "自动抓宠·无宠人防御：已部署 DLL + 钩（面板模式）"
+    return True, "自动抓宠·无宠人防御：已部署 DLL + AutoFight/DoVip 钩 + 百科开关"
 
 
 
@@ -660,6 +675,8 @@ def _apply_gameplay_patches(
     """在现有 hotfix 上叠加玩法补丁（不还原 .orig）。返回 (messages, work_path)。"""
     messages: list[str] = []
     work = hotfix
+    # 助手面板开启时：抓宠/烧卡等只打 DLL+战斗钩，不占百科/Pause
+    panel_mode = bool(wiki_test_ui)
 
     if battle_nine_external:
         _emit_combo(messages, on_log, "正在打：神奇九动·DLL版…")
@@ -760,22 +777,34 @@ def _apply_gameplay_patches(
 
     # 自动烧卡/抓宠/盗贼辅助/百科文字最后打：Cecil 改方法体，避免挡在二进制补丁前面
     if auto_seal_external:
-        _emit_combo(messages, on_log, "正在打：自动烧卡·DLL版…")
-        ok, msg = apply_auto_seal_external(hotfix, work)
+        _emit_combo(
+            messages,
+            on_log,
+            "正在打：自动烧卡·DLL版" + ("（面板模式）…" if panel_mode else "…"),
+        )
+        ok, msg = apply_auto_seal_external(hotfix, work, panel=panel_mode)
         if not ok:
             raise RuntimeError(msg)
         _emit_combo(messages, on_log, msg)
         work = hotfix
     if auto_catch_external:
-        _emit_combo(messages, on_log, "正在打：自动抓宠·DLL版…")
-        ok, msg = apply_auto_catch_external(hotfix, work)
+        _emit_combo(
+            messages,
+            on_log,
+            "正在打：自动抓宠·DLL版" + ("（面板模式）…" if panel_mode else "…"),
+        )
+        ok, msg = apply_auto_catch_external(hotfix, work, panel=panel_mode)
         if not ok:
             raise RuntimeError(msg)
         _emit_combo(messages, on_log, msg)
         work = hotfix
     if auto_catch_nopet_external:
-        _emit_combo(messages, on_log, "正在打：自动抓宠·无宠人防御…")
-        ok, msg = apply_auto_catch_nopet_external(hotfix, work)
+        _emit_combo(
+            messages,
+            on_log,
+            "正在打：自动抓宠·无宠人防御" + ("（面板模式）…" if panel_mode else "…"),
+        )
+        ok, msg = apply_auto_catch_nopet_external(hotfix, work, panel=panel_mode)
         if not ok:
             raise RuntimeError(msg)
         _emit_combo(messages, on_log, msg)
@@ -842,9 +871,9 @@ def _apply_gameplay_patches(
         _emit_combo(messages, on_log, msg)
         work = hotfix
 
-    # 百科→测试 UI：占百科按钮（与限帧/抓宠等互斥）
+    # 百科→助手面板（玩法 DLL 已用面板模式部署，不抢百科）
     if wiki_test_ui:
-        _emit_combo(messages, on_log, "正在打：百科→测试UI…")
+        _emit_combo(messages, on_log, "正在打：百科→助手面板…")
         ok, msg = apply_wiki_test_ui_external(hotfix, work)
         if not ok:
             raise RuntimeError(msg)
@@ -929,16 +958,19 @@ def apply_combo(
     if auto_catch_external and auto_catch_nopet_external:
         raise RuntimeError("自动抓宠·DLL 与 自动抓宠·无宠人防御 不能同时启用，请只选一项。")
 
+    # 百科→助手面板时：抓宠/烧卡/遇1级走面板模式（不占百科），可与助手同开
+    panel_mode = bool(wiki_test_ui)
+
     wiki_users = [
-        ("自动抓宠·DLL", auto_catch_external or auto_catch_nopet_external),
-        ("遇1级自动·DLL", lv1_auto_external),
-        ("自动烧卡·DLL", auto_seal_external),
+        ("自动抓宠·DLL", (auto_catch_external or auto_catch_nopet_external) and not panel_mode),
+        ("遇1级自动·DLL", lv1_auto_external and not panel_mode),
+        ("自动烧卡·DLL", auto_seal_external and not panel_mode),
         ("盗贼辅助·DLL", auto_sell_external),
         ("插件 Host", plugin_host),
         ("百科→资源下载", wiki_download_res),
         ("百科文字→百科1", wiki_label),
         ("百科限帧", wiki_fps),
-        ("百科→测试UI", wiki_test_ui),
+        ("百科→助手面板", wiki_test_ui),
     ]
     wiki_on = [name for name, on in wiki_users if on]
     if len(wiki_on) > 1:
@@ -947,16 +979,16 @@ def apply_combo(
             + "、".join(wiki_on)
         )
 
-    if (auto_catch_external or auto_catch_nopet_external) and wiki_download_res:
+    if (auto_catch_external or auto_catch_nopet_external) and wiki_download_res and not panel_mode:
         raise RuntimeError("自动抓宠·DLL 已占用侧栏百科按钮，不能同时启用百科→资源下载。")
 
-    if (auto_catch_external or auto_catch_nopet_external) and wiki_label:
+    if (auto_catch_external or auto_catch_nopet_external) and wiki_label and not panel_mode:
         raise RuntimeError("自动抓宠·DLL 已占用侧栏百科按钮，不能同时启用百科文字→百科1。")
 
-    if auto_seal_external and wiki_download_res:
+    if auto_seal_external and wiki_download_res and not panel_mode:
         raise RuntimeError("自动烧卡·DLL 已占用侧栏百科按钮，不能同时启用百科→资源下载。")
 
-    if auto_seal_external and wiki_label:
+    if auto_seal_external and wiki_label and not panel_mode:
         raise RuntimeError("自动烧卡·DLL 已占用侧栏百科按钮，不能同时启用百科文字→百科1。")
 
     if auto_sell_external and wiki_download_res:
@@ -971,14 +1003,13 @@ def apply_combo(
     if plugin_host and wiki_label:
         raise RuntimeError("插件 Host 已占用侧栏百科按钮，不能同时启用百科文字→百科1。")
 
-    # DLL 互斥（共用 OnApplicationPause）：九动DLL / 烧卡 / 抓宠 / 盗贼辅助 / 桥接 / Host
-    # IL 九动仅与九动DLL互斥（上方已检），可与盗贼辅助等 DLL 共存
+    # Pause 互斥：面板模式下抓宠/烧卡/遇1级不占 Pause，可并存；九动 DLL 仍独占 Pause（除非仅面板加载）
     exclusive_flags = [
         ("神奇九动·DLL", battle_nine_external),
-        ("自动烧卡·DLL", auto_seal_external),
-        ("自动抓宠·DLL", auto_catch_external),
-        ("自动抓宠·无宠人防御", auto_catch_nopet_external),
-        ("遇1级自动·DLL", lv1_auto_external),
+        ("自动烧卡·DLL", auto_seal_external and not panel_mode),
+        ("自动抓宠·DLL", auto_catch_external and not panel_mode),
+        ("自动抓宠·无宠人防御", auto_catch_nopet_external and not panel_mode),
+        ("遇1级自动·DLL", lv1_auto_external and not panel_mode),
         ("盗贼辅助·DLL", auto_sell_external),
         ("插件 Host", plugin_host),
         ("注入桥接·DLL", inject_bridge),
@@ -989,7 +1020,8 @@ def apply_combo(
             "战斗扩展 DLL 互斥（只能勾一类）："
             "神奇九动·DLL / 自动烧卡·DLL / 自动抓宠·DLL / 自动抓宠·无宠人防御 / 遇1级自动·DLL / "
             "盗贼辅助·DLL / 插件 Host / 注入桥接·DLL。\n"
-            "（IL 九动可与盗贼辅助等同打；Host 一期暂与其它扩展 DLL 互斥）\n"
+            "（勾选百科→助手面板时，抓宠/烧卡/遇1级改为面板模式，可与助手+九动 DLL 同开；"
+            "九动版面板：常规/九动/抓宠/烧卡）\n"
             f"当前同时勾选了：{'、'.join(exclusive_on)}"
         )
 
