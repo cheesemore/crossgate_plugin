@@ -304,7 +304,7 @@ internal static class AutoCatchExternalIlPatcher
     }
 
     /// <summary>
-    /// 方法入口：entry()==true 则 ret，否则走原逻辑。无 EH（HybridCLR 更稳）。
+    /// 方法入口：分发卖银/无宠抓/普通抓，任一返回 true 则 ret，否则走原逻辑。
     /// </summary>
     private static void InjectBoolHook(
         MethodDefinition method,
@@ -312,70 +312,16 @@ internal static class AutoCatchExternalIlPatcher
         string entryName,
         string label)
     {
-        if (IsHookInstalled(method, entryName))
-        {
-            Console.WriteLine($"{LogTag} {label} 钩已存在，跳过");
-            return;
-        }
-
-        var body = method.Body;
-        if (body.Instructions.Count == 0)
-        {
-            throw new InvalidOperationException(method.Name + " 无指令");
-        }
-
-        var il = body.GetILProcessor();
-        var getType = BridgeLoaderIlBuilder.ImportTypeGetTypeStaticPublic(module);
-        var getMethod = BridgeLoaderIlBuilder.ImportTypeGetMethodPublic(module);
-        var invoke = BridgeLoaderIlBuilder.ImportMethodInvokePublic(module);
-
-        var continueAt = body.Instructions[0];
-        var haveType = il.Create(OpCodes.Nop);
-        var haveMethod = il.Create(OpCodes.Nop);
-        var unboxLabel = il.Create(OpCodes.Nop);
-
-        var block = new List<Instruction>
-        {
-            il.Create(OpCodes.Ldstr, ActiveTypeName + ", " + ActiveTypeName),
-            il.Create(OpCodes.Call, getType),
-            il.Create(OpCodes.Dup),
-            il.Create(OpCodes.Brtrue, haveType),
-            il.Create(OpCodes.Pop),
-            il.Create(OpCodes.Br, continueAt),
-            haveType,
-            il.Create(OpCodes.Ldstr, entryName),
-            il.Create(OpCodes.Callvirt, getMethod),
-            il.Create(OpCodes.Dup),
-            il.Create(OpCodes.Brtrue, haveMethod),
-            il.Create(OpCodes.Pop),
-            il.Create(OpCodes.Br, continueAt),
-            haveMethod,
-            il.Create(OpCodes.Ldnull),
-            il.Create(OpCodes.Ldnull),
-            il.Create(OpCodes.Callvirt, invoke),
-            il.Create(OpCodes.Dup),
-            il.Create(OpCodes.Brtrue, unboxLabel),
-            il.Create(OpCodes.Pop),
-            il.Create(OpCodes.Br, continueAt),
-            unboxLabel,
-            il.Create(OpCodes.Unbox_Any, module.TypeSystem.Boolean),
-            il.Create(OpCodes.Brfalse, continueAt),
-            il.Create(OpCodes.Ret),
-        };
-
-        for (var i = 0; i < block.Count; i++)
-        {
-            il.InsertBefore(continueAt, block[i]);
-        }
-
-        body.InitLocals = true;
-        IlSerializer.RecalculateOffsets(body);
-        body.MaxStackSize = Math.Max(body.MaxStackSize, (short)8);
-        Console.WriteLine($"{LogTag} 已注入 {entryName}（{label}，无 EH）");
+        CatchBattleDispatchIl.EnsureDispatchHook(method, module, entryName, label);
     }
 
     private static bool IsHookInstalled(MethodDefinition method, string entryName)
     {
+        if (CatchBattleDispatchIl.IsDispatchInstalled(method))
+        {
+            return true;
+        }
+
         foreach (var insn in method.Body.Instructions)
         {
             if (insn.OpCode == OpCodes.Ldstr && insn.Operand is string s

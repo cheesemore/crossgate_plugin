@@ -12,6 +12,7 @@ DEFAULT_COMBO_KWARGS = {
     "auto_seal_external": True,
     "auto_catch_external": True,
     "auto_catch_nopet_external": False,
+    "auto_catch_sell_external": True,
     "lv1_auto_external": False,
     "auto_sell_external": False,
     "customer_gm": True,
@@ -29,7 +30,7 @@ DEFAULT_COMBO_KWARGS = {
     "wiki_label": False,
     "daily_claim": True,
     "newbie_gift_code": True,
-    "boss_key_fps": False,
+    "boss_key_fps": True,  # 切后台 / 老板键隐藏 → 10 FPS
     "wiki_fps": False,
     "wiki_test_ui": True,  # 百科 → 助手面板
     "battle_appear": True,
@@ -51,6 +52,8 @@ FOOLPROOF_COMBO_KWARGS = {
 
 FOOLPROOF_NO_NINE_COMBO_KWARGS = {
     **FOOLPROOF_COMBO_KWARGS,
+    # 融合版无九动 DLL，单独打 Magics，供面板「无宠二动」
+    "player_action_magics": True,
 }
 
 # 傻瓜「烧卡档」：同面板双 DLL（抓宠+烧卡），倍速/特效取最高；无九动
@@ -80,6 +83,7 @@ FOOLPROOF_AUTO_CATCH_COMBO_KWARGS = {
     "auto_seal_external": True,
     "auto_catch_external": True,
     "auto_catch_nopet_external": False,
+    "auto_catch_sell_external": True,
     "wiki_test_ui": True,
     "level_one_include_all": True,
     "vip_scale": 5,
@@ -119,7 +123,7 @@ LAUNCH_INJECT_PRESET = {
     "wiki_label": False,
     "daily_claim": True,
     "newbie_gift_code": True,
-    "boss_key_fps": False,
+    "boss_key_fps": True,  # 切后台 / 老板键隐藏 → 10 FPS
     "wiki_fps": False,
     "wiki_test_ui": True,
     "battle_appear": True,

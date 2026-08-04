@@ -1318,24 +1318,6 @@
     "perfect_mat_flag": 0
   },
   {
-    "name": "魔龙",
-    "aliases": [
-      "魔龙",
-      "魔龙德拉贡",
-      "黑龙",
-      "古尔迪亚",
-      "黑龙之长"
-    ],
-    "temp_no": 906,
-    "album_no": -1,
-    "tribe": 9,
-    "anim_id": 101905,
-    "perfect_skin_id": 0,
-    "can_perfect": 1,
-    "perfect_mat": "Stone_Role_5",
-    "perfect_mat_flag": 0
-  },
-  {
     "name": "被诅咒的东西",
     "aliases": [
       "被诅咒的东西",
@@ -1440,23 +1422,6 @@
     "perfect_skin_id": 0,
     "can_perfect": 1,
     "perfect_mat": "Stone_Role_3",
-    "perfect_mat_flag": 0
-  },
-  {
-    "name": "寒冰牛头怪",
-    "aliases": [
-      "寒冰牛头怪",
-      "大角羊",
-      "回来报仇的牛鬼",
-      "逆袭的牛鬼"
-    ],
-    "temp_no": 838,
-    "album_no": -1,
-    "tribe": 0,
-    "anim_id": 101922,
-    "perfect_skin_id": 0,
-    "can_perfect": 1,
-    "perfect_mat": "New_Pet_Inner_3",
     "perfect_mat_flag": 0
   },
   {
@@ -4042,6 +4007,20 @@
     "perfect_mat_flag": 0
   },
   {
+    "name": "克洛丝晶王",
+    "aliases": [
+      "克洛丝晶王"
+    ],
+    "temp_no": 490005,
+    "album_no": -1,
+    "tribe": 3,
+    "anim_id": 109624,
+    "perfect_skin_id": 0,
+    "can_perfect": 0,
+    "perfect_mat": "",
+    "perfect_mat_flag": 0
+  },
+  {
     "name": "陆行鲨",
     "aliases": [
       "陆行鲨",
@@ -4609,7 +4588,8 @@
     "name": "龙骨",
     "aliases": [
       "龙骨",
-      "九头龙"
+      "九头龙",
+      "骨龙"
     ],
     "temp_no": 304442,
     "album_no": -1,
@@ -5177,22 +5157,6 @@
     "album_no": -1,
     "tribe": 5,
     "anim_id": 110391,
-    "perfect_skin_id": 0,
-    "can_perfect": 0,
-    "perfect_mat": "",
-    "perfect_mat_flag": 0
-  },
-  {
-    "name": "大地霸王",
-    "aliases": [
-      "大地霸王",
-      "巨大的花",
-      "巨大玛莉花"
-    ],
-    "temp_no": 10116,
-    "album_no": -1,
-    "tribe": 5,
-    "anim_id": 110392,
     "perfect_skin_id": 0,
     "can_perfect": 0,
     "perfect_mat": "",
@@ -11045,6 +11009,100 @@
     "album_no": 323,
     "tribe": 4,
     "anim_id": 108080,
+    "perfect_skin_id": 0,
+    "can_perfect": 1,
+    "perfect_mat": "New_Pet_Inner_3",
+    "perfect_mat_flag": 0
+  },
+  {
+    "name": "七彩史莱姆",
+    "aliases": [
+      "七彩史莱姆"
+    ],
+    "temp_no": 480014,
+    "album_no": 324,
+    "tribe": 7,
+    "anim_id": 120082,
+    "perfect_skin_id": 0,
+    "can_perfect": 0,
+    "perfect_mat": "",
+    "perfect_mat_flag": 0
+  },
+  {
+    "name": "招财猫",
+    "aliases": [
+      "招财猫"
+    ],
+    "temp_no": 480015,
+    "album_no": 325,
+    "tribe": 8,
+    "anim_id": 112813,
+    "perfect_skin_id": 0,
+    "can_perfect": 1,
+    "perfect_mat": "New_Pet_Inner_3",
+    "perfect_mat_flag": 0
+  },
+  {
+    "name": "霸王花",
+    "aliases": [
+      "大地霸王",
+      "巨大的花",
+      "巨大玛莉花",
+      "霸王花"
+    ],
+    "temp_no": 480016,
+    "album_no": 326,
+    "tribe": 5,
+    "anim_id": 110392,
+    "perfect_skin_id": 0,
+    "can_perfect": 0,
+    "perfect_mat": "",
+    "perfect_mat_flag": 0
+  },
+  {
+    "name": "地狱三头犬",
+    "aliases": [
+      "地狱三头犬"
+    ],
+    "temp_no": 480017,
+    "album_no": 327,
+    "tribe": 2,
+    "anim_id": 120081,
+    "perfect_skin_id": 0,
+    "can_perfect": 0,
+    "perfect_mat": "",
+    "perfect_mat_flag": 0
+  },
+  {
+    "name": "黑龙",
+    "aliases": [
+      "魔龙",
+      "魔龙德拉贡",
+      "黑龙",
+      "古尔迪亚",
+      "黑龙之长"
+    ],
+    "temp_no": 480018,
+    "album_no": 328,
+    "tribe": 1,
+    "anim_id": 101905,
+    "perfect_skin_id": 0,
+    "can_perfect": 1,
+    "perfect_mat": "Stone_Role_5",
+    "perfect_mat_flag": 0
+  },
+  {
+    "name": "寒冰牛头怪",
+    "aliases": [
+      "寒冰牛头怪",
+      "大角羊",
+      "回来报仇的牛鬼",
+      "逆袭的牛鬼"
+    ],
+    "temp_no": 480019,
+    "album_no": 329,
+    "tribe": 2,
+    "anim_id": 101922,
     "perfect_skin_id": 0,
     "can_perfect": 1,
     "perfect_mat": "New_Pet_Inner_3",

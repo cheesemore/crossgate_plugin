@@ -29,7 +29,10 @@ public static class SeqChapterTestUi
 
     private const string ModeNormal = "normal";
     private const string ModeNine = "nine";
+    /// <summary>无宠二动：不扩九动队列；依赖 Magics PE（一动技能后二动仍可开技能）。与九动/抓宠/烧卡互斥。</summary>
+    private const string ModeNopet2Act = "nopet_2act";
     private const string ModeCatch = "catch";
+    private const string ModeCatchSell = "catch_sell";
     private const string ModeSeal = "seal";
     private const string ModeCatchNopet = "catch_nopet";
     private const string ModeLv1 = "lv1";
@@ -81,6 +84,10 @@ public static class SeqChapterTestUi
     private static string _navYStr = "";
     private static string _navNameStr = "";
     private static string _navStatusLine = "";
+    /// <summary>抓宠卖银币：回收掉档阈值 Y（与 SeqChapterAutoCatchSell 读同一 json）。</summary>
+    private static object _catchSellYInput;
+    private static string _catchSellYStr = "6";
+    private const int CatchSellDefaultY = 6;
     private static int _navWpPage;
     private static readonly List<NavWaypoint> _navWaypoints = new List<NavWaypoint>();
     private static readonly List<object> _tabButtons = new List<object>();
@@ -485,13 +492,14 @@ public static class SeqChapterTestUi
 
     private static bool IsSuperAiModeAllowed(string mode)
     {
-        return mode == ModeNormal || mode == ModeNine;
+        return mode == ModeNormal || mode == ModeNine || mode == ModeNopet2Act;
     }
 
     private static void ApplyBattleMode(string mode)
     {
         // 全关再开选中项（互斥）
         TrySetFeatureEnabled("SeqChapterAutoCatch", "hotfixdata/SeqChapterAutoCatch.dll.bytes", false);
+        TrySetFeatureEnabled("SeqChapterAutoCatchSell", "hotfixdata/SeqChapterAutoCatchSell.dll.bytes", false);
         TrySetFeatureEnabled("SeqChapterAutoCatchNoPet", "hotfixdata/SeqChapterAutoCatchNoPet.dll.bytes", false);
         TrySetFeatureEnabled("SeqChapterAutoSeal", "hotfixdata/SeqChapterAutoSeal.dll.bytes", false);
         TrySetFeatureEnabled("SeqChapterLv1Auto", "hotfixdata/SeqChapterLv1Auto.dll.bytes", false);
@@ -500,6 +508,10 @@ public static class SeqChapterTestUi
         if (mode == ModeCatch)
         {
             TrySetFeatureEnabled("SeqChapterAutoCatch", "hotfixdata/SeqChapterAutoCatch.dll.bytes", true);
+        }
+        else if (mode == ModeCatchSell)
+        {
+            TrySetFeatureEnabled("SeqChapterAutoCatchSell", "hotfixdata/SeqChapterAutoCatchSell.dll.bytes", true);
         }
         else if (mode == ModeCatchNopet)
         {
@@ -517,7 +529,7 @@ public static class SeqChapterTestUi
         {
             TrySetFeatureEnabled("SeqChapterNineAction", "hotfixdata/SeqChapterNineAction.dll.bytes", true);
         }
-        // normal: all off
+        // normal / nopet_2act: 全部 DLL 关；无宠二动靠 Magics PE
     }
 
     private static bool FeatureAvailable(string typeName, string assetPath)
@@ -1946,6 +1958,7 @@ public static class SeqChapterTestUi
         _navXInput = null;
         _navYInput = null;
         _navNameInput = null;
+        _catchSellYInput = null;
         _lingTangStatusText = null;
         _superAiStatusText = null;
         _superAiBattleRoot = null;
@@ -2034,9 +2047,17 @@ public static class SeqChapterTestUi
             _battleMode = ModeNormal;
         }
 
+        // 无宠二动：不依赖独立 DLL；与九动/抓宠/烧卡互斥。技能二动依赖 Magics PE。
+        AddModeRow(rtType, ModeNopet2Act, "无宠二动（一动技能后二动仍可技能）", ref y, true);
+
         if (FeatureAvailable("SeqChapterAutoCatch", "hotfixdata/SeqChapterAutoCatch.dll.bytes"))
         {
             AddModeRow(rtType, ModeCatch, "抓宠", ref y, true);
+        }
+
+        if (FeatureAvailable("SeqChapterAutoCatchSell", "hotfixdata/SeqChapterAutoCatchSell.dll.bytes"))
+        {
+            AddModeRow(rtType, ModeCatchSell, "抓宠卖银币", ref y, true);
         }
 
         if (FeatureAvailable("SeqChapterAutoSeal", "hotfixdata/SeqChapterAutoSeal.dll.bytes"))
@@ -2054,7 +2075,165 @@ public static class SeqChapterTestUi
             AddModeRow(rtType, ModeLv1, "遇1级（封印/技能1/防御）", ref y, true);
         }
 
+        if (FeatureAvailable("SeqChapterAutoCatchSell", "hotfixdata/SeqChapterAutoCatchSell.dll.bytes"))
+        {
+            AddCatchSellYRow(rtType, ref y);
+        }
+
         WriteLog("BuildBattleBody done");
+    }
+
+    /// <summary>战斗模式页：抓宠卖银币的回收阈值 Y（默认 6）。</summary>
+    private static void AddCatchSellYRow(Type rtType, ref float y)
+    {
+        y -= 8f;
+        _catchSellYStr = LoadCatchSellRecycleMinGrade().ToString();
+
+        var tip = CreateUiChild(_bodyRoot, "CatchSellTip", rtType);
+        SetAnchoredTop(RequireRect(tip, "cst"), 0f, y, 540f, 40f);
+        SetText(
+            AddText(tip),
+            "抓宠卖银币：名字已#跳过；掉档≥Y且无@→回收；其余改名后满仓存仓。",
+            12);
+        y -= 42f;
+
+        var lab = CreateUiChild(_bodyRoot, "CatchSellYLab", rtType);
+        SetAnchoredTop(RequireRect(lab, "csyl"), -170f, y, 160f, 30f);
+        SetText(AddText(lab), "回收掉档阈值 Y", 13);
+
+        _catchSellYInput = CreateInputField(
+            _bodyRoot, rtType, "CatchSellY", 20f, y, 80f, 30f, _catchSellYStr, "Y");
+
+        var save = CreateUiChild(_bodyRoot, "CatchSellYSave", rtType);
+        SetAnchoredTop(RequireRect(save, "csys"), 140f, y, 100f, 30f);
+        var saveImg = AddComp(save, "UnityEngine.UI.Image");
+        SetColor(saveImg, 0.18f, 0.42f, 0.28f, 1f);
+        var saveLab = CreateUiChild(save, "L", rtType);
+        StretchFull(RequireRect(saveLab, "csysl"));
+        SetText(AddText(saveLab), "保存 Y", 13);
+        BindButton(save, saveImg, SaveCatchSellYFromUi);
+
+        y -= 36f;
+    }
+
+    private static string CatchSellConfigPath()
+    {
+        try
+        {
+            return Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                ".seqchapter_helper",
+                "catch_sell.json");
+        }
+        catch
+        {
+            return Path.Combine(Environment.CurrentDirectory, "catch_sell.json");
+        }
+    }
+
+    private static int LoadCatchSellRecycleMinGrade()
+    {
+        try
+        {
+            var path = CatchSellConfigPath();
+            if (!File.Exists(path))
+            {
+                return CatchSellDefaultY;
+            }
+
+            var json = File.ReadAllText(path);
+            var key = "recycle_min_grade";
+            var idx = json.IndexOf(key, StringComparison.OrdinalIgnoreCase);
+            if (idx < 0)
+            {
+                return CatchSellDefaultY;
+            }
+
+            idx = json.IndexOf(':', idx + key.Length);
+            if (idx < 0)
+            {
+                return CatchSellDefaultY;
+            }
+
+            idx++;
+            while (idx < json.Length && char.IsWhiteSpace(json[idx]))
+            {
+                idx++;
+            }
+
+            var end = idx;
+            while (end < json.Length && (char.IsDigit(json[end]) || json[end] == '-'))
+            {
+                end++;
+            }
+
+            if (end > idx
+                && int.TryParse(json.Substring(idx, end - idx), out var y)
+                && y >= 0)
+            {
+                return y;
+            }
+        }
+        catch
+        {
+            // ignore
+        }
+
+        return CatchSellDefaultY;
+    }
+
+    private static void SaveCatchSellYFromUi()
+    {
+        try
+        {
+            var raw = ReadCatchSellYField();
+            if (!int.TryParse(raw, out var y) || y < 0)
+            {
+                Tip("Y 请填非负整数（默认 " + CatchSellDefaultY + "）");
+                return;
+            }
+
+            _catchSellYStr = y.ToString();
+            var path = CatchSellConfigPath();
+            var dir = Path.GetDirectoryName(path);
+            if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+            {
+                Directory.CreateDirectory(dir);
+            }
+
+            File.WriteAllText(
+                path,
+                "{\n  \"recycle_min_grade\": " + y + "\n}\n");
+            Tip("已保存卖银回收阈值 Y=" + y);
+            WriteLog("catch_sell Y=" + y + " -> " + path);
+        }
+        catch (Exception ex)
+        {
+            Tip("保存 Y 失败: " + RootMessage(ex));
+            WriteLog("SaveCatchSellY EX: " + RootMessage(ex));
+        }
+    }
+
+    private static string ReadCatchSellYField()
+    {
+        try
+        {
+            if (_catchSellYInput != null && !IsUnityNull(_catchSellYInput))
+            {
+                var t = GetProp(_catchSellYInput, "text") ?? GetMember(_catchSellYInput, "text");
+                var s = Convert.ToString(t ?? "");
+                if (!string.IsNullOrEmpty(s))
+                {
+                    return s.Trim();
+                }
+            }
+        }
+        catch
+        {
+            // ignore
+        }
+
+        return (_catchSellYStr ?? CatchSellDefaultY.ToString()).Trim();
     }
 
     private static void BuildAppearBody()
@@ -2126,13 +2305,16 @@ public static class SeqChapterTestUi
         BindButton(clearBtn, clearImg, ClearCurrentAppearUid);
         y -= 44f;
 
-        // 推荐方案 1/2/3
-        for (var i = 1; i <= 3; i++)
+        // 推荐方案 1/2/3/4（两行）
+        for (var i = 1; i <= 4; i++)
         {
             var presetIdx = i;
-            var bx = -150f + (i - 1) * 155f;
+            var row = (i - 1) / 2;
+            var col = (i - 1) % 2;
+            var bx = -150f + col * 155f;
+            var by = y - row * 38f;
             var pbtn = CreateUiChild(_bodyRoot, "AppearPreset" + i, rtType);
-            SetAnchoredTop(RequireRect(pbtn, "ap" + i), bx, y, 145f, 34f);
+            SetAnchoredTop(RequireRect(pbtn, "ap" + i), bx, by, 145f, 34f);
             var pimg = AddComp(pbtn, "UnityEngine.UI.Image");
             SetColor(pimg, 0.2f, 0.38f, 0.28f, 1f);
             var plab = CreateUiChild(pbtn, "L", rtType);
@@ -2141,7 +2323,7 @@ public static class SeqChapterTestUi
             BindButton(pbtn, pimg, () => ImportAppearPreset(presetIdx));
         }
 
-        y -= 42f;
+        y -= 80f;
 
         var tip2 = CreateUiChild(_bodyRoot, "AppearTip2", rtType);
         SetAnchoredTop(RequireRect(tip2, "at2"), 0f, y, 560f, 36f);
@@ -8545,7 +8727,9 @@ public static class SeqChapterTestUi
     private static string ModeLabel(string mode)
     {
         if (mode == ModeNine) return "九动";
+        if (mode == ModeNopet2Act) return "无宠二动";
         if (mode == ModeCatch) return "抓宠";
+        if (mode == ModeCatchSell) return "抓宠卖银币";
         if (mode == ModeSeal) return "烧卡";
         if (mode == ModeCatchNopet) return "抓宠（不带宠）";
         if (mode == ModeLv1) return "遇1级自动";

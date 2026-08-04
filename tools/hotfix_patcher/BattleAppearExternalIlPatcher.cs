@@ -43,14 +43,20 @@ internal static class BattleAppearExternalIlPatcher
                 case "--detect":
                     detect = true;
                     break;
+                case "--dll-only":
+                    // 只重编译并部署 SeqChapterBattleAppear.dll.bytes，不改 hotfix
+                    break;
             }
         }
+
+        var dllOnly = args.Any(a => a == "--dll-only");
 
         if (string.IsNullOrWhiteSpace(source))
         {
             Console.WriteLine(
                 "用法: HotfixPatcher battle-appear-external-patch --hotfix <orig> --output <out>\n" +
                 "      HotfixPatcher battle-appear-external-patch --hotfix <file> --detect\n" +
+                "      HotfixPatcher battle-appear-external-patch --hotfix <file> --dll-only\n" +
                 "      HotfixPatcher battle-appear-external-patch --hotfix <orig> --output <out> --restore");
             return 1;
         }
@@ -69,6 +75,23 @@ internal static class BattleAppearExternalIlPatcher
             File.Copy(source, output, overwrite: true);
             Console.WriteLine("[RESTORE] 已从原版复制: " + output);
             return 0;
+        }
+
+        if (dllOnly)
+        {
+            try
+            {
+                var dllPath = BuildDll(source);
+                var assetOut = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(source))!, AssetFileName);
+                File.Copy(dllPath, assetOut, overwrite: true);
+                Console.WriteLine("[OK] 已重编译并部署 " + assetOut);
+                return 0;
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine("[FAIL] " + ex.Message);
+                return 1;
+            }
         }
 
         try

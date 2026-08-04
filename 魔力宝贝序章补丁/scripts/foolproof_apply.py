@@ -133,7 +133,7 @@ def run_foolproof_patch(
         _emit(
             messages,
             on_log,
-            "预设：百科助手面板（常规/九动/抓宠/烧卡）",
+            "预设：百科助手面板（常规/九动/抓宠/抓宠卖银币/烧卡）",
         )
         kwargs = dict(FOOLPROOF_COMBO_KWARGS)
         kwargs["battle_nine_action"] = False
@@ -142,6 +142,7 @@ def run_foolproof_patch(
         kwargs["auto_seal_external"] = True
         kwargs["auto_catch_external"] = True
         kwargs["auto_catch_nopet_external"] = False
+        kwargs["auto_catch_sell_external"] = True
         kwargs["wiki_test_ui"] = True
         nine_checks = ["nine_external"]
     else:
@@ -149,7 +150,7 @@ def run_foolproof_patch(
         _emit(
             messages,
             on_log,
-            "预设：百科助手面板（常规/抓宠/烧卡 · 无九动）",
+            "预设：百科助手面板（常规/抓宠/抓宠卖银币/烧卡 · 无九动）",
         )
         kwargs = dict(FOOLPROOF_NO_NINE_COMBO_KWARGS)
         kwargs["battle_nine_action"] = False
@@ -158,10 +159,11 @@ def run_foolproof_patch(
         kwargs["auto_seal_external"] = True
         kwargs["auto_catch_external"] = True
         kwargs["auto_catch_nopet_external"] = False
+        kwargs["auto_catch_sell_external"] = True
         kwargs["wiki_test_ui"] = True
         nine_checks = ["nine_magics"]
 
-    extra_checks = ["auto_seal_external", "auto_catch_external"]
+    extra_checks = ["auto_seal_external", "auto_catch_external", "auto_catch_sell_external"]
     if kwargs.get("level_one_include_all"):
         extra_checks.append("level_one_include_all")
 

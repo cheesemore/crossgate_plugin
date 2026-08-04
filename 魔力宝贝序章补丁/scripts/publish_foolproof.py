@@ -30,6 +30,7 @@ REF_STUBS_BIN = GAME_ROOT / "tools" / "hotfix_patcher" / "ref_stubs" / "bin"
 REF_STUBS_BUILD = GAME_ROOT / "tools" / "hotfix_patcher" / "build_ref_stubs.py"
 AUTO_SEAL_SRC = GAME_ROOT / "tools" / "seqchapter_auto_seal"
 AUTO_CATCH_SRC = GAME_ROOT / "tools" / "seqchapter_auto_catch"
+AUTO_CATCH_SELL_SRC = GAME_ROOT / "tools" / "seqchapter_auto_catch_sell"
 NINE_ACTION_SRC = GAME_ROOT / "tools" / "seqchapter_nine_action"
 DAILY_CLAIM_SRC = GAME_ROOT / "tools" / "seqchapter_daily_claim"
 BOSS_KEY_FPS_SRC = GAME_ROOT / "tools" / "seqchapter_boss_key_fps"
@@ -84,10 +85,10 @@ if NINE_PACK:
 
 if NINE_PACK:
     APP_NAME = "傻瓜补丁_九动版"
-    PANEL_MODES = "常规 / 九动 / 抓宠 / 烧卡"
+    PANEL_MODES = "常规 / 九动 / 抓宠 / 抓宠卖银币 / 烧卡"
 else:
     APP_NAME = "傻瓜补丁_融合版"
-    PANEL_MODES = "常规 / 抓宠 / 烧卡"
+    PANEL_MODES = "常规 / 抓宠 / 抓宠卖银币 / 烧卡"
 
 SERIES_CLEANUP_PREFIXES = [APP_NAME]
 # 清理旧系列命名，避免发布目录堆积
@@ -357,6 +358,7 @@ def build_exe() -> Path:
     bundle_srcs: list[tuple[Path, str]] = [
         (AUTO_SEAL_SRC, "seqchapter_auto_seal"),
         (AUTO_CATCH_SRC, "seqchapter_auto_catch"),
+        (AUTO_CATCH_SELL_SRC, "seqchapter_auto_catch_sell"),
         (DAILY_CLAIM_SRC, "seqchapter_daily_claim"),
         (BOSS_KEY_FPS_SRC, "seqchapter_boss_key_fps"),
         (WIKI_FPS_SRC, "seqchapter_wiki_fps"),

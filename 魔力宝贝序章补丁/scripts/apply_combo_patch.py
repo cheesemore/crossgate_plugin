@@ -45,6 +45,7 @@ DEFAULT_GIFT_CODES = [
     "MLBB777",
     "mlbb521",
     "mlbb24",
+    "mlbb0803",
 ]
 
 
@@ -343,6 +344,28 @@ def apply_battle_nine_external(hotfix: Path, source: Path) -> tuple[bool, str]:
     return True, "神奇九动·DLL版：已部署 DLL + 加载钩 + Magics"
 
 
+def apply_player_action_magics(hotfix: Path, source: Path) -> tuple[bool, str]:
+    """仅 Magics：一动技能/道具后二动仍可开技能栏（无宠二动依赖；不含九动队列）。"""
+    proc = run_patcher_capture(
+        [
+            "battle-nine-action-patch",
+            "--hotfix",
+            str(source),
+            "--output",
+            str(hotfix),
+            "--magics-only",
+        ]
+    )
+    out = (proc.stdout or "") + (proc.stderr or "")
+    if proc.returncode != 0:
+        if "[SKIP]" in out or "Magics" in out or "PlayerActionMagics" in out:
+            return True, "无宠二动·Magics：已是补丁状态（跳过）"
+        return False, out.strip() or "无宠二动·Magics 补丁失败"
+    if "[SKIP]" in out:
+        return True, "无宠二动·Magics：已是补丁状态（跳过）"
+    return True, "无宠二动·Magics：一动技能后二动仍可开技能栏"
+
+
 def apply_daily_claim_external(
     hotfix: Path,
     source: Path,
@@ -422,7 +445,7 @@ def apply_battle_appear_external(hotfix: Path, source: Path) -> tuple[bool, str]
 
 
 def apply_boss_key_fps_external(hotfix: Path, source: Path) -> tuple[bool, str]:
-    """老板键限帧：隐藏时 10FPS，恢复时还原（不占百科/Pause）。"""
+    """切后台/老板键限帧：失焦或隐藏时 10FPS，恢复时还原（不占百科/Pause）。"""
     proc = run_patcher_capture(
         [
             "boss-key-fps-patch",
@@ -434,10 +457,10 @@ def apply_boss_key_fps_external(hotfix: Path, source: Path) -> tuple[bool, str]:
     )
     out = (proc.stdout or "") + (proc.stderr or "")
     if proc.returncode != 0:
-        return False, out.strip() or "老板键限帧补丁失败"
-    if "[SKIP]" in out and "老板键" in out:
-        return True, "老板键限帧：已是补丁状态（跳过）"
-    return True, "老板键限帧：隐藏→10FPS（关 VSync），恢复→还原"
+        return False, out.strip() or "切后台/老板键限帧补丁失败"
+    if "[SKIP]" in out and ("老板键" in out or "限帧" in out):
+        return True, "切后台/老板键限帧：已是补丁状态（跳过）"
+    return True, "切后台/老板键限帧：失焦或隐藏→10FPS（关 VSync），恢复→还原"
 
 
 def apply_wiki_fps_external(hotfix: Path, source: Path) -> tuple[bool, str]:
@@ -569,6 +592,28 @@ def apply_auto_catch_nopet_external(
     return True, "自动抓宠·无宠人防御：已部署 DLL + AutoFight/DoVip 钩 + 百科开关"
 
 
+def apply_auto_catch_sell_external(
+    hotfix: Path, source: Path, *, panel: bool = False
+) -> tuple[bool, str]:
+    """抓宠卖银币·DLL版；panel=True 时不占百科/Pause，与普通抓宠 DLL 共存。"""
+    args = [
+        "auto-catch-sell-external-patch",
+        "--hotfix",
+        str(source),
+        "--output",
+        str(hotfix),
+    ]
+    if panel:
+        args.append("--panel")
+    proc = run_patcher_capture(args)
+    out = (proc.stdout or "") + (proc.stderr or "")
+    if proc.returncode != 0:
+        return False, out.strip() or "抓宠卖银币·DLL版补丁失败"
+    if panel:
+        return True, "抓宠卖银币·DLL版：已部署 DLL + 战斗分发钩（面板模式）"
+    return True, "抓宠卖银币·DLL版：已部署 DLL + 战斗分发钩 + 百科开关"
+
+
 
 def apply_lv1_auto_external(hotfix: Path, source: Path) -> tuple[bool, str]:
     """遇1级自动·DLL版：SeqChapterLv1Auto.dll.bytes + Player/Pet/VIP 钩 + 百科开关。"""
@@ -644,9 +689,11 @@ def _apply_gameplay_patches(
     vip_non_vip: bool,
     battle_nine_action: bool,
     battle_nine_external: bool,
+    player_action_magics: bool = False,
     auto_seal_external: bool,
     auto_catch_external: bool,
     auto_catch_nopet_external: bool = False,
+    auto_catch_sell_external: bool = False,
     lv1_auto_external: bool = False,
     auto_sell_external: bool,
     plugin_host: bool,
@@ -681,6 +728,14 @@ def _apply_gameplay_patches(
     if battle_nine_external:
         _emit_combo(messages, on_log, "正在打：神奇九动·DLL版…")
         ok, msg = apply_battle_nine_external(hotfix, work)
+        if not ok:
+            raise RuntimeError(msg)
+        _emit_combo(messages, on_log, msg)
+        work = hotfix
+    elif player_action_magics:
+        # 九动 DLL 版已含 Magics；融合/无九动时单独打，供面板「无宠二动」
+        _emit_combo(messages, on_log, "正在打：无宠二动·Magics…")
+        ok, msg = apply_player_action_magics(hotfix, work)
         if not ok:
             raise RuntimeError(msg)
         _emit_combo(messages, on_log, msg)
@@ -809,6 +864,17 @@ def _apply_gameplay_patches(
             raise RuntimeError(msg)
         _emit_combo(messages, on_log, msg)
         work = hotfix
+    if auto_catch_sell_external:
+        _emit_combo(
+            messages,
+            on_log,
+            "正在打：抓宠卖银币·DLL版" + ("（面板模式）…" if panel_mode else "…"),
+        )
+        ok, msg = apply_auto_catch_sell_external(hotfix, work, panel=panel_mode)
+        if not ok:
+            raise RuntimeError(msg)
+        _emit_combo(messages, on_log, msg)
+        work = hotfix
     if lv1_auto_external:
         _emit_combo(messages, on_log, "正在打：遇1级自动·DLL版…")
         ok, msg = apply_lv1_auto_external(hotfix, work)
@@ -853,9 +919,9 @@ def _apply_gameplay_patches(
         _emit_combo(messages, on_log, msg)
         work = hotfix
 
-    # 老板键限帧：默认关（已去除）；仅手动勾选时打
+    # 切后台 / 老板键限帧（失焦或隐藏 → 10FPS）
     if boss_key_fps:
-        _emit_combo(messages, on_log, "正在打：老板键限帧…")
+        _emit_combo(messages, on_log, "正在打：切后台/老板键限帧…")
         ok, msg = apply_boss_key_fps_external(hotfix, work)
         if not ok:
             raise RuntimeError(msg)
@@ -902,9 +968,11 @@ def apply_combo(
     vip_non_vip: bool = False,
     battle_nine_action: bool = False,
     battle_nine_external: bool = False,
+    player_action_magics: bool = False,
     auto_seal_external: bool = False,
     auto_catch_external: bool = False,
     auto_catch_nopet_external: bool = False,
+    auto_catch_sell_external: bool = False,
     lv1_auto_external: bool = False,
     auto_sell_external: bool = False,
     plugin_host: bool = False,
@@ -962,7 +1030,11 @@ def apply_combo(
     panel_mode = bool(wiki_test_ui)
 
     wiki_users = [
-        ("自动抓宠·DLL", (auto_catch_external or auto_catch_nopet_external) and not panel_mode),
+        (
+            "自动抓宠·DLL",
+            (auto_catch_external or auto_catch_nopet_external or auto_catch_sell_external)
+            and not panel_mode,
+        ),
         ("遇1级自动·DLL", lv1_auto_external and not panel_mode),
         ("自动烧卡·DLL", auto_seal_external and not panel_mode),
         ("盗贼辅助·DLL", auto_sell_external),
@@ -1009,6 +1081,7 @@ def apply_combo(
         ("自动烧卡·DLL", auto_seal_external and not panel_mode),
         ("自动抓宠·DLL", auto_catch_external and not panel_mode),
         ("自动抓宠·无宠人防御", auto_catch_nopet_external and not panel_mode),
+        ("抓宠卖银币·DLL", auto_catch_sell_external and not panel_mode),
         ("遇1级自动·DLL", lv1_auto_external and not panel_mode),
         ("盗贼辅助·DLL", auto_sell_external),
         ("插件 Host", plugin_host),
@@ -1021,7 +1094,7 @@ def apply_combo(
             "神奇九动·DLL / 自动烧卡·DLL / 自动抓宠·DLL / 自动抓宠·无宠人防御 / 遇1级自动·DLL / "
             "盗贼辅助·DLL / 插件 Host / 注入桥接·DLL。\n"
             "（勾选百科→助手面板时，抓宠/烧卡/遇1级改为面板模式，可与助手+九动 DLL 同开；"
-            "九动版面板：常规/九动/抓宠/烧卡）\n"
+            "九动版面板：常规/九动/无宠二动/抓宠/烧卡）\n"
             f"当前同时勾选了：{'、'.join(exclusive_on)}"
         )
 
@@ -1055,9 +1128,11 @@ def apply_combo(
         or vip_non_vip
         or battle_nine_action
         or battle_nine_external
+        or player_action_magics
         or auto_seal_external
         or auto_catch_external
         or auto_catch_nopet_external
+        or auto_catch_sell_external
         or lv1_auto_external
         or auto_sell_external
         or plugin_host
@@ -1084,9 +1159,11 @@ def apply_combo(
         vip_non_vip=vip_non_vip,
         battle_nine_action=battle_nine_action,
         battle_nine_external=battle_nine_external,
+        player_action_magics=player_action_magics,
         auto_seal_external=auto_seal_external,
         auto_catch_external=auto_catch_external,
         auto_catch_nopet_external=auto_catch_nopet_external,
+        auto_catch_sell_external=auto_catch_sell_external,
         lv1_auto_external=lv1_auto_external,
         auto_sell_external=auto_sell_external,
         plugin_host=plugin_host,
@@ -1138,9 +1215,11 @@ def apply_combo(
         "vip_scale": vip_scale,
         "battle_nine_action": battle_nine_action,
         "battle_nine_external": battle_nine_external,
+        "player_action_magics": player_action_magics,
         "auto_seal_external": auto_seal_external,
         "auto_catch_external": auto_catch_external,
         "auto_catch_nopet_external": auto_catch_nopet_external,
+        "auto_catch_sell_external": auto_catch_sell_external,
         "lv1_auto_external": lv1_auto_external,
         "auto_sell_external": auto_sell_external,
         "plugin_host": plugin_host,

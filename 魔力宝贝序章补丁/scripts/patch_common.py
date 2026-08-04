@@ -24,8 +24,10 @@ PARTIALCONFIG_STREAMING_REL = Path(DATA_DIR) / "StreamingAssets" / "partialconfi
 KEEP_CHANNELS = frozenset({"1100", "1102"})
 DEFAULT_CHANNEL = "1101"
 OLD_HOTFIX_SIZE = 6_879_744
-EXPECTED_SIZE = 7_092_736
+EXPECTED_SIZE = 7_109_632
 KNOWN_OLD_SIZES: dict[int, str] = {
+    7_097_856: "自动标记：更新前旧版",
+    7_092_736: "2026-07-22 ~ 2026-08-03（更新前；无 TimeScale 上报）",
     7_091_712: "自动标记：更新前旧版",
     7_089_152: "2026-07-28 ~ 2026-07-29",
     7_077_888: "自动标记：更新前旧版",
@@ -548,11 +550,13 @@ def _sync_patcher_tree(src_dir: Path, dst_dir: Path) -> bool:
 _EXTERNAL_PATCH_SOURCES = (
     ("seqchapter_auto_seal", "SeqChapterAutoSeal.cs"),
     ("seqchapter_auto_catch", "SeqChapterAutoCatch.cs"),
+    ("seqchapter_auto_catch_sell", "SeqChapterAutoCatchSell.cs"),
     ("seqchapter_lv1_auto", "SeqChapterLv1Auto.cs"),
     ("seqchapter_auto_sell", "SeqChapterAutoSell.cs"),
     ("seqchapter_nine_action", "SeqChapterNineAction.cs"),
     ("seqchapter_daily_claim", "SeqChapterDailyClaim.cs"),
     ("seqchapter_wiki_fps", "SeqChapterWikiFps.cs"),
+    ("seqchapter_boss_key_fps", "SeqChapterBossKeyFps.cs"),
     ("seqchapter_test_ui", "SeqChapterTestUi.cs"),
     ("seqchapter_battle_appear", "SeqChapterBattleAppear.cs"),
     ("seqchapter_plugin_host", "SeqChapterPluginHost.cs"),

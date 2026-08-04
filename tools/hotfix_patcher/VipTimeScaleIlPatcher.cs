@@ -7,6 +7,8 @@ namespace CrossgateMod.Patcher;
 /// VIP 加速：改 get_BattleTimeScale 中 ldc.r4 1.5 → 3/5/10；可选 --non-vip 将默认 1.0 改为同倍速。
 /// 心跳 Echo.Speed：仅 VIP 加速时固定报 1.5；启用非 VIP 加速时固定报 1.0（防检测）。
 /// 同步：KickOff 打飞速度 MoveSpeed×4 → ×(4×倍速)，如 5x → 20。
+/// 注意（2026-08 起）：官方 GmManager 会定时查 UnityEngine.Time.timeScale&gt;1 并 Web 上报；
+/// 本补丁只改 BattleTimeScale，不碰 Time.timeScale，与该检测岔开。
 /// </summary>
 internal static class VipTimeScaleIlPatcher
 {

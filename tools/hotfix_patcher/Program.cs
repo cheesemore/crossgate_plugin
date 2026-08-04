@@ -105,6 +105,11 @@ internal static class Program
             return AutoCatchExternalIlPatcher.Run(args.Skip(1).ToArray());
         }
 
+        if (args.Length > 0 && args[0] == "auto-catch-sell-external-patch")
+        {
+            return AutoCatchSellExternalIlPatcher.Run(args.Skip(1).ToArray());
+        }
+
         if (args.Length > 0 && args[0] == "auto-catch-nopet-external-patch")
         {
             return AutoCatchExternalIlPatcher.RunNopet(args.Skip(1).ToArray());

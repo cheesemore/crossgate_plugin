@@ -21,7 +21,12 @@ from tkinter import messagebox, scrolledtext, ttk
 from PIL import Image, ImageTk
 
 def _bootstrap_tool_paths() -> Path:
-    """tools 目录：脚本旁 / PyInstaller MEIPASS / 傻瓜补丁包 animator|tools。"""
+    """tools 目录：脚本旁优先 / PyInstaller MEIPASS / 傻瓜补丁包 animator|tools。
+
+    注意：必须让「脚本所在 tools」始终在 sys.path 最前。
+    若把其它仓库（如 crossgate_cursor）insert(0)，会抢走 game_profile /
+    bundle_map 缓存，导致本地明明有的动画（如 100199）被误判「不可播」。
+    """
     here = Path(__file__).resolve().parent
     roots = [here]
     if getattr(sys, "frozen", False):
@@ -38,16 +43,23 @@ def _bootstrap_tool_paths() -> Path:
                 exe_dir,
             ]
         )
-    # 开发机可选旁路
-    roots.append(Path(r"E:\crossgate_cursor\tools"))
     seen: set[str] = set()
+    # 先收集，再按「here 优先」写入：append 到 path 前端时倒序 insert
+    ordered: list[Path] = []
     for root in roots:
-        key = str(root.resolve()) if root.exists() else ""
-        if not key or key in seen:
+        try:
+            key = str(root.resolve())
+        except OSError:
+            continue
+        if not root.is_dir() or key in seen:
             continue
         seen.add(key)
-        if str(root) not in sys.path:
-            sys.path.insert(0, str(root))
+        ordered.append(root)
+    for root in reversed(ordered):
+        s = str(root)
+        if s in sys.path:
+            sys.path.remove(s)
+        sys.path.insert(0, s)
     return here
 
 
@@ -108,6 +120,7 @@ BATTLE_CFG = _writable_cfg_dir() / "battle_appear.json"
 LAST_CODE = _writable_cfg_dir() / "battle_appear_last_code.txt"
 EXPORT_SCRIPT = TOOLS / "export_pet_appear_bin.py"
 EXTRACT_SCRIPT = TOOLS / "extract_seqchapter_configs.py"
+ROLE_HALO_SCRIPT = TOOLS / "_parse_role_halo.py"
 
 
 def load_pet_appear() -> list[dict]:
@@ -213,6 +226,8 @@ class AppearPreviewGui(tk.Tk):
         self._ride_by_id: dict[int, dict] = {}  # 坐骑配置 Id → 行（≠动画 Id）
         self._ride_by_grano: dict[int, dict] = {}
         self._ride_rows: list[dict] = []
+        self._ride_combo_to_value: dict[str, int] = {"0": 0}
+        self._ride_value_to_label: dict[int, str] = {0: "0"}
         self._crest_ids: set[int] = set()
         self._role_halo_by_id: dict[int, dict] = {}
         self._role_halo_by_grano: dict[int, dict] = {}
@@ -380,7 +395,7 @@ class AppearPreviewGui(tk.Tk):
         self.ride_skin_combo.pack(side="left")
         ttk.Label(
             form,
-            text="人物光环/坐骑=表 Id 下拉（光环写入 Grano；坐骑写入配置 Id，兼容旧码 Grano）",
+            text="坐骑：无后缀=人物坐骑表；带「骑宠皮」=奥术飞毯/克洛丝晶王等（钩子注入后进战生效）",
             foreground="#888",
         ).grid(row=3, column=0, columnspan=2, sticky="w", padx=4, pady=(0, 4))
 
@@ -447,8 +462,27 @@ class AppearPreviewGui(tk.Tk):
                 encoding="utf-8",
                 errors="replace",
             )
-            msg = ((ex.stdout or "") + "\n" + (proc.stdout or "") + (proc.stderr or ""))
-            self.after(0, lambda: self._after_export(proc.returncode, msg))
+            halo_out = ""
+            halo_code = 0
+            if ROLE_HALO_SCRIPT.is_file():
+                halo = subprocess.run(
+                    [sys.executable, str(ROLE_HALO_SCRIPT)],
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                )
+                halo_code = halo.returncode
+                halo_out = (halo.stdout or "") + (halo.stderr or "")
+            code = proc.returncode or halo_code
+            msg = (
+                (ex.stdout or "")
+                + "\n"
+                + (proc.stdout or "")
+                + (proc.stderr or "")
+                + ("\n" + halo_out if halo_out else "")
+            )
+            self.after(0, lambda: self._after_export(code, msg))
 
         threading.Thread(target=work, daemon=True).start()
 
@@ -539,10 +573,13 @@ class AppearPreviewGui(tk.Tk):
             for h in self.role_halos
             if int(h.get("grano") or 0) > 0
         }
-        # 坐骑：人物表 + 骑宠皮；Id 冲突时保留人物表，再收高位骑宠皮（如 8206 奥术飞毯）
+        # 坐骑：人物表(other_tbride*) + 骑宠皮(pet_tbride*)。
+        # 游戏原生只认人物表 Id；骑宠皮靠钩子注入别名。Id 与人物表冲突时写入 Grano。
         self._ride_rows = []
-        self._ride_by_id = {}
-        self._ride_by_grano = {}
+        self._ride_by_id: dict[int, dict] = {}
+        self._ride_by_grano: dict[int, dict] = {}
+        self._ride_combo_to_value: dict[str, int] = {"0": 0}
+        self._ride_value_to_label: dict[int, str] = {0: "0"}
         char_rows = [
             r
             for r in raw_rides
@@ -557,20 +594,35 @@ class AppearPreviewGui(tk.Tk):
             and int(r.get("id") or 0) > 0
             and int(r.get("grano") or 0) > 0
         ]
+        char_ids = {int(r.get("id") or 0) for r in char_rows}
         for r in char_rows:
             rid = int(r.get("id") or 0)
             grano = int(r.get("grano") or 0)
+            name = str(r.get("name") or "").strip()
+            label = f"{rid}.{name}" if name else str(rid)
             self._ride_by_id[rid] = r
             self._ride_by_grano[grano] = r
             self._ride_rows.append(r)
+            self._ride_combo_to_value[label] = rid
+            self._ride_value_to_label[rid] = label
+            self._ride_value_to_label[grano] = label
         for r in pet_rows:
             rid = int(r.get("id") or 0)
             grano = int(r.get("grano") or 0)
-            if rid in self._ride_by_id:
-                continue
-            self._ride_by_id[rid] = r
+            name = str(r.get("name") or "").strip()
+            # 与人物坐骑 Id 冲突时改存 Grano，避免写成地狱妖犬等错误坐骑
+            write = grano if rid in char_ids else rid
+            label = f"{rid}.{name}（骑宠皮）" if name else f"{rid}（骑宠皮）"
+            # 不覆盖人物表同 Id；骑宠皮靠 grano / combo 映射识别
+            if rid not in self._ride_by_id:
+                self._ride_by_id[rid] = r
             self._ride_by_grano[grano] = r
             self._ride_rows.append(r)
+            self._ride_combo_to_value[label] = write
+            self._ride_value_to_label[write] = label
+            if rid not in char_ids:
+                self._ride_value_to_label[rid] = label
+            self._ride_value_to_label[grano] = label
         crest_vals = ["0"] + [
             f"{int(c.get('id'))}.{c.get('name') or ''}".rstrip(".")
             for c in self.crests
@@ -582,9 +634,11 @@ class AppearPreviewGui(tk.Tk):
             if int(h.get("id") or 0) > 0 and int(h.get("grano") or 0) > 0
         ]
         ride_vals = ["0"] + [
-            f"{int(r.get('id'))}.{r.get('name') or ''}".rstrip(".")
-            for r in self._ride_rows
+            lab
+            for lab in self._ride_combo_to_value
+            if lab != "0"
         ]
+        # 人物坐骑在前，骑宠皮在后（combo dict 已按插入序；Py3.7+）
         try:
             self.crest_combo.configure(values=crest_vals)
         except Exception:
@@ -599,11 +653,13 @@ class AppearPreviewGui(tk.Tk):
             pass
         self._filter_anims()
         named_drop = self._table_total - self._anims_named
+        n_char = len(char_rows)
+        n_pet = len(pet_rows)
         self.status.config(
             text=(
                 f"动画 {len(self.anims)}（有名{self._anims_named}/表{self._table_total}"
                 f" 无播{named_drop} +无名{self._anims_extra}）· "
-                f"坐骑配置 {len(self._ride_by_id)}· "
+                f"坐骑 人物{n_char}+骑宠皮{n_pet}· "
                 f"{self.profile.label}"
             )
         )
@@ -1012,27 +1068,46 @@ class AppearPreviewGui(tk.Tk):
         return name
 
     def _ride_skin_label(self, value: int) -> str:
-        """表单显示：配置 Id 或旧码 Grano → Id.名称。"""
+        """表单显示：配置 Id / 骑宠皮 Id / Grano → 下拉文案。"""
         if value <= 0:
             return "0"
+        lab = getattr(self, "_ride_value_to_label", {}).get(value)
+        if lab:
+            return lab
         r = self._ride_by_id.get(value) or self._ride_by_grano.get(value)
         if r:
             rid = int(r.get("id") or 0)
             name = str(r.get("name") or "").strip()
+            if r.get("kind") == "pet_skin":
+                return f"{rid}.{name}（骑宠皮）" if name else f"{rid}（骑宠皮）"
             return f"{rid}.{name}" if name else str(rid or value)
         return str(value)
 
     def _ride_skin_id_from_combo(self) -> int:
-        """下拉 Id.名称 → 配置 Id；未知纯数字原样（兼容旧 Grano）。"""
+        """下拉 → 写入值：人物坐骑=配置 Id；骑宠皮=Id（冲突则 Grano）。"""
         raw = (self.ride_skin_var.get() or "").strip()
         if not raw or raw == "0":
             return 0
+        mapped = getattr(self, "_ride_combo_to_value", {}).get(raw)
+        if mapped is not None:
+            return int(mapped)
         rid = self._parse_combo_id(raw, 0)
         if rid > 0 and rid in self._ride_by_id:
+            r = self._ride_by_id[rid]
+            if r.get("kind") == "pet_skin":
+                # 与人物 Id 冲突的骑宠皮：存 Grano
+                char_hit = any(
+                    x.get("kind", "char") == "char" and int(x.get("id") or 0) == rid
+                    for x in self._ride_rows
+                )
+                if char_hit:
+                    return int(r.get("grano") or rid)
             return rid
-        # 兼容旧码直接填 Grano：反查成配置 Id
         if rid > 0 and rid in self._ride_by_grano:
-            return int(self._ride_by_grano[rid].get("id") or rid)
+            r = self._ride_by_grano[rid]
+            if r.get("kind") == "pet_skin":
+                return int(r.get("grano") or rid)
+            return int(r.get("id") or rid)
         try:
             n = int(raw)
             return n if n > 0 else 0

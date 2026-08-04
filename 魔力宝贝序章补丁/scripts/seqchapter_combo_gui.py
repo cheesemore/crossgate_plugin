@@ -155,7 +155,7 @@ class ComboPatchApp:
         self.skill_effect_scale_var = tk.StringVar(value="2")
         self.daily_claim_var = tk.BooleanVar(value=True)
         self.newbie_gift_code_var = tk.BooleanVar(value=True)
-        self.boss_key_fps_var = tk.BooleanVar(value=False)
+        self.boss_key_fps_var = tk.BooleanVar(value=True)
         self.wiki_fps_var = tk.BooleanVar(value=False)
         self.wiki_test_ui_var = tk.BooleanVar(value=True)
         self.battle_appear_var = tk.BooleanVar(value=True)
@@ -284,7 +284,7 @@ class ComboPatchApp:
 
         ttk.Checkbutton(
             tab_common,
-            text="老板键限帧（默认关；隐藏客户端时 10FPS，恢复时还原）",
+            text="切后台/老板键限帧（默认开；失焦或隐藏时 10FPS，恢复时还原）",
             variable=self.boss_key_fps_var,
         ).pack(anchor=tk.W, pady=(8, 0))
 

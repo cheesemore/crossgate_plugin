@@ -1249,20 +1249,17 @@ public static class SeqChapterBattleAppear
 
         if (!found)
         {
-            // 无本地 json 时仍可用 Uid 档；默认开启钩子（有档才有效果）
-            _enabled = true;
+            // 无本地 json：钩子默认关；有 Uid 档也不自动开，需面板手动开
+            _enabled = false;
             if (string.IsNullOrEmpty(_loadError))
             {
-                _loadError = "battle_appear.json not found (可用Uid档)";
+                _loadError = "battle_appear.json not found (钩子默认关)";
             }
         }
 
         _cfgLoaded = true;
         LoadUidStore(force: true);
-        if (UidProfiles.Count > 0)
-        {
-            _enabled = true;
-        }
+        // 不因存在 Uid 档而自动开启；进游戏默认关，由面板「钩子」开关控制
     }
 
     private static void LoadConfig(string path)

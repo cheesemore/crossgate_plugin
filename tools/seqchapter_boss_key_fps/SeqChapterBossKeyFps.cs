@@ -2,7 +2,7 @@ using System;
 using System.Reflection;
 
 /// <summary>
-/// 老板键限帧：BossKey 隐藏窗口时 targetFrameRate=10 且关 VSync；恢复时还原。
+/// 切后台 / 老板键限帧：窗口失焦或 BossKey 隐藏时 targetFrameRate=10 且关 VSync；恢复时还原。
 /// 部署为 hotfixdata/SeqChapterBossKeyFps.dll.bytes；由 HotfixEntry.Update 每帧 Invoke Tick。
 /// </summary>
 public static class SeqChapterBossKeyFps
@@ -10,7 +10,7 @@ public static class SeqChapterBossKeyFps
     public const string AssetPath = "hotfixdata/SeqChapterBossKeyFps.dll.bytes";
     public const string TypeName = "SeqChapterBossKeyFps";
 
-    /// <summary>隐藏时目标帧率。</summary>
+    /// <summary>切后台 / 老板键隐藏时目标帧率。</summary>
     public const int HiddenFrameRate = 10;
 
     private static bool _applied;
@@ -18,14 +18,16 @@ public static class SeqChapterBossKeyFps
     private static int _savedVSync = 1;
     private static FieldInfo _isHideField;
     private static bool _resolvedHideField;
+    private static PropertyInfo _isFocusedProp;
+    private static bool _resolvedFocusedProp;
 
     /// <summary>HotfixEntry.Update 每帧调用（加载后）。</summary>
     public static void Tick()
     {
         try
         {
-            var hidden = IsBossKeyHidden();
-            if (hidden)
+            var throttle = IsBossKeyHidden() || !IsApplicationFocused();
+            if (throttle)
             {
                 if (!_applied)
                 {
@@ -51,6 +53,33 @@ public static class SeqChapterBossKeyFps
         catch
         {
             // 忽略单帧异常，避免拖垮 Update
+        }
+    }
+
+    private static bool IsApplicationFocused()
+    {
+        if (!_resolvedFocusedProp)
+        {
+            _resolvedFocusedProp = true;
+            var app = FindTypeAll("UnityEngine.Application");
+            _isFocusedProp = app?.GetProperty(
+                "isFocused",
+                BindingFlags.Static | BindingFlags.Public);
+        }
+
+        if (_isFocusedProp == null)
+        {
+            // 读不到焦点时不当作后台，避免误限帧
+            return true;
+        }
+
+        try
+        {
+            return Convert.ToBoolean(_isFocusedProp.GetValue(null, null));
+        }
+        catch
+        {
+            return true;
         }
     }
 

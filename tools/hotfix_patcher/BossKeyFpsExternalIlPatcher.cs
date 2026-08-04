@@ -6,7 +6,7 @@ using Mono.Cecil.Cil;
 namespace CrossgateMod.Patcher;
 
 /// <summary>
-/// 老板键限帧：HotfixEntry.Update 前缀加载 SeqChapterBossKeyFps.dll.bytes 并 Invoke Tick。
+/// 切后台 / 老板键限帧：HotfixEntry.Update 前缀加载 SeqChapterBossKeyFps.dll.bytes 并 Invoke Tick。
 /// 不占用 OnApplicationPause / 百科 / 分享，可与九动/抓宠/烧卡/日常/桥接并存。
 /// </summary>
 internal static class BossKeyFpsExternalIlPatcher

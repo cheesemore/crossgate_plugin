@@ -41,14 +41,19 @@ internal static class TestUiExternalIlPatcher
                 case "--detect":
                     detect = true;
                     break;
+                case "--dll-only":
+                    break;
             }
         }
+
+        var dllOnly = args.Any(a => a == "--dll-only");
 
         if (string.IsNullOrWhiteSpace(source))
         {
             Console.WriteLine(
                 "用法: HotfixPatcher wiki-test-ui-patch --hotfix <orig> --output <out>\n" +
                 "      HotfixPatcher wiki-test-ui-patch --hotfix <file> --detect\n" +
+                "      HotfixPatcher wiki-test-ui-patch --hotfix <file> --dll-only\n" +
                 "      HotfixPatcher wiki-test-ui-patch --hotfix <orig> --output <out> --restore");
             return 1;
         }
@@ -67,6 +72,23 @@ internal static class TestUiExternalIlPatcher
             File.Copy(source, output, overwrite: true);
             Console.WriteLine("[RESTORE] 已从原版复制: " + output);
             return 0;
+        }
+
+        if (dllOnly)
+        {
+            try
+            {
+                var dllPath = BuildTestUiDll(source);
+                var assetOut = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(source))!, AssetFileName);
+                File.Copy(dllPath, assetOut, overwrite: true);
+                Console.WriteLine("[OK] 已重编译并部署 " + assetOut);
+                return 0;
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine("[FAIL] " + ex.Message);
+                return 1;
+            }
         }
 
         try

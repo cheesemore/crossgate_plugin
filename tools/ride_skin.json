@@ -161,6 +161,16 @@
   },
   {
     "kind": "pet_skin",
+    "id": 16,
+    "grano": 110338,
+    "time": 0,
+    "icon": 0,
+    "name": "骨龙",
+    "memo": "累积兑换活动",
+    "gorun": 0
+  },
+  {
+    "kind": "pet_skin",
     "id": 4098,
     "grano": 107011,
     "time": 0,
@@ -257,6 +267,16 @@
     "icon": 0,
     "name": "奥术飞毯",
     "memo": "钻石购买",
+    "gorun": 0
+  },
+  {
+    "kind": "pet_skin",
+    "id": 8207,
+    "grano": 111638,
+    "time": 0,
+    "icon": 0,
+    "name": "克洛丝晶王",
+    "memo": "累积兑换活动",
     "gorun": 0
   }
 ]
