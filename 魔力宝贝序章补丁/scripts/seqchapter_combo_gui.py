@@ -158,7 +158,7 @@ class ComboPatchApp:
         self.boss_key_fps_var = tk.BooleanVar(value=True)
         self.wiki_fps_var = tk.BooleanVar(value=False)
         self.wiki_test_ui_var = tk.BooleanVar(value=True)
-        self.battle_appear_var = tk.BooleanVar(value=True)
+        self.battle_appear_var = tk.BooleanVar(value=False)
 
         notebook = ttk.Notebook(body)
         notebook.pack(fill=tk.BOTH, expand=True, pady=(0, 8))

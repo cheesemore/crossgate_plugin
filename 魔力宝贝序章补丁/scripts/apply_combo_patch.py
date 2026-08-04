@@ -82,6 +82,7 @@ def apply_vip(
     *,
     vip_branch: bool = True,
     non_vip: bool = False,
+    echo: float | None = None,
 ) -> tuple[bool, str]:
     args = [
         "vip-timescale-patch",
@@ -92,10 +93,14 @@ def apply_vip(
         "--scale",
         str(scale),
     ]
+    if echo is not None:
+        args += ["--echo", f"{echo:g}"]
     if non_vip and not vip_branch:
         args.append("--non-vip-only")
     elif non_vip:
         args.append("--non-vip")
+    if not vip_branch and not non_vip and echo is not None:
+        args.append("--echo-only")
     proc = run_patcher_capture(args)
     out = (proc.stdout or "") + (proc.stderr or "")
     if proc.returncode != 0:
@@ -109,8 +114,13 @@ def apply_vip(
         parts.append(f"VIP {scale}x")
     if non_vip:
         parts.append(f"非VIP {scale}x")
-    echo = "回传1.0x" if non_vip else "回传1.5x"
-    return True, "战斗倍速：" + "、".join(parts) + f"（打飞×{int(scale) * 4}，心跳{echo}）"
+    if echo is not None:
+        echo_label = f"回传{echo:g}x"
+    else:
+        echo_label = "回传1.0x" if non_vip else "回传1.5x"
+    if not vip_branch and not non_vip:
+        return True, f"战斗倍速：不改倍速，心跳{echo_label}"
+    return True, "战斗倍速：" + "、".join(parts) + f"（打飞×{int(scale) * 4}，心跳{echo_label}）"
 
 
 MAP_SPRINT_SCALES = (8, 10, 12)
@@ -687,6 +697,7 @@ def _apply_gameplay_patches(
     vip: bool,
     vip_scale: int,
     vip_non_vip: bool,
+    vip_echo: float | None = None,
     battle_nine_action: bool,
     battle_nine_external: bool,
     player_action_magics: bool = False,
@@ -741,11 +752,30 @@ def _apply_gameplay_patches(
         _emit_combo(messages, on_log, msg)
         work = hotfix
 
-    if vip or vip_non_vip:
+    if vip or vip_non_vip or vip_echo is not None:
         if vip_scale not in (3, 5, 10):
             raise ValueError("vip_scale 须为 3、5 或 10")
-        _emit_combo(messages, on_log, f"正在打：战斗倍速 {vip_scale}x…")
-        ok, msg = apply_vip(hotfix, work, vip_scale, vip_branch=vip, non_vip=vip_non_vip)
+        if vip_echo is not None and not vip and not vip_non_vip:
+            # 仅心跳回传（不改倍速）：加速关闭档
+            _emit_combo(messages, on_log, f"正在打：心跳回传固定 {vip_echo:g}x…")
+            ok, msg = apply_vip(
+                hotfix,
+                work,
+                vip_scale,
+                vip_branch=False,
+                non_vip=False,
+                echo=vip_echo,
+            )
+        else:
+            _emit_combo(messages, on_log, f"正在打：战斗倍速 {vip_scale}x…")
+            ok, msg = apply_vip(
+                hotfix,
+                work,
+                vip_scale,
+                vip_branch=vip,
+                non_vip=vip_non_vip,
+                echo=vip_echo,
+            )
         if not ok:
             raise RuntimeError(msg)
         _emit_combo(messages, on_log, msg)
@@ -966,6 +996,7 @@ def apply_combo(
     vip: bool = True,
     vip_scale: int = 5,
     vip_non_vip: bool = False,
+    vip_echo: float | None = None,
     battle_nine_action: bool = False,
     battle_nine_external: bool = False,
     player_action_magics: bool = False,
@@ -1126,6 +1157,7 @@ def apply_combo(
     gameplay_flags = (
         vip
         or vip_non_vip
+        or vip_echo is not None
         or battle_nine_action
         or battle_nine_external
         or player_action_magics
@@ -1157,6 +1189,7 @@ def apply_combo(
         vip=vip,
         vip_scale=vip_scale,
         vip_non_vip=vip_non_vip,
+        vip_echo=vip_echo,
         battle_nine_action=battle_nine_action,
         battle_nine_external=battle_nine_external,
         player_action_magics=player_action_magics,
@@ -1213,6 +1246,7 @@ def apply_combo(
         "vip": vip,
         "vip_non_vip": vip_non_vip,
         "vip_scale": vip_scale,
+        "vip_echo": vip_echo,
         "battle_nine_action": battle_nine_action,
         "battle_nine_external": battle_nine_external,
         "player_action_magics": player_action_magics,

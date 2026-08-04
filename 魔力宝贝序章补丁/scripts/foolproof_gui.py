@@ -1,12 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""魔力宝贝：序章 — 傻瓜补丁（两包，百科助手面板）。
+"""魔力宝贝：序章 — 傻瓜补丁（融合版，百科助手面板）。
 
-发布物：
-  傻瓜补丁_九动版   → 百科面板含九动
-  傻瓜补丁_融合版   → 百科面板无九动
+九动版已无限期停发，发布只产融合版（对历史九动版包仍兼容识别）。
 
-界面外层选项仅「是否带加速」（VIP倍速/跑速/特效等 IL）。
+界面外层选项仅「战斗加速」：开→战斗倍速+心跳回传1.5x；关→原速+心跳回传1.0x。
 抓宠/烧卡等在游戏内百科助手面板切换。
 
 用法：
@@ -52,12 +50,11 @@ def _has_flag(*names: str) -> bool:
 
 
 def _detect_nine_pack() -> bool:
-    if any(a in ("--nine-pack", "--with-nine-pack", "/nine-pack") for a in sys.argv[1:]):
-        return True
+    # 九动版已无限期停发；仅保留对历史发布包（含九动版.flag）的兼容识别。
     return _has_flag("九动版.flag", "NINE_PACK")
 
 
-# 两包：有九动版旗标 → 九动版；否则融合版
+# 九动版已停发：发布包只产融合版；本处仅对历史九动版包保持兼容。
 NINE_PACK = _detect_nine_pack()
 
 
@@ -82,7 +79,7 @@ def _profile_title() -> str:
 def _panel_modes_tip() -> str:
     if NINE_PACK:
         return "常规 / 九动 / 抓宠 / 抓宠卖银币 / 烧卡"
-    return "常规 / 抓宠 / 抓宠卖银币 / 烧卡"
+    return "常规 / 抓宠（不带宠）/ 抓宠卖银币 / 烧卡"
 
 
 def run_auto() -> int:
@@ -132,8 +129,8 @@ class FoolproofApp(tk.Tk):
         tip = (
             f"本包：傻瓜补丁·{pack_name}\n"
             f"· 侧栏「百科」→ 助手面板，战斗模式：{_panel_modes_tip()}\n"
-            "· 外层选项仅「是否带加速」（VIP倍速 / 跑速 / 特效等）\n"
-            "· 分享改日常、礼包码、进战形象默认带上\n"
+            "· 外层选项仅「战斗加速」：开→战斗倍速+心跳回传1.5x；关→原速+心跳回传1.0x\n"
+            "· 分享改日常、礼包码默认带上\n"
             "· 「启动动画预览」使用上方游戏目录读取资源（需已填对目录）\n"
             "若提示客户端不干净：可点「从干净目录恢复…」。"
         )
@@ -142,7 +139,7 @@ class FoolproofApp(tk.Tk):
         self.apply_accel_var = tk.BooleanVar(value=True)
         ttk.Checkbutton(
             body,
-            text="带加速（默认开：战斗倍速 / 跑速 / 特效；关闭则不打这些 IL）",
+            text="战斗加速（默认开：3x 倍速+心跳回传1.5x；关闭=原速+心跳回传1.0x）",
             variable=self.apply_accel_var,
         ).pack(anchor=tk.W, pady=(0, 6))
 

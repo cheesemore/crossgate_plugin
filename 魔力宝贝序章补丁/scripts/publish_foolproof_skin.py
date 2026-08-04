@@ -56,11 +56,13 @@ exit /b %ERRORLEVEL%
 README = """傻瓜换装补丁
 
 用法：
-1. 解压到游戏目录，关闭游戏
-2. 运行「一键打补丁.bat」
+1. 把整个 zip 解压到游戏目录（必须保留完整文件夹，含 _internal、patcher）
+2. 关闭游戏后，运行「一键打补丁.bat」（不要只拷贝单个 .exe）
 3. 进游戏后点侧栏「百科」，循环切换 4 套装备（1→2→3→4→1…）
 
-说明：只做百科换装，无其它功能。若提示客户端不干净，可用界面「从干净目录恢复」后再打。
+注意：
+· 若提示找不到 python39.dll，说明只拷了 exe、缺了 _internal，请重新解压整个包
+· 只做百科换装，无其它功能；若提示客户端不干净，可用界面「从干净目录恢复」后再打
 """
 
 
@@ -245,6 +247,53 @@ def zip_folder(folder: Path, zip_path: Path) -> None:
     print(f"[OK] ZIP {zip_path} ({zip_path.stat().st_size:,} 字节)")
 
 
+def verify_pack(folder: Path, zip_path: Path) -> None:
+    """打包后硬校验：缺 PyInstaller 运行时/皮肤引擎/主引擎/源码则失败，避免发出残包。"""
+    file_required = [
+        folder / f"{APP_NAME}.exe",
+        folder / "_internal" / "python39.dll",
+        folder / "_internal" / "base_library.zip",
+        folder / "patcher" / "HotfixPatcherSkinCycle.exe",
+        folder / "patcher" / "HotfixPatcher.exe",  # 主引擎 fallback（battle-appear 钩子）
+        folder / BAT_NAME,
+    ]
+    dir_required = [
+        folder / "patcher" / "ref_stubs",
+        folder / "patcher" / "seqchapter_battle_appear",
+        folder / "patcher" / "seqchapter_wiki_skin_cycle",
+    ]
+    missing = [str(p.relative_to(folder)) for p in file_required if not p.is_file()]
+    missing += [str(p.relative_to(folder)) for p in dir_required if not p.is_dir()]
+    if missing:
+        raise RuntimeError("发布目录缺关键文件:\n  - " + "\n  - ".join(missing))
+
+    with zipfile.ZipFile(zip_path, "r") as zf:
+        names = set(zf.namelist())
+    zip_required = [
+        f"{APP_NAME}/{APP_NAME}.exe",
+        f"{APP_NAME}/_internal/python39.dll",
+        f"{APP_NAME}/_internal/base_library.zip",
+        f"{APP_NAME}/patcher/HotfixPatcherSkinCycle.exe",
+        f"{APP_NAME}/patcher/HotfixPatcher.exe",
+        f"{APP_NAME}/{BAT_NAME}",
+    ]
+    zip_dir_prefixes = [
+        f"{APP_NAME}/patcher/ref_stubs/",
+        f"{APP_NAME}/patcher/seqchapter_battle_appear/",
+        f"{APP_NAME}/patcher/seqchapter_wiki_skin_cycle/",
+    ]
+    zip_missing = [n for n in zip_required if n not in names]
+    zip_missing += [p for p in zip_dir_prefixes if not any(n.startswith(p) for n in names)]
+    if zip_missing:
+        raise RuntimeError("ZIP 缺关键文件:\n  - " + "\n  - ".join(zip_missing))
+
+    py_size = (folder / "_internal" / "python39.dll").stat().st_size
+    print(
+        f"[VERIFY] 目录与 ZIP 均含 python39.dll（{py_size:,} 字节）、"
+        "皮肤/主引擎、ref_stubs 与皮肤源码，可独立打补丁"
+    )
+
+
 def main() -> int:
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     print(f"=== 傻瓜换装补丁构建 {stamp} ===\n")
@@ -255,6 +304,7 @@ def main() -> int:
     out_dir = build_exe()
     zip_path = RELEASE_DIR / f"{APP_NAME}_{stamp}.zip"
     zip_folder(out_dir, zip_path)
+    verify_pack(out_dir, zip_path)
     print("\n=== 完成 ===")
     print(f"  {zip_path}")
     print(f"  目录: {out_dir}")

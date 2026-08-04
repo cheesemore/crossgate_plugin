@@ -33,27 +33,35 @@ DEFAULT_COMBO_KWARGS = {
     "boss_key_fps": True,  # 切后台 / 老板键隐藏 → 10 FPS
     "wiki_fps": False,
     "wiki_test_ui": True,  # 百科 → 助手面板
-    "battle_appear": True,
+    "battle_appear": False,  # 进战形象钩子：默认关，需要时再勾
     "inject_bridge": False,
     "from_orig": True,
 }
 
 # 傻瓜补丁·基底：助手面板 + 抓宠/烧卡 DLL（面板切换）。
-# 九动由 foolproof_apply(enable_nine) 决定：九动版加速 → 面板四选一；融合版 → 三选一。
+# 融合版默认：面板含「抓宠（不带宠）」；九动已停发（battle_nine_external 不再置 True）。
+# 皮肤相关默认关闭：battle_appear（进战形象钩子/皮肤挂钩）为 False；
+#   换装循环（SeqChapterWikiSkinCycle）融合版不打（傻瓜换装补丁才打）。
 FOOLPROOF_COMBO_KWARGS = {
     **DEFAULT_COMBO_KWARGS,
     "battle_nine_action": False,
-    "battle_nine_external": False,  # 九动版加速时再置 True
+    "battle_nine_external": False,  # 九动版已停发，固定 False
     "auto_seal_external": True,
     "auto_catch_external": True,
     "wiki_test_ui": True,
+    "boss_key_fps": True,
     "transition_speed": False,
+    "battle_appear": False,  # 皮肤挂钩（进战形象钩子）默认关
+    "vip_scale": 3,  # 战斗倍速默认 3x
+    "vip_echo": 1.5,  # 加速开：心跳回传固定 1.5x；关则由 foolproof_apply 覆盖为 1.0x
+    "map_sprint": False,  # 移动加速默认关
 }
 
 FOOLPROOF_NO_NINE_COMBO_KWARGS = {
     **FOOLPROOF_COMBO_KWARGS,
-    # 融合版无九动 DLL，单独打 Magics，供面板「无宠二动」
-    "player_action_magics": True,
+    # 融合版默认：战斗模式开「抓宠（不带宠）」（与普通抓宠互斥，二选一）
+    "auto_catch_external": False,
+    "auto_catch_nopet_external": True,
 }
 
 # 傻瓜「烧卡档」：同面板双 DLL（抓宠+烧卡），倍速/特效取最高；无九动
@@ -61,6 +69,7 @@ FOOLPROOF_BURN_SEAL_COMBO_KWARGS = {
     **FOOLPROOF_NO_NINE_COMBO_KWARGS,
     "auto_seal_external": True,
     "auto_catch_external": True,
+    "auto_catch_nopet_external": False,  # 烧卡档用普通抓宠，关掉抓宠（不带宠）
     "wiki_test_ui": True,
     "level_one_include_all": True,
     "vip_scale": 10,
@@ -126,6 +135,6 @@ LAUNCH_INJECT_PRESET = {
     "boss_key_fps": True,  # 切后台 / 老板键隐藏 → 10 FPS
     "wiki_fps": False,
     "wiki_test_ui": True,
-    "battle_appear": True,
+    "battle_appear": False,
     "from_orig": True,
 }

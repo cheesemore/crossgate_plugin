@@ -6,6 +6,7 @@ namespace CrossgateMod.Patcher;
 /// <summary>
 /// VIP 加速：改 get_BattleTimeScale 中 ldc.r4 1.5 → 3/5/10；可选 --non-vip 将默认 1.0 改为同倍速。
 /// 心跳 Echo.Speed：仅 VIP 加速时固定报 1.5；启用非 VIP 加速时固定报 1.0（防检测）。
+/// 可选 --echo 1.0|1.5 显式指定心跳上报倍率（覆盖上述默认规则）；仅指定 --echo 时不改倍速（仅心跳回传补丁）。
 /// 同步：KickOff 打飞速度 MoveSpeed×4 → ×(4×倍速)，如 5x → 20。
 /// 注意（2026-08 起）：官方 GmManager 会定时查 UnityEngine.Time.timeScale&gt;1 并 Web 上报；
 /// 本补丁只改 BattleTimeScale，不碰 Time.timeScale，与该检测岔开。
@@ -17,6 +18,7 @@ internal static class VipTimeScaleIlPatcher
     private const float EchoReportScaleNonVip = 1.0f;
     private const float OriginalKickOffMul = 4f;
     private static readonly float[] AllowedScales = { 3f, 5f, 10f };
+    private static readonly float[] AllowedEchoScales = { EchoReportScaleVip, EchoReportScaleNonVip };
     private static readonly float[] KnownKickOffMuls = { 4f, 12f, 20f, 40f };
     private static readonly float[] KnownEchoReportScales = { EchoReportScaleVip, EchoReportScaleNonVip };
 
@@ -27,6 +29,8 @@ internal static class VipTimeScaleIlPatcher
         var scale = 3f;
         var patchVipBranch = true;
         var patchDefaultBranch = false;
+        float? echoOverride = null;
+        var echoOnly = false;
 
         for (var i = 0; i < args.Length; i++)
         {
@@ -41,6 +45,12 @@ internal static class VipTimeScaleIlPatcher
                 case "--scale" when i + 1 < args.Length:
                     scale = ParseScale(args[++i]);
                     break;
+                case "--echo" when i + 1 < args.Length:
+                    echoOverride = ParseEcho(args[++i]);
+                    break;
+                case "--echo-only":
+                    echoOnly = true;
+                    break;
                 case "--non-vip":
                     patchDefaultBranch = true;
                     break;
@@ -51,17 +61,23 @@ internal static class VipTimeScaleIlPatcher
             }
         }
 
+        if (echoOnly)
+        {
+            patchVipBranch = false;
+            patchDefaultBranch = false;
+        }
+
         if (string.IsNullOrWhiteSpace(source))
         {
             Console.WriteLine(
-                "用法: HotfixPatcher vip-timescale-patch --hotfix <orig> --output <out> [--scale 3|5|10] [--non-vip] [--non-vip-only]");
+                "用法: HotfixPatcher vip-timescale-patch --hotfix <orig> --output <out> [--scale 3|5|10] [--non-vip] [--non-vip-only] [--echo 1.0|1.5] [--echo-only]");
             return 1;
         }
 
         output ??= source;
         try
         {
-            Apply(source, output, scale, patchVipBranch, patchDefaultBranch);
+            Apply(source, output, scale, patchVipBranch, patchDefaultBranch, echoOverride);
             Console.WriteLine("[OK] VIP 倍速补丁已写入: " + output);
             return 0;
         }
@@ -77,11 +93,12 @@ internal static class VipTimeScaleIlPatcher
         string outputPath,
         float battleScale = 3f,
         bool patchVipBranch = true,
-        bool patchDefaultBranch = false)
+        bool patchDefaultBranch = false,
+        float? echoReportOverride = null)
     {
-        if (!patchVipBranch && !patchDefaultBranch)
+        if (!patchVipBranch && !patchDefaultBranch && echoReportOverride == null)
         {
-            throw new InvalidOperationException("须至少指定 VIP 分支或 --non-vip/--non-vip-only");
+            throw new InvalidOperationException("须至少指定 VIP 分支、--non-vip/--non-vip-only 或 --echo");
         }
 
         if (!AllowedScales.Contains(battleScale))
@@ -89,10 +106,11 @@ internal static class VipTimeScaleIlPatcher
             throw new InvalidOperationException($"战斗倍速须为 3、5 或 10，实际: {battleScale}");
         }
 
+        var wantScale = patchVipBranch || patchDefaultBranch;
         var kickOffTarget = OriginalKickOffMul * battleScale;
-        // 启用非 VIP 加速时回传 1.0；仅 VIP 加速时回传官方 1.5
-        var patchEcho = patchVipBranch || patchDefaultBranch;
-        var echoReportScale = patchDefaultBranch ? EchoReportScaleNonVip : EchoReportScaleVip;
+        // 心跳回传：显式 --echo 优先；否则启用非 VIP 加速时回传 1.0，仅 VIP 加速时回传官方 1.5
+        var patchEcho = wantScale || echoReportOverride != null;
+        var echoReportScale = echoReportOverride ?? (patchDefaultBranch ? EchoReportScaleNonVip : EchoReportScaleVip);
 
         var origBytes = File.ReadAllBytes(sourcePath);
         var expectedSize = HotfixSize.Require(origBytes);
@@ -114,18 +132,28 @@ internal static class VipTimeScaleIlPatcher
         var netMgr = asm.MainModule.Types.First(t => t.Name == "NetManager");
         var update = netMgr.Methods.First(m => m.Name == "update" && m.HasBody);
         var getBattleTimeScale = getScale;
-        var kickOffMethod = FindKickOffSpeedMethod(asm.MainModule)
-            ?? throw new InvalidOperationException("未找到 KickOff 打飞速度方法 BaseAction/<KickOff>b__*");
+
+        // 仅心跳模式（--echo 且未启用倍速分支）：不查 KickOff、不改 BattleTimeScale
+        MethodDefinition? kickOffMethod = null;
+        if (wantScale)
+        {
+            kickOffMethod = FindKickOffSpeedMethod(asm.MainModule)
+                ?? throw new InvalidOperationException("未找到 KickOff 打飞速度方法 BaseAction/<KickOff>b__*");
+        }
 
         var getScaleBody = ReadMethodBodyFromPe(origBytes, getScale.RVA);
         var updateBody = ReadMethodBodyFromPe(origBytes, update.RVA);
-        var kickOffBody = ReadMethodBodyFromPe(origBytes, kickOffMethod.RVA);
 
         var vipDone = !patchVipBranch || !ContainsLdcR4(getScaleBody, OriginalVipScale);
         var echoDone = !patchEcho || IsEchoPatched(updateBody, echoReportScale);
         var defaultDone = !patchDefaultBranch || !ContainsLdcR4(getScaleBody, OriginalDefaultScale);
-        var kickOffDone = ContainsLdcR4(kickOffBody, kickOffTarget)
-            && !ContainsLdcR4(kickOffBody, OriginalKickOffMul);
+        var kickOffDone = !wantScale;
+        if (wantScale)
+        {
+            var kickOffBody = ReadMethodBodyFromPe(origBytes, kickOffMethod!.RVA);
+            kickOffDone = ContainsLdcR4(kickOffBody, kickOffTarget)
+                && !ContainsLdcR4(kickOffBody, OriginalKickOffMul);
+        }
 
         if (vipDone && echoDone && defaultDone && kickOffDone)
         {
@@ -162,9 +190,11 @@ internal static class VipTimeScaleIlPatcher
         }
 
         var wroteKickOff = false;
-        if (!kickOffDone)
+        byte[]? patchedKickOffBody = null;
+        if (wantScale && !kickOffDone)
         {
-            if (!PatchKickOffMulInPlace(kickOffBody, kickOffTarget))
+            patchedKickOffBody = ReadMethodBodyFromPe(origBytes, kickOffMethod!.RVA);
+            if (!PatchKickOffMulInPlace(patchedKickOffBody, kickOffTarget))
             {
                 throw new InvalidOperationException(
                     $"未找到 KickOff 的 ldc.r4 打飞倍率（期望原版 {OriginalKickOffMul} 或已知档位）");
@@ -175,7 +205,7 @@ internal static class VipTimeScaleIlPatcher
 
         var wroteScale = false;
 
-        if (patchVipBranch || patchDefaultBranch)
+        if (wantScale)
         {
             BinaryPeWriter.ReplaceMethodBody(data, getScale.RVA, getScaleBody, getScaleBody);
             wroteScale = true;
@@ -188,7 +218,7 @@ internal static class VipTimeScaleIlPatcher
 
         if (wroteKickOff)
         {
-            BinaryPeWriter.ReplaceMethodBody(data, kickOffMethod.RVA, kickOffBody, kickOffBody);
+            BinaryPeWriter.ReplaceMethodBody(data, kickOffMethod!.RVA, patchedKickOffBody!, patchedKickOffBody!);
         }
 
         if (!wroteScale && !wroteEcho && !wroteKickOff)
@@ -221,9 +251,12 @@ internal static class VipTimeScaleIlPatcher
         {
             if (wroteEcho)
             {
+                var echoNote = echoReportOverride != null
+                    ? (echoReportOverride > 1.0f ? "（加速开启·1.5官方倍）" : "（加速关闭·1.0非VIP倍）")
+                    : (patchDefaultBranch ? "（非VIP防检测）" : "（VIP官方倍）");
                 Console.WriteLine(
                     $"[PATCH] Echo.Speed 固定上报: {echoReportScale} x 100 = {(int)(echoReportScale * 100)}"
-                    + (patchDefaultBranch ? "（非VIP防检测）" : "（VIP官方倍）"));
+                    + echoNote);
             }
             else
             {
@@ -232,13 +265,16 @@ internal static class VipTimeScaleIlPatcher
             }
         }
 
-        if (wroteKickOff)
+        if (wantScale)
         {
-            Console.WriteLine($"[PATCH] KickOff 打飞速度 ×{OriginalKickOffMul} -> ×{kickOffTarget}（随战斗 {battleScale}x）");
-        }
-        else
-        {
-            Console.WriteLine($"[PATCH] KickOff 打飞速度 已是 ×{kickOffTarget}（跳过）");
+            if (wroteKickOff)
+            {
+                Console.WriteLine($"[PATCH] KickOff 打飞速度 ×{OriginalKickOffMul} -> ×{kickOffTarget}（随战斗 {battleScale}x）");
+            }
+            else
+            {
+                Console.WriteLine($"[PATCH] KickOff 打飞速度 已是 ×{kickOffTarget}（跳过）");
+            }
         }
 
         Console.WriteLine($"[OK] 文件大小不变: {data.Length} 字节");
@@ -321,6 +357,16 @@ internal static class VipTimeScaleIlPatcher
         if (!float.TryParse(raw, out var value) || !AllowedScales.Contains(value))
         {
             throw new InvalidOperationException($"--scale 须为 3、5 或 10，实际: {raw}");
+        }
+
+        return value;
+    }
+
+    private static float ParseEcho(string raw)
+    {
+        if (!float.TryParse(raw, out var value) || !AllowedEchoScales.Contains(value))
+        {
+            throw new InvalidOperationException($"--echo 须为 1.0 或 1.5，实际: {raw}");
         }
 
         return value;

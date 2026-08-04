@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""构建「傻瓜补丁」独立包（九动版 / 融合版）→ E:\\cross\\发布plugin\\*.zip。
+"""构建「傻瓜补丁·融合版」独立包 → E:\\cross\\发布plugin\\*.zip。
 
+九动版已无限期停发，本脚本只产出融合版。
 用法：
-  python publish_foolproof.py --nine-pack      # 九动版（百科面板含九动）
-  python publish_foolproof.py --fusion-pack    # 融合版（百科面板无九动）
-  python publish_foolproof.py                  # 同 --fusion-pack
+  python publish_foolproof.py                  # 融合版（百科面板无九动）
 """
 from __future__ import annotations
 
@@ -31,7 +30,6 @@ REF_STUBS_BUILD = GAME_ROOT / "tools" / "hotfix_patcher" / "build_ref_stubs.py"
 AUTO_SEAL_SRC = GAME_ROOT / "tools" / "seqchapter_auto_seal"
 AUTO_CATCH_SRC = GAME_ROOT / "tools" / "seqchapter_auto_catch"
 AUTO_CATCH_SELL_SRC = GAME_ROOT / "tools" / "seqchapter_auto_catch_sell"
-NINE_ACTION_SRC = GAME_ROOT / "tools" / "seqchapter_nine_action"
 DAILY_CLAIM_SRC = GAME_ROOT / "tools" / "seqchapter_daily_claim"
 BOSS_KEY_FPS_SRC = GAME_ROOT / "tools" / "seqchapter_boss_key_fps"
 WIKI_FPS_SRC = GAME_ROOT / "tools" / "seqchapter_wiki_fps"
@@ -65,30 +63,9 @@ ANIMATOR_DATA = [
     "battle_appear.json",
 ]
 
-_ARGV = sys.argv[1:]
-NINE_PACK = any(a in ("--nine-pack", "--with-nine-pack", "/nine-pack") for a in _ARGV)
-FORCE_NINE = any(
-    a in ("--force-nine-pack", "--force-nine", "/force-nine-pack") for a in _ARGV
-)
-# 默认融合版；显式 --nine-pack 才出九动版（当前默认禁用，需 --force-nine-pack）
-FUSION_PACK = (not NINE_PACK) or any(
-    a in ("--fusion-pack", "--fusion", "/fusion-pack") for a in _ARGV
-)
-if NINE_PACK:
-    FUSION_PACK = False
-    if not FORCE_NINE:
-        print(
-            "[DISABLED] 九动版已停发。默认请发融合版，或见 publish_packs.json。\n"
-            "若确需构建：加上 --force-nine-pack"
-        )
-        raise SystemExit(2)
-
-if NINE_PACK:
-    APP_NAME = "傻瓜补丁_九动版"
-    PANEL_MODES = "常规 / 九动 / 抓宠 / 抓宠卖银币 / 烧卡"
-else:
-    APP_NAME = "傻瓜补丁_融合版"
-    PANEL_MODES = "常规 / 抓宠 / 抓宠卖银币 / 烧卡"
+# 九动版已无限期停发：本脚本只构建融合版，忽略任何 --nine-pack 类参数。
+APP_NAME = "傻瓜补丁_融合版"
+PANEL_MODES = "常规 / 抓宠（不带宠）/ 抓宠卖银币 / 烧卡"
 
 SERIES_CLEANUP_PREFIXES = [APP_NAME]
 # 清理旧系列命名，避免发布目录堆积
@@ -100,10 +77,10 @@ SERIES_CLEANUP_PREFIXES.extend(
         "傻瓜补丁_捉宠版",
         "傻瓜补丁_自动烧卡",
         "傻瓜补丁_无九动",
+        "傻瓜补丁_九动版",  # 停发后一并清理历史九动版产物
+        "傻瓜补丁",  # 旧默认九动单包
     ]
 )
-if NINE_PACK:
-    SERIES_CLEANUP_PREFIXES.append("傻瓜补丁")  # 旧默认九动单包
 
 ENTRY = SCRIPTS_DIR / "foolproof_gui.py"
 BAT_NAME = "一键打补丁.bat"
@@ -126,13 +103,14 @@ README = f"""魔力宝贝：序章 — {APP_NAME}
 
 【本包做什么】
 · 侧栏「百科」→ 助手面板，战斗模式：{PANEL_MODES}
-· 界面外层选项仅「是否带加速」（战斗倍速 / 跑速 / 特效等 IL）
-· 默认含：分享改日常、礼包码、进战形象、客服→高级自动战斗
+· 战斗模式默认：抓宠（不带宠）/ 抓宠卖银币 / 烧卡（面板内互斥切换）
+· 界面外层选项仅「战斗加速」：开→战斗倍速+心跳回传1.5x；关→原速+心跳回传1.0x
+· 默认含：分享改日常、礼包码、客服→高级自动战斗
 
 【用法】
 1. 关掉游戏，解压到游戏目录（与 cg37.exe 同级或子文件夹）
 2. 双击「一键打补丁.bat」
-3. 勾选/取消「带加速」后点「一键打补丁」
+3. 勾选/取消「战斗加速」后点「一键打补丁」
 4. 进游戏用百科面板切换战斗模式
 5. 换皮预览：界面「启动动画预览」（依赖上方填写的游戏目录资源）
 
@@ -354,7 +332,7 @@ def build_exe() -> Path:
     shutil.copy2(PATCHER_STAGING / "HotfixPatcher.exe", patcher_dst / "HotfixPatcher.exe")
     _copy_ref_stubs(patcher_dst / "ref_stubs")
 
-    # 两包都带烧卡+抓宠+日常+助手面板+进战形象源；九动版额外带九动 DLL 源
+    # 融合版带烧卡+抓宠+日常+助手面板+进战形象源（九动已停发，不再打包九动 DLL 源）
     bundle_srcs: list[tuple[Path, str]] = [
         (AUTO_SEAL_SRC, "seqchapter_auto_seal"),
         (AUTO_CATCH_SRC, "seqchapter_auto_catch"),
@@ -366,8 +344,6 @@ def build_exe() -> Path:
         (LV1_AUTO_SRC, "seqchapter_lv1_auto"),
         (BATTLE_APPEAR_SRC, "seqchapter_battle_appear"),
     ]
-    if NINE_PACK:
-        bundle_srcs.append((NINE_ACTION_SRC, "seqchapter_nine_action"))
 
     for src, name in bundle_srcs:
         if not src.is_dir():
@@ -415,10 +391,7 @@ def build_exe() -> Path:
 
     (out_dir / BAT_NAME).write_text(BAT_CONTENT, encoding="utf-8")
     (out_dir / "使用说明.txt").write_text(README, encoding="utf-8")
-    if NINE_PACK:
-        (out_dir / "九动版.flag").write_text("1\n", encoding="utf-8")
-    else:
-        (out_dir / "融合版.flag").write_text("1\n", encoding="utf-8")
+    (out_dir / "融合版.flag").write_text("1\n", encoding="utf-8")
     print(f"[OK] {out_dir}")
     return out_dir
 
@@ -433,10 +406,61 @@ def zip_folder(folder: Path, zip_path: Path) -> None:
     print(f"[OK] ZIP {zip_path} ({zip_path.stat().st_size:,} 字节)")
 
 
+def verify_pack(folder: Path, zip_path: Path) -> None:
+    """打包后硬校验：缺运行时/引擎/源码任一关键文件则失败，避免发出残包。"""
+    file_required = [
+        folder / f"{APP_NAME}.exe",
+        folder / "_internal" / "python39.dll",
+        folder / "_internal" / "base_library.zip",
+        folder / "patcher" / "HotfixPatcher.exe",
+        folder / BAT_NAME,
+    ]
+    # 外置 DLL 源码（引擎编译外部 DLL 必需，随包旁路）
+    dir_required = [
+        folder / "patcher" / "ref_stubs",
+        folder / "patcher" / "seqchapter_auto_seal",
+        folder / "patcher" / "seqchapter_auto_catch",
+        folder / "patcher" / "seqchapter_auto_catch_sell",
+        folder / "patcher" / "seqchapter_daily_claim",
+        folder / "patcher" / "seqchapter_battle_appear",
+        folder / "patcher" / "seqchapter_test_ui",
+    ]
+    missing = [str(p.relative_to(folder)) for p in file_required if not p.is_file()]
+    missing += [
+        str(p.relative_to(folder)) for p in dir_required if not p.is_dir()
+    ]
+    if missing:
+        raise RuntimeError("发布目录缺关键文件:\n  - " + "\n  - ".join(missing))
+
+    with zipfile.ZipFile(zip_path, "r") as zf:
+        names = set(zf.namelist())
+    zip_required = [
+        f"{APP_NAME}/{APP_NAME}.exe",
+        f"{APP_NAME}/_internal/python39.dll",
+        f"{APP_NAME}/_internal/base_library.zip",
+        f"{APP_NAME}/patcher/HotfixPatcher.exe",
+        f"{APP_NAME}/{BAT_NAME}",
+    ]
+    zip_dir_prefixes = [
+        f"{APP_NAME}/patcher/ref_stubs/",
+        f"{APP_NAME}/patcher/seqchapter_auto_seal/",
+        f"{APP_NAME}/patcher/seqchapter_battle_appear/",
+    ]
+    zip_missing = [n for n in zip_required if n not in names]
+    zip_missing += [p for p in zip_dir_prefixes if not any(n.startswith(p) for n in names)]
+    if zip_missing:
+        raise RuntimeError("ZIP 缺关键文件:\n  - " + "\n  - ".join(zip_missing))
+
+    py_size = (folder / "_internal" / "python39.dll").stat().st_size
+    print(
+        f"[VERIFY] 目录与 ZIP 均含 python39.dll（{py_size:,} 字节）"
+        "、引擎、ref_stubs 与外置 DLL 源码，可独立打补丁"
+    )
+
+
 def main() -> int:
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    label = "九动版" if NINE_PACK else "融合版"
-    print(f"=== 傻瓜补丁构建 {stamp}（{label}）===\n")
+    print(f"=== 傻瓜补丁构建 {stamp}（融合版）===\n")
     RELEASE_DIR.mkdir(parents=True, exist_ok=True)
 
     print("[CLEAN] 清理同系列旧发布物…")
@@ -446,6 +470,7 @@ def main() -> int:
     out_dir = build_exe()
     zip_path = RELEASE_DIR / f"{APP_NAME}_{stamp}.zip"
     zip_folder(out_dir, zip_path)
+    verify_pack(out_dir, zip_path)
     print("\n=== 完成 ===")
     print(f"  {zip_path}")
     print(f"  目录: {out_dir}")

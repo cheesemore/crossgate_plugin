@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-傻瓜补丁：诊断客户端后一键打补丁（由 GUI 两包调用）。
+傻瓜补丁：诊断客户端后一键打补丁（由 GUI 调用）。
 
-两包均为百科助手面板版：
-  · 九动版：面板含常规/九动/抓宠/烧卡
-  · 融合版：面板含常规/抓宠/烧卡（无九动）
-界面外层选项仅「是否带加速」（VIP倍速/跑速/特效等 IL）。
+发布物为融合版（百科助手面板：常规/抓宠（不带宠）/抓宠卖银币/烧卡）。
+九动版已无限期停发，enable_nine 仅保留给历史包兼容调用。
+界面外层选项仅「战斗加速」：开→战斗倍速+心跳回传1.5x；关→原速+心跳回传1.0x。
 
 活 hotfix 不干净时：界面可选手选干净目录恢复（restore_hotfixdata_from_clean），无默认源。
 体积与 EXPECTED_SIZE 绑定；客户端更新导致体积变化时需发新版傻瓜补丁。
@@ -31,6 +30,7 @@ from foolproof_client_utils import (
 )
 from patch_common import (
     EXPECTED_SIZE,
+    _is_frozen,
     hotfix_orig,
     hotfix_path,
     mark_hotfix_watch_stamp,
@@ -99,7 +99,7 @@ def run_foolproof_patch(
     """一键诊断并打傻瓜补丁（百科助手面板版）。成功返回消息列表；失败抛 FoolproofError。
 
     enable_nine：九动版 True / 融合版 False（由包类型决定，面板内是否出现九动）。
-    apply_accel：是否打加速类 IL（战斗倍速/跑速/特效/过场）；默认开。
+    apply_accel：战斗加速开关，默认开。开→战斗倍速+心跳回传1.5x；关→原速+心跳回传1.0x。
     daily_claim / newbie_gift_code：分享切页（默认开）。
     gift_codes：可编辑礼包码；None 用默认。
     """
@@ -138,32 +138,32 @@ def run_foolproof_patch(
         kwargs = dict(FOOLPROOF_COMBO_KWARGS)
         kwargs["battle_nine_action"] = False
         kwargs["battle_nine_external"] = True
-        kwargs["player_action_magics"] = False  # 九动 DLL 版已含 Magics
         kwargs["auto_seal_external"] = True
         kwargs["auto_catch_external"] = True
         kwargs["auto_catch_nopet_external"] = False
         kwargs["auto_catch_sell_external"] = True
         kwargs["wiki_test_ui"] = True
         nine_checks = ["nine_external"]
+        catch_check = ["auto_catch_external"]
     else:
         nine_label = "无"
         _emit(
             messages,
             on_log,
-            "预设：百科助手面板（常规/抓宠/抓宠卖银币/烧卡 · 无九动）",
+            "预设：百科助手面板（常规/抓宠（不带宠）/抓宠卖银币/烧卡 · 无九动）",
         )
         kwargs = dict(FOOLPROOF_NO_NINE_COMBO_KWARGS)
         kwargs["battle_nine_action"] = False
         kwargs["battle_nine_external"] = False
-        kwargs["player_action_magics"] = True
         kwargs["auto_seal_external"] = True
-        kwargs["auto_catch_external"] = True
-        kwargs["auto_catch_nopet_external"] = False
+        kwargs["auto_catch_external"] = False
+        kwargs["auto_catch_nopet_external"] = True
         kwargs["auto_catch_sell_external"] = True
         kwargs["wiki_test_ui"] = True
-        nine_checks = ["nine_magics"]
+        nine_checks = []
+        catch_check = ["auto_catch_nopet_external"]
 
-    extra_checks = ["auto_seal_external", "auto_catch_external", "auto_catch_sell_external"]
+    extra_checks = ["auto_seal_external", "auto_catch_sell_external"] + catch_check
     if kwargs.get("level_one_include_all"):
         extra_checks.append("level_one_include_all")
 
@@ -178,12 +178,14 @@ def run_foolproof_patch(
     if not apply_accel:
         kwargs["vip"] = False
         kwargs["vip_non_vip"] = False
+        kwargs["vip_echo"] = 1.0  # 加速关：心跳回传固定 1.0
         kwargs["map_sprint"] = False
         kwargs["skill_effect_speed"] = False
         kwargs["transition_speed"] = False
-        _emit(messages, on_log, "加速补丁：关（不打战斗倍速/跑速/特效/过场）")
+        _emit(messages, on_log, "加速补丁：关（不打战斗倍速/跑速/特效/过场，心跳回传固定 1.0x）")
     else:
-        _emit(messages, on_log, "加速补丁：开")
+        kwargs["vip_echo"] = 1.5  # 加速开：战斗倍速 + 心跳回传固定 1.5x
+        _emit(messages, on_log, "加速补丁：开（战斗倍速 + 心跳回传固定 1.5x）")
 
     _emit(messages, on_log, "正在余量预检（启动补丁引擎，首次可能较慢）…")
     try:
@@ -218,9 +220,9 @@ def run_foolproof_patch(
             messages.append(msg)
 
     panel_part = (
-        " · 百科面板(常规/九动/抓宠/烧卡)"
+        " · 百科面板(常规/九动/抓宠/抓宠卖银币/烧卡)"
         if enable_nine
-        else " · 百科面板(常规/抓宠/烧卡)"
+        else " · 百科面板(常规/抓宠（不带宠）/抓宠卖银币/烧卡)"
     )
     daily_part = ""
     if kwargs.get("daily_claim") or kwargs.get("newbie_gift_code"):
@@ -236,17 +238,19 @@ def run_foolproof_patch(
         _emit(
             messages,
             on_log,
-            f"已应用：无战斗倍速 · 原速跑图 · 长按详情 · 无特效加速"
+            f"已应用：无战斗倍速 · 原速跑图 · 长按详情 · 无特效加速 · 心跳回传1.0x"
             f"{panel_part}{gm_part}{daily_part}{nine_part}"
             + (" · 一级含蝙蝠/哥布林" if kwargs.get("level_one_include_all") else ""),
         )
     else:
         vip = kwargs.get("vip_scale", 5)
         fx = kwargs.get("skill_effect_scale", 2.0)
+        echo = kwargs.get("vip_echo", 1.5)
+        sprint_part = " · Sprint快" if kwargs.get("map_sprint") else ""
         _emit(
             messages,
             on_log,
-            f"已应用：VIP{vip}x · Sprint快 · 长按详情 · 特效{fx}x"
+            f"已应用：VIP{vip}x{sprint_part} · 长按详情 · 特效{fx}x · 心跳回传{echo:g}x"
             f"{panel_part}{gm_part}{daily_part}{nine_part}"
             + (" · 一级含蝙蝠/哥布林" if kwargs.get("level_one_include_all") else ""),
         )
