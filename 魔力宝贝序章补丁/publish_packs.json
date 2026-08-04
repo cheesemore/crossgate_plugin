@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "description": "傻瓜补丁默认发布清单。改此文件后提交 git；发布入口读此配置。",
+  "default_publish": ["fusion", "skin"],
+  "packs": {
+    "fusion": {
+      "enabled": true,
+      "label": "傻瓜补丁_融合版",
+      "script": "scripts/publish_foolproof.py",
+      "args": ["--fusion-pack"]
+    },
+    "skin": {
+      "enabled": true,
+      "label": "傻瓜换装补丁",
+      "script": "scripts/publish_foolproof_skin.py",
+      "args": []
+    },
+    "nine": {
+      "enabled": false,
+      "label": "傻瓜补丁_九动版",
+      "script": "scripts/publish_foolproof.py",
+      "args": ["--nine-pack"],
+      "disabled_reason": "九动版暂停发布；面板九动功能停用，默认只发融合版+换装"
+    }
+  }
+}

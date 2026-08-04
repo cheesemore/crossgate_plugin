@@ -23,7 +23,7 @@ public static class SeqChapterBattleAppear
     public const string CodePrefix = "CGAP1:";
     public const string UidStoreFileName = "battle_appear_uid.json";
 
-    // 推荐方案1/2/3（点击等同立刻粘贴导入）
+    // 推荐方案1/2/3/4（点击等同立刻粘贴导入）
     public const string Preset1Code =
         "### 序章进战形象配置（完整：人物/光环/宠物/满档/满档光环/坐骑）\n"
         + "# 说明：游戏内应用 人物形象/人物光环/坐骑/宠物形象/满档/满档光环。\n"
@@ -56,6 +56,20 @@ public static class SeqChapterBattleAppear
         + "# 4号位人物使用118148，人物光环5.青电，宠物使用101922（寒冰牛头怪），开启满档效果，满档光环5.燃焰之环，坐骑Id8202（迅捷巨狼）\n"
         + "# 5号位人物使用118148，人物光环5.青电，宠物使用101922（寒冰牛头怪），开启满档效果，满档光环5.燃焰之环，坐骑Id8202（迅捷巨狼）\n"
         + "CGAP1:QkFQMQEBACKOAQDNmAIAAQEAAACEzQEACiAAACKOAQDNmAIAAQQAAACEzQEACiAAACKOAQDNmAIAAQQAAACEzQEACiAAACKOAQDNmAIAAQUAAACEzQEACiAAACKOAQDNmAIAAQUAAACEzQEACiAAAA==\n";
+
+    /// <summary>
+    /// 方案4：人物红蔷薇女王(100199) + 宠物七彩史莱姆(120082) + 坐骑0（不配置）。
+    /// </summary>
+    public const string Preset4Code =
+        "### 序章进战形象配置（完整：人物/光环/宠物/满档/满档光环/坐骑）\n"
+        + "# 说明：游戏内应用 人物形象/人物光环/坐骑/宠物形象/满档/满档光环。\n"
+        + "# 约定：0=不配置；满档勾选=1；人物光环=Grano；坐骑=配置 Id（可误填 Grano 会反查）。\n"
+        + "# 1号位人物使用100199（红蔷薇女王），人物光环5.青电，宠物使用120082（七彩史莱姆），开启满档效果，满档光环1.炫光律动，坐骑Id0\n"
+        + "# 2号位人物使用100199（红蔷薇女王），人物光环5.青电，宠物使用120082（七彩史莱姆），开启满档效果，满档光环4.烈焰之心，坐骑Id0\n"
+        + "# 3号位人物使用100199（红蔷薇女王），人物光环5.青电，宠物使用120082（七彩史莱姆），开启满档效果，满档光环4.烈焰之心，坐骑Id0\n"
+        + "# 4号位人物使用100199（红蔷薇女王），人物光环5.青电，宠物使用120082（七彩史莱姆），开启满档效果，满档光环5.燃焰之环，坐骑Id0\n"
+        + "# 5号位人物使用100199（红蔷薇女王），人物光环5.青电，宠物使用120082（七彩史莱姆），开启满档效果，满档光环5.燃焰之环，坐骑Id0\n"
+        + "CGAP1:QkFQMQEBABLVAQAFAAAAAQEAAABnhwEAAAAAABLVAQAFAAAAAQQAAABnhwEAAAAAABLVAQAFAAAAAQQAAABnhwEAAAAAABLVAQAFAAAAAQUAAABnhwEAAAAAABLVAQAFAAAAAQUAAABnhwEAAAAAAA==\n";
 
     private static bool _cfgLoaded;
     private static bool _enabled;
@@ -201,19 +215,44 @@ public static class SeqChapterBattleAppear
                 }
 
                 var index = Convert.ToInt32(GetMember(ch, "Index") ?? -1);
-                var local = index - baseIdx;
-                if (local >= 0 && local <= 4)
+                // 只处理我方 decade（0 或 10）；偷袭时前后排可能对调，不能再用 local 0~4=人 / 5~9=宠
+                if (index < baseIdx || index > baseIdx + 9)
                 {
-                    var cfg = ResolveCfgForBattleIndex(index, local, indexToUid);
+                    continue;
+                }
+
+                var within = index - baseIdx; // 0~9
+                var slot = within % 5; // 同列 1~5 号
+                var ownerIndex = within < 5 ? baseIdx + within + 5 : baseIdx + within - 5;
+                // 人宠配对：同 slot 的 ±5；Uid 档挂在人物 Index 上
+                var uidIndex = IsBattleCharPlayer(ch) ? index : (IsBattleCharMonster(ch) ? ownerIndex : (within < 5 ? index : ownerIndex));
+                var cfg = ResolveCfgForBattleIndex(uidIndex, slot, indexToUid);
+
+                // 优先用 Bcflag：PLAYER=人物，MON=宠/怪。偷袭前后排对调时仍正确。
+                if (IsBattleCharPlayer(ch))
+                {
                     if (cfg.SetCharAnim || cfg.SetRoleHalo || cfg.SetRideSkin)
                     {
                         ApplyChar(ch, cfg);
                     }
                 }
-                else if (local >= 5 && local <= 9)
+                else if (IsBattleCharMonster(ch))
                 {
-                    var ownerIndex = index - 5;
-                    var cfg = ResolveCfgForBattleIndex(ownerIndex, local - 5, indexToUid);
+                    if (cfg.SetPetAnim || cfg.SetPerfect || cfg.SetMaxCrest)
+                    {
+                        ApplyPet(ch, cfg);
+                    }
+                }
+                else if (within <= 4)
+                {
+                    // 旗标缺失时的旧逻辑回退（正常站位）
+                    if (cfg.SetCharAnim || cfg.SetRoleHalo || cfg.SetRideSkin)
+                    {
+                        ApplyChar(ch, cfg);
+                    }
+                }
+                else if (within <= 9)
+                {
                     if (cfg.SetPetAnim || cfg.SetPerfect || cfg.SetMaxCrest)
                     {
                         ApplyPet(ch, cfg);
@@ -241,6 +280,40 @@ public static class SeqChapterBattleAppear
         }
 
         return default;
+    }
+
+    // BC_FLAG.PLAYER = 4, MON = 8（与客户端枚举一致）
+    private const long BcFlagPlayer = 4L;
+    private const long BcFlagMonster = 8L;
+
+    private static long ReadBcFlag(object ch)
+    {
+        try
+        {
+            var v = GetMember(ch, "Bcflag") ?? GetMember(ch, "bcflag");
+            if (v == null)
+            {
+                return 0;
+            }
+
+            return Convert.ToInt64(v);
+        }
+        catch
+        {
+            return 0;
+        }
+    }
+
+    private static bool IsBattleCharPlayer(object ch)
+    {
+        var f = ReadBcFlag(ch);
+        return (f & BcFlagPlayer) != 0 && (f & BcFlagMonster) == 0;
+    }
+
+    private static bool IsBattleCharMonster(object ch)
+    {
+        var f = ReadBcFlag(ch);
+        return (f & BcFlagMonster) != 0;
     }
 
     private static Dictionary<int, string> BuildBattleIndexToUid()
@@ -300,8 +373,12 @@ public static class SeqChapterBattleAppear
     }
 
     /// <summary>
-    /// 战斗 RideSkin 必须是 other_tbridepetskinconfig 的 Id。
-    /// 若传入值本身是合法 Id 则原样；若是某条的 Grano 则反查 Id；否则原样（尽力）。
+    /// 写入 Proto/CharacterData.RideSkin 的值：
+    /// - 人物坐骑表 Id（1~12）→ 原样（游戏 DataMap 能查到）
+    /// - 骑宠皮 Id（8206/8207 等）→ 改写为 Grano（动画 Id）
+    /// - 已是 Grano（≥100000）→ 原样
+    /// 配合 hotfix 对 RideSkinGrano 的回退：表里没有且 ≥100000 时直接当动画 Id 给 SetRide。
+    /// （运行时反射注入 DataMap 在 HybridCLR 下不可靠，故不用。）
     /// </summary>
     private static int ResolveRideSkinConfigId(int value)
     {
@@ -312,61 +389,44 @@ public static class SeqChapterBattleAppear
 
         try
         {
-            var mgrType = FindType("ConfigManager");
-            if (mgrType == null)
+            EnsurePetRideAliasesLoaded();
+            var tb = GetRidePetSkinTable();
+            if (tb != null)
             {
-                return value;
-            }
-
-            object instance = null;
-            for (var cur = mgrType; cur != null; cur = cur.BaseType)
-            {
-                var inst = cur.GetProperty(
-                        "Instance",
-                        BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.FlattenHierarchy)
-                    ?.GetValue(null, null);
-                if (inst != null)
+                var dataMap = GetMember(tb, "DataMap") as IDictionary;
+                if (dataMap != null && dataMap.Contains(value))
                 {
-                    instance = inst;
-                    break;
+                    return value;
                 }
-            }
 
-            if (instance == null)
-            {
-                return value;
-            }
-
-            var tb = instance.GetType()
-                .GetMethod("GetTbRidePetSkinConfig", BindingFlags.Public | BindingFlags.Instance)
-                ?.Invoke(instance, null);
-            if (tb == null)
-            {
-                return value;
-            }
-
-            var dataMap = GetMember(tb, "DataMap") as IDictionary;
-            if (dataMap != null && dataMap.Contains(value))
-            {
-                return value;
-            }
-
-            var dataList = GetMember(tb, "DataList") as IEnumerable;
-            if (dataList != null)
-            {
-                foreach (var row in dataList)
+                var dataList = GetMember(tb, "DataList") as IEnumerable;
+                if (dataList != null)
                 {
-                    if (row == null)
+                    foreach (var row in dataList)
                     {
-                        continue;
-                    }
+                        if (row == null)
+                        {
+                            continue;
+                        }
 
-                    var grano = Convert.ToInt32(GetMember(row, "Grano") ?? 0);
-                    if (grano == value)
-                    {
-                        return Convert.ToInt32(GetMember(row, "Id") ?? value);
+                        var grano = Convert.ToInt32(GetMember(row, "Grano") ?? 0);
+                        if (grano == value)
+                        {
+                            return Convert.ToInt32(GetMember(row, "Id") ?? value);
+                        }
                     }
                 }
+            }
+
+            int aliasGrano;
+            if (_petRideIdToGrano.TryGetValue(value, out aliasGrano) && aliasGrano > 0)
+            {
+                return aliasGrano;
+            }
+
+            if (value >= 100000)
+            {
+                return value;
             }
         }
         catch
@@ -375,6 +435,309 @@ public static class SeqChapterBattleAppear
         }
 
         return value;
+    }
+
+    // 骑宠皮 Id→Grano（与 export_pet_appear_bin / ride_skin.json 对齐；json 可覆盖）
+    private static readonly Dictionary<int, int> _petRideIdToGrano = new Dictionary<int, int>
+    {
+        { 1, 101330 },
+        { 11, 101011 },
+        { 12, 101711 },
+        { 13, 131000 },
+        { 16, 110338 },
+        { 4098, 107011 },
+        { 4099, 101722 },
+        { 4100, 101503 },
+        { 4101, 101202 },
+        { 4102, 101522 },
+        { 4103, 110530 },
+        { 8200, 110384 },
+        { 8201, 101205 },
+        { 8202, 101031 },
+        { 8206, 131001 },
+        { 8207, 111638 },
+    };
+
+    private static bool _petRideAliasFileLoaded;
+
+    private static void EnsurePetRideAliasesLoaded()
+    {
+        if (_petRideAliasFileLoaded)
+        {
+            return;
+        }
+
+        _petRideAliasFileLoaded = true;
+        try
+        {
+            foreach (var path in RideSkinJsonCandidates())
+            {
+                if (!File.Exists(path))
+                {
+                    continue;
+                }
+
+                MergePetRideAliasesFromJson(File.ReadAllText(path, Encoding.UTF8));
+                break;
+            }
+        }
+        catch
+        {
+            // 内置表足够
+        }
+    }
+
+    private static IEnumerable<string> RideSkinJsonCandidates()
+    {
+        var list = new List<string>();
+        try
+        {
+            var dataPath = ReadUnityDataPath();
+            if (!string.IsNullOrEmpty(dataPath))
+            {
+                var gameRoot = Path.GetFullPath(Path.Combine(dataPath, ".."));
+                list.Add(Path.Combine(gameRoot, "tools", "ride_skin.json"));
+                list.Add(Path.Combine(dataPath, "assets", "hotfixdata", "ride_skin.json"));
+            }
+        }
+        catch
+        {
+            // ignore
+        }
+
+        list.Add(@"E:\cross\魔力宝贝：序章\tools\ride_skin.json");
+        return list;
+    }
+
+    /// <summary>从 ride_skin.json 合并 kind=pet_skin 的 id/grano（简易扫描，无第三方 JSON 库）。</summary>
+    private static void MergePetRideAliasesFromJson(string text)
+    {
+        if (string.IsNullOrEmpty(text))
+        {
+            return;
+        }
+
+        var pos = 0;
+        while (pos < text.Length)
+        {
+            var kindIdx = text.IndexOf("\"kind\"", pos, StringComparison.OrdinalIgnoreCase);
+            if (kindIdx < 0)
+            {
+                break;
+            }
+
+            var colon = text.IndexOf(':', kindIdx);
+            if (colon < 0)
+            {
+                break;
+            }
+
+            var q1 = text.IndexOf('"', colon + 1);
+            if (q1 < 0)
+            {
+                break;
+            }
+
+            var q2 = text.IndexOf('"', q1 + 1);
+            if (q2 < 0)
+            {
+                break;
+            }
+
+            var kind = text.Substring(q1 + 1, q2 - q1 - 1);
+            pos = q2 + 1;
+            if (!string.Equals(kind, "pet_skin", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            // 在该对象附近取 id / grano（向前向后各 200 字符）
+            var start = Math.Max(0, kindIdx - 80);
+            var end = Math.Min(text.Length, q2 + 200);
+            var slice = text.Substring(start, end - start);
+            int id, grano;
+            if (!TryReadJsonInt(slice, "id", out id) || !TryReadJsonInt(slice, "grano", out grano))
+            {
+                continue;
+            }
+
+            if (id > 0 && grano > 0)
+            {
+                _petRideIdToGrano[id] = grano;
+            }
+        }
+    }
+
+    private static bool TryReadJsonInt(string slice, string key, out int value)
+    {
+        value = 0;
+        var keyTok = "\"" + key + "\"";
+        var idx = slice.IndexOf(keyTok, StringComparison.OrdinalIgnoreCase);
+        if (idx < 0)
+        {
+            return false;
+        }
+
+        var colon = slice.IndexOf(':', idx + keyTok.Length);
+        if (colon < 0)
+        {
+            return false;
+        }
+
+        var p = colon + 1;
+        while (p < slice.Length && char.IsWhiteSpace(slice[p]))
+        {
+            p++;
+        }
+
+        var neg = false;
+        if (p < slice.Length && slice[p] == '-')
+        {
+            neg = true;
+            p++;
+        }
+
+        if (p >= slice.Length || !char.IsDigit(slice[p]))
+        {
+            return false;
+        }
+
+        long n = 0;
+        while (p < slice.Length && char.IsDigit(slice[p]))
+        {
+            n = n * 10 + (slice[p] - '0');
+            if (n > int.MaxValue)
+            {
+                return false;
+            }
+
+            p++;
+        }
+
+        value = (int)(neg ? -n : n);
+        return true;
+    }
+
+    private static object GetRidePetSkinTable()
+    {
+        var mgrType = FindType("ConfigManager");
+        if (mgrType == null)
+        {
+            return null;
+        }
+
+        object instance = null;
+        for (var cur = mgrType; cur != null; cur = cur.BaseType)
+        {
+            var inst = cur.GetProperty(
+                    "Instance",
+                    BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.FlattenHierarchy)
+                ?.GetValue(null, null);
+            if (inst != null)
+            {
+                instance = inst;
+                break;
+            }
+        }
+
+        if (instance == null)
+        {
+            return null;
+        }
+
+        return instance.GetType()
+            .GetMethod("GetTbRidePetSkinConfig", BindingFlags.Public | BindingFlags.Instance)
+            ?.Invoke(instance, null);
+    }
+
+    /// <summary>往 other_tbridepetskinconfig.DataMap 注入 Id→Grano，供 RideSkinGrano 查询。</summary>
+    private static void EnsureRideAliasRow(object tb, IDictionary dataMap, int id, int grano)
+    {
+        if (tb == null || dataMap == null || id <= 0 || grano <= 0)
+        {
+            return;
+        }
+
+        if (dataMap.Contains(id))
+        {
+            return;
+        }
+
+        var rowType = FindType("cfg.Other.RidePetSkinConfig") ?? FindType("RidePetSkinConfig");
+        if (rowType == null)
+        {
+            return;
+        }
+
+        object row;
+        try
+        {
+            row = System.Runtime.Serialization.FormatterServices.GetUninitializedObject(rowType);
+        }
+        catch
+        {
+            return;
+        }
+
+        if (!TrySetRideRowField(row, "Id", id) || !TrySetRideRowField(row, "Grano", grano))
+        {
+            return;
+        }
+
+        TrySetRideRowField(row, "Time", 0);
+        TrySetRideRowField(row, "Icon", 0);
+        TrySetRideRowField(row, "GoRun", 0);
+        TrySetRideRowField(row, "Name", "alias");
+        TrySetRideRowField(row, "Memo", "seqchapter");
+
+        try
+        {
+            dataMap[id] = row;
+            var list = GetMember(tb, "DataList") as IList;
+            list?.Add(row);
+        }
+        catch
+        {
+            // ignore
+        }
+    }
+
+    private static bool TrySetRideRowField(object row, string name, object value)
+    {
+        try
+        {
+            var t = row.GetType();
+            var p = t.GetProperty(name, BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase);
+            if (p != null)
+            {
+                // private set 的自动属性：CanWrite 仍可能为 true
+                if (p.GetSetMethod(nonPublic: true) != null)
+                {
+                    p.SetValue(row, Convert.ChangeType(value, p.PropertyType), null);
+                    return true;
+                }
+            }
+
+            var f = t.GetField("<" + name + ">k__BackingField", BindingFlags.NonPublic | BindingFlags.Instance);
+            if (f != null)
+            {
+                f.SetValue(row, Convert.ChangeType(value, f.FieldType));
+                return true;
+            }
+
+            f = t.GetField(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.IgnoreCase);
+            if (f != null)
+            {
+                f.SetValue(row, Convert.ChangeType(value, f.FieldType));
+                return true;
+            }
+        }
+        catch
+        {
+            return false;
+        }
+
+        return false;
     }
 
     private static void ApplyPet(object ch, SlotCfg cfg)
@@ -436,6 +799,11 @@ public static class SeqChapterBattleAppear
         if (index == 3)
         {
             return ImportFromCode(Preset3Code);
+        }
+
+        if (index == 4)
+        {
+            return ImportFromCode(Preset4Code);
         }
 
         return "无效方案编号";

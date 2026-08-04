@@ -1,13 +1,9 @@
 @echo off
 chcp 65001 >nul
 cd /d "%~dp0"
-echo [BUILD] 傻瓜补丁·九动版（五选一：九动加速/无九动加速/抓宠/烧卡/慢速烧卡） ...
-python scripts\publish_foolproof.py --nine-pack
-if errorlevel 1 (
-  echo [FAIL]
-  pause
-  exit /b 1
-)
+echo [DISABLED] 九动版已停发（见 publish_packs.json packs.nine.enabled=false）。
+echo 默认请运行「发布傻瓜补丁.bat」（融合版 + 换装）。
+echo 若确需强制打九动包：python scripts\publish_foolproof.py --nine-pack --force-nine-pack
 echo.
-echo 完成。发布物在 发布plugin\ 目录（同系列旧包已自动删除）。
 pause
+exit /b 1

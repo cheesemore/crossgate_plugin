@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""构建「傻瓜补丁」独立包（九动版 / 融合版）→ E:\\cross序章\\发布plugin\\*.zip。
+"""构建「傻瓜补丁」独立包（九动版 / 融合版）→ E:\\cross\\发布plugin\\*.zip。
 
 用法：
-  python publish_foolproof.py --nine-pack      # 九动版（六选一：九动加速/无九动加速/抓宠/抓宠无宠人防/烧卡/慢速烧卡）
-  python publish_foolproof.py --fusion-pack    # 融合版（五选一：普通加速/抓宠/抓宠无宠人防/烧卡/慢速烧卡）
+  python publish_foolproof.py --nine-pack      # 九动版（百科面板含九动）
+  python publish_foolproof.py --fusion-pack    # 融合版（百科面板无九动）
   python publish_foolproof.py                  # 同 --fusion-pack
 """
 from __future__ import annotations
@@ -66,19 +66,28 @@ ANIMATOR_DATA = [
 
 _ARGV = sys.argv[1:]
 NINE_PACK = any(a in ("--nine-pack", "--with-nine-pack", "/nine-pack") for a in _ARGV)
-# 默认融合版；显式 --nine-pack 才出九动版
+FORCE_NINE = any(
+    a in ("--force-nine-pack", "--force-nine", "/force-nine-pack") for a in _ARGV
+)
+# 默认融合版；显式 --nine-pack 才出九动版（当前默认禁用，需 --force-nine-pack）
 FUSION_PACK = (not NINE_PACK) or any(
     a in ("--fusion-pack", "--fusion", "/fusion-pack") for a in _ARGV
 )
 if NINE_PACK:
     FUSION_PACK = False
+    if not FORCE_NINE:
+        print(
+            "[DISABLED] 九动版已停发。默认请发融合版，或见 publish_packs.json。\n"
+            "若确需构建：加上 --force-nine-pack"
+        )
+        raise SystemExit(2)
 
 if NINE_PACK:
     APP_NAME = "傻瓜补丁_九动版"
-    ACCEL_NAME = "九动加速"
+    PANEL_MODES = "常规 / 九动 / 抓宠 / 烧卡"
 else:
     APP_NAME = "傻瓜补丁_融合版"
-    ACCEL_NAME = "普通加速"
+    PANEL_MODES = "常规 / 抓宠 / 烧卡"
 
 SERIES_CLEANUP_PREFIXES = [APP_NAME]
 # 清理旧系列命名，避免发布目录堆积
@@ -112,79 +121,21 @@ echo 正在打开傻瓜补丁…
 exit /b %ERRORLEVEL%
 """
 
-_CHOICE_N = "六选一" if NINE_PACK else "五选一"
-_NO_NINE_ACCEL_BLOCK = (
-    """
-【无九动加速】
-· VIP/非VIP 5x · 特效 2x · 跑速快 · 长按详情 · 遇敌一级含哥布林/蝙蝠
-· 不含神奇九动（加速组合与「九动加速」相同，只是不打九动）
-"""
-    if NINE_PACK
-    else ""
-)
-
 README = f"""魔力宝贝：序章 — {APP_NAME}
 
-打开补丁后请{_CHOICE_N}（只能打一种）：
+【本包做什么】
+· 侧栏「百科」→ 助手面板，战斗模式：{PANEL_MODES}
+· 界面外层选项仅「是否带加速」（战斗倍速 / 跑速 / 特效等 IL）
+· 默认含：分享改日常、礼包码、进战形象、客服→高级自动战斗
 
-【{ACCEL_NAME}】
-· VIP/非VIP 5x · 特效 2x · 跑速快 · 长按详情 · 遇敌一级含哥布林/蝙蝠
-{"· 含神奇九动·DLL版（本包不打 IL 九动，适配余量紧张客户端）" if NINE_PACK else "· 不含神奇九动"}
-{_NO_NINE_ACCEL_BLOCK}
-【分享切页（界面可勾选，默认勾上）】
-· 侧栏「分享」：Tip 切页（日常 / 新手礼包码），2 秒内再点开始
-· 日常：签到 + 月卡每日 + 在线礼包 + 指定道具（间隔0.4s）
-· 新手礼包码：最多5角色兑换 VIP666/777/888/999、MLBB666/777、mlbb521、mlbb24（已领过不管）
-· 不占用百科（抓宠/烧卡仍用百科 Tip）
+【用法】
+1. 关掉游戏，解压到游戏目录（与 cg37.exe 同级或子文件夹）
+2. 双击「一键打补丁.bat」
+3. 勾选/取消「带加速」后点「一键打补丁」
+4. 进游戏用百科面板切换战斗模式
+5. 换皮预览：界面「启动动画预览」（依赖上方填写的游戏目录资源）
 
-【客服→高级自动战斗】
-· 各模式默认带上：侧栏「客服」→ 自动技能设置（高级自动战斗）；官方入口太深
-
-【助手面板（百科入口，各模式默认带）】
-· 侧栏「百科」→ 助手面板「战斗」：九动版加速为 常规/九动/抓宠/烧卡；融合版为 常规/抓宠/烧卡；形象/脚本另页
-· 进战形象：「形象」页粘贴/推荐方案/按账号 Uid 存档
-
-【自动抓宠】
-· 默认关闭。点侧栏「百科」Tip 开关；标题「★自动中★遇到1级N只」
-· 战斗 5x · 特效 2x。可抓一级时 P1 扔卡、P2 一号技能、其余人物 G、宠物对齐防御键
-· 不含九动
-
-【自动抓宠（无宠人防御）】
-· 与「自动抓宠」相同的开关/加速/流水线；一般不用
-· 区别：无宠时人物 2动改防御；1动仍为 P1 扔卡、P2 一号技能、其余 G
-· 不含九动
-
-【自动烧卡】
-· 默认关闭。点侧栏「百科」Tip；标题「★自动烧卡中★」
-· 战斗 10x · 特效 5x · 跑速快。退战 Tip 余卡，无卡停遇敌
-· 不含九动
-
-【慢速烧卡】
-· 烧卡 / Tip / 退战停遇敌 与「自动烧卡」相同
-· 无任何加速（无战斗倍速、特效、跑速、过场）
-· 不含九动
-
-【打加速补丁（界面可勾选，默认勾上）】
-· 关闭后：任意模式都不打战斗倍速 / 跑速 / 特效加速 / 过场加速
-· 九动 / 抓宠 / 烧卡逻辑 / 日常礼包 / 进战形象 不受影响
-
-【启动动画器】
-· 界面按钮「启动动画器」：打开选皮肤预览 GUI，写出 battle_appear.json
-· 需先打过带「进战形象」的补丁；配置会写到游戏目录 tools/battle_appear.json
-
-共同不含：助手桥接。抓宠/烧卡请把封印卡放背包。
-
-1. 关掉游戏
-2. 把本文件夹解压到游戏目录（和 cg37.exe 放一起，或放在子文件夹里也行）
-3. 双击「一键打补丁.bat」，在界面选择模式后打补丁
-4. 看弹窗：成功或失败都会提示
-5. 需要换皮时点「启动动画器」
-
-客户端更新后：先用启动器「更新」到最新，再运行本包（或换新版傻瓜补丁）。
-若提示客户端状态异常：可在界面点「从干净目录恢复…」，手动选择一份干净客户端目录
-（无默认路径），恢复 hotfix 后再打补丁。
-
-找不到游戏时会自动往上一级目录找，一直找到盘符为止。
+客户端不干净时：界面「从干净目录恢复…」选手选干净客户端后再打。
 """
 
 _STAMP_RE = re.compile(r"^\d{8}_\d{6}$")
