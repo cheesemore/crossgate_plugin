@@ -65,7 +65,7 @@ ANIMATOR_DATA = [
 
 # 九动版已无限期停发：本脚本只构建融合版，忽略任何 --nine-pack 类参数。
 APP_NAME = "傻瓜补丁_融合版"
-PANEL_MODES = "常规 / 抓宠 / 抓宠（不带宠）/ 抓宠卖银币 / 烧卡"
+PANEL_MODES = "常规 / 抓宠（无宠二动）/ 抓宠 / 抓宠卖银币 / 烧卡"
 
 SERIES_CLEANUP_PREFIXES = [APP_NAME]
 # 清理旧系列命名，避免发布目录堆积
@@ -103,14 +103,14 @@ README = f"""魔力宝贝：序章 — {APP_NAME}
 
 【本包做什么】
 · 侧栏「百科」→ 助手面板，战斗模式：{PANEL_MODES}
-· 战斗模式默认：抓宠 / 抓宠（不带宠）/ 抓宠卖银币 / 烧卡（面板内互斥切换）
-· 界面外层选项仅「战斗加速」：开→战斗倍速+心跳回传1.5x；关→原速+心跳回传1.0x
+· 战斗模式默认：抓宠（无宠二动）/ 抓宠 / 抓宠卖银币 / 烧卡（面板内互斥切换）
+· 界面外层选项：「战斗加速」（开→战斗倍速+心跳回传1.5x；关→原速+心跳回传1.0x）与「跳帧（切后台/老板键限帧 10FPS）」
 · 默认含：分享改日常、礼包码、客服→高级自动战斗
 
 【用法】
 1. 关掉游戏，解压到游戏目录（与 cg37.exe 同级或子文件夹）
 2. 双击「一键打补丁.bat」
-3. 勾选/取消「战斗加速」后点「一键打补丁」
+3. 勾选/取消「战斗加速」「跳帧」后点「一键打补丁」
 4. 进游戏用百科面板切换战斗模式
 5. 换皮预览：界面「启动动画预览」（依赖上方填写的游戏目录资源）
 
@@ -406,11 +406,30 @@ def zip_folder(folder: Path, zip_path: Path) -> None:
     print(f"[OK] ZIP {zip_path} ({zip_path.stat().st_size:,} 字节)")
 
 
+def _python_dll_name(folder: Path) -> str | None:
+    """PyInstaller onedir 的运行时 DLL 名随 Python 版本变化（python39/310/312…）。
+
+    优先匹配完整运行时 python<major><minor>.dll（如 python310.dll），
+    避免误匹配 python3.dll 这类 64KB 的 ABI 转发 stub。
+    """
+    internal = folder / "_internal"
+    if not internal.is_dir():
+        return None
+    named = sorted(internal.glob("python[0-9][0-9].dll"))
+    if named:
+        return named[0].name
+    any_dll = sorted(internal.glob("python*.dll"))
+    return any_dll[0].name if any_dll else None
+
+
 def verify_pack(folder: Path, zip_path: Path) -> None:
     """打包后硬校验：缺运行时/引擎/源码任一关键文件则失败，避免发出残包。"""
+    py_dll = _python_dll_name(folder)
+    if py_dll is None:
+        raise RuntimeError("发布目录缺少 _internal/python*.dll 运行时")
     file_required = [
         folder / f"{APP_NAME}.exe",
-        folder / "_internal" / "python39.dll",
+        folder / "_internal" / py_dll,
         folder / "_internal" / "base_library.zip",
         folder / "patcher" / "HotfixPatcher.exe",
         folder / BAT_NAME,
@@ -436,7 +455,7 @@ def verify_pack(folder: Path, zip_path: Path) -> None:
         names = set(zf.namelist())
     zip_required = [
         f"{APP_NAME}/{APP_NAME}.exe",
-        f"{APP_NAME}/_internal/python39.dll",
+        f"{APP_NAME}/_internal/{py_dll}",
         f"{APP_NAME}/_internal/base_library.zip",
         f"{APP_NAME}/patcher/HotfixPatcher.exe",
         f"{APP_NAME}/{BAT_NAME}",
@@ -451,9 +470,9 @@ def verify_pack(folder: Path, zip_path: Path) -> None:
     if zip_missing:
         raise RuntimeError("ZIP 缺关键文件:\n  - " + "\n  - ".join(zip_missing))
 
-    py_size = (folder / "_internal" / "python39.dll").stat().st_size
+    py_size = (folder / "_internal" / py_dll).stat().st_size
     print(
-        f"[VERIFY] 目录与 ZIP 均含 python39.dll（{py_size:,} 字节）"
+        f"[VERIFY] 目录与 ZIP 均含 {py_dll}（{py_size:,} 字节）"
         "、引擎、ref_stubs 与外置 DLL 源码，可独立打补丁"
     )
 

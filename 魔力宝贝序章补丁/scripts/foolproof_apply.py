@@ -3,9 +3,10 @@
 """
 傻瓜补丁：诊断客户端后一键打补丁（由 GUI 调用）。
 
-发布物为融合版（百科助手面板：常规/抓宠/抓宠（不带宠）/抓宠卖银币/烧卡）。
+发布物为融合版（百科助手面板：常规/抓宠（无宠二动）/抓宠/抓宠卖银币/烧卡）。
 九动版已无限期停发，enable_nine 仅保留给历史包兼容调用。
-界面外层选项仅「战斗加速」：开→战斗倍速+心跳回传1.5x；关→原速+心跳回传1.0x。
+界面外层选项：「战斗加速」（开→战斗倍速+心跳回传1.5x；关→原速+心跳回传1.0x）
+与「跳帧」（切后台/老板键限帧 10FPS）。
 
 活 hotfix 不干净时：界面可选手选干净目录恢复（restore_hotfixdata_from_clean），无默认源。
 体积与 EXPECTED_SIZE 绑定；客户端更新导致体积变化时需发新版傻瓜补丁。
@@ -88,6 +89,7 @@ def run_foolproof_patch(
     newbie_gift_code: bool = True,
     gift_codes: list[str] | str | None = None,
     apply_accel: bool = True,
+    apply_frameskip: bool = True,
     on_log: LogFn | None = None,
     # 旧多档参数已废弃：一律走百科助手面板，忽略下列开关
     burn_seal: bool = False,
@@ -100,6 +102,7 @@ def run_foolproof_patch(
 
     enable_nine：九动版 True / 融合版 False（由包类型决定，面板内是否出现九动）。
     apply_accel：战斗加速开关，默认开。开→战斗倍速+心跳回传1.5x；关→原速+心跳回传1.0x。
+    apply_frameskip：跳帧开关（切后台/老板键限帧 10FPS），默认开。
     daily_claim / newbie_gift_code：分享切页（默认开）。
     gift_codes：可编辑礼包码；None 用默认。
     """
@@ -133,14 +136,14 @@ def run_foolproof_patch(
         _emit(
             messages,
             on_log,
-            "预设：百科助手面板（常规/九动/抓宠/抓宠卖银币/烧卡）",
+            "预设：百科助手面板（常规/九动/抓宠（无宠二动）/抓宠/抓宠卖银币/烧卡）",
         )
         kwargs = dict(FOOLPROOF_COMBO_KWARGS)
         kwargs["battle_nine_action"] = False
         kwargs["battle_nine_external"] = True
         kwargs["auto_seal_external"] = True
         kwargs["auto_catch_external"] = True
-        kwargs["auto_catch_nopet_external"] = False
+        kwargs["auto_catch_nopet_external"] = True
         kwargs["auto_catch_sell_external"] = True
         kwargs["wiki_test_ui"] = True
         nine_checks = ["nine_external"]
@@ -150,7 +153,7 @@ def run_foolproof_patch(
         _emit(
             messages,
             on_log,
-            "预设：百科助手面板（常规/抓宠/抓宠（不带宠）/抓宠卖银币/烧卡 · 无九动）",
+            "预设：百科助手面板（常规/抓宠（无宠二动）/抓宠/抓宠卖银币/烧卡 · 无九动）",
         )
         kwargs = dict(FOOLPROOF_NO_NINE_COMBO_KWARGS)
         kwargs["battle_nine_action"] = False
@@ -187,6 +190,13 @@ def run_foolproof_patch(
         kwargs["vip_echo"] = 1.5  # 加速开：战斗倍速 + 心跳回传固定 1.5x
         _emit(messages, on_log, "加速补丁：开（战斗倍速 + 心跳回传固定 1.5x）")
 
+    kwargs["boss_key_fps"] = bool(apply_frameskip)
+    _emit(
+        messages,
+        on_log,
+        "跳帧（切后台/老板键限帧 10FPS）：开" if apply_frameskip else "跳帧（切后台/老板键限帧 10FPS）：关",
+    )
+
     _emit(messages, on_log, "正在余量预检（启动补丁引擎，首次可能较慢）…")
     try:
         precheck = ["longpress"] if not apply_accel else ["vip", "sprint", "longpress", "skill_effect"]
@@ -220,10 +230,11 @@ def run_foolproof_patch(
             messages.append(msg)
 
     panel_part = (
-        " · 百科面板(常规/九动/抓宠/抓宠卖银币/烧卡)"
+        " · 百科面板(常规/九动/抓宠（无宠二动）/抓宠/抓宠卖银币/烧卡)"
         if enable_nine
-        else " · 百科面板(常规/抓宠/抓宠（不带宠）/抓宠卖银币/烧卡)"
+        else " · 百科面板(常规/抓宠（无宠二动）/抓宠/抓宠卖银币/烧卡)"
     )
+    frameskip_part = " · 跳帧开" if apply_frameskip else " · 跳帧关"
     daily_part = ""
     if kwargs.get("daily_claim") or kwargs.get("newbie_gift_code"):
         bits = []
@@ -239,7 +250,7 @@ def run_foolproof_patch(
             messages,
             on_log,
             f"已应用：无战斗倍速 · 原速跑图 · 长按详情 · 无特效加速 · 心跳回传1.0x"
-            f"{panel_part}{gm_part}{daily_part}{nine_part}"
+            f"{panel_part}{gm_part}{daily_part}{nine_part}{frameskip_part}"
             + (" · 一级含蝙蝠/哥布林" if kwargs.get("level_one_include_all") else ""),
         )
     else:
@@ -251,7 +262,7 @@ def run_foolproof_patch(
             messages,
             on_log,
             f"已应用：VIP{vip}x{sprint_part} · 长按详情 · 特效{fx}x · 心跳回传{echo:g}x"
-            f"{panel_part}{gm_part}{daily_part}{nine_part}"
+            f"{panel_part}{gm_part}{daily_part}{nine_part}{frameskip_part}"
             + (" · 一级含蝙蝠/哥布林" if kwargs.get("level_one_include_all") else ""),
         )
     try:

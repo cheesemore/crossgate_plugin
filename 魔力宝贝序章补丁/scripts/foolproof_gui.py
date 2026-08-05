@@ -4,13 +4,13 @@
 
 九动版已无限期停发，发布只产融合版（对历史九动版包仍兼容识别）。
 
-界面外层选项仅「战斗加速」：开→战斗倍速+心跳回传1.5x；关→原速+心跳回传1.0x。
-抓宠/烧卡等在游戏内百科助手面板切换。
+界面外层选项：「战斗加速」（开→战斗倍速+心跳回传1.5x；关→原速+心跳回传1.0x）
+与「跳帧」（切后台/老板键限帧 10FPS）。抓宠/烧卡等在游戏内百科助手面板切换。
 
 用法：
   傻瓜补丁_*.exe
   傻瓜补丁_*.exe --auto
-  傻瓜补丁_*.exe --auto --no-accel
+  傻瓜补丁_*.exe --auto --no-accel [--no-frameskip]
 """
 from __future__ import annotations
 
@@ -79,7 +79,7 @@ def _profile_title() -> str:
 def _panel_modes_tip() -> str:
     if NINE_PACK:
         return "常规 / 九动 / 抓宠 / 抓宠卖银币 / 烧卡"
-    return "常规 / 抓宠 / 抓宠（不带宠）/ 抓宠卖银币 / 烧卡"
+    return "常规 / 抓宠（无宠二动）/ 抓宠 / 抓宠卖银币 / 烧卡"
 
 
 def run_auto() -> int:
@@ -87,9 +87,13 @@ def run_auto() -> int:
         apply_accel = not any(
             a in ("--no-accel", "--no-speed", "/no-accel") for a in sys.argv[1:]
         )
+        apply_frameskip = not any(
+            a in ("--no-frameskip", "--no-bossfps", "/no-frameskip") for a in sys.argv[1:]
+        )
         msgs = run_foolproof_patch(
             enable_nine=NINE_PACK,
             apply_accel=apply_accel,
+            apply_frameskip=apply_frameskip,
             on_log=lambda line: print(line, flush=True),
         )
         detail = "\n".join(msgs[-8:]) if msgs else "补丁已打好。"
@@ -129,7 +133,8 @@ class FoolproofApp(tk.Tk):
         tip = (
             f"本包：傻瓜补丁·{pack_name}\n"
             f"· 侧栏「百科」→ 助手面板，战斗模式：{_panel_modes_tip()}\n"
-            "· 外层选项仅「战斗加速」：开→战斗倍速+心跳回传1.5x；关→原速+心跳回传1.0x\n"
+            "· 外层选项：「战斗加速」（开→战斗倍速+心跳回传1.5x；关→原速+心跳回传1.0x）\n"
+            "             与「跳帧」（切后台/老板键限帧 10FPS）\n"
             "· 分享改日常、礼包码默认带上\n"
             "· 「启动动画预览」使用上方游戏目录读取资源（需已填对目录）\n"
             "若提示客户端不干净：可点「从干净目录恢复…」。"
@@ -141,6 +146,13 @@ class FoolproofApp(tk.Tk):
             body,
             text="战斗加速（默认开：3x 倍速+心跳回传1.5x；关闭=原速+心跳回传1.0x）",
             variable=self.apply_accel_var,
+        ).pack(anchor=tk.W, pady=(0, 6))
+
+        self.apply_frameskip_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(
+            body,
+            text="跳帧（默认开：切后台/老板键隐藏时限帧 10FPS；关闭=维持前台帧率）",
+            variable=self.apply_frameskip_var,
         ).pack(anchor=tk.W, pady=(0, 6))
 
         ttk.Label(body, text="礼包码（一行一个，可改）", foreground="#555555").pack(
@@ -389,6 +401,7 @@ class FoolproofApp(tk.Tk):
                     enable_nine=NINE_PACK,
                     gift_codes=self.gift_codes_box.get("1.0", "end"),
                     apply_accel=bool(self.apply_accel_var.get()),
+                    apply_frameskip=bool(self.apply_frameskip_var.get()),
                     on_log=lambda line: self.after(0, self._append, line),
                 )
                 self.after(

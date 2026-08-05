@@ -136,9 +136,11 @@ class ComboPatchApp:
         self.vip_scale_var = tk.StringVar(value="5")
         self._patch_toggle_guard = False
         self.battle_nine_action_var = tk.BooleanVar(value=False)
-        self.battle_nine_external_var = tk.BooleanVar(value=True)
-        self.auto_seal_external_var = tk.BooleanVar(value=False)
-        self.auto_catch_external_var = tk.BooleanVar(value=False)
+        self.battle_nine_external_var = tk.BooleanVar(value=False)
+        self.auto_seal_external_var = tk.BooleanVar(value=True)
+        self.auto_catch_external_var = tk.BooleanVar(value=True)
+        self.auto_catch_nopet_external_var = tk.BooleanVar(value=True)
+        self.auto_catch_sell_external_var = tk.BooleanVar(value=True)
         self.lv1_auto_external_var = tk.BooleanVar(value=False)
         self.auto_sell_external_var = tk.BooleanVar(value=False)
         self.plugin_host_var = tk.BooleanVar(value=False)
@@ -307,7 +309,7 @@ class ComboPatchApp:
         # --- 战斗扩展 ---
         ttk.Label(
             tab_battle,
-            text="DLL 互斥（只能勾一类）：神奇九动·DLL / 烧卡 / 抓宠 / 盗贼辅助 / 插件 Host / 桥接；IL 九动可与盗贼辅助等同打",
+            text="面板模式（助手面板默认开）：抓宠（无宠二动）/抓宠/抓宠卖银币/烧卡 可同打，面板内互斥切换。九动·DLL/遇1级/盗贼/插件Host/桥接仍互斥。",
             wraplength=520,
             foreground="#555555",
         ).pack(anchor=tk.W, pady=(0, 8))
@@ -320,32 +322,51 @@ class ComboPatchApp:
         ).pack(anchor=tk.W)
         ttk.Checkbutton(
             tab_battle,
-            text="神奇九动·DLL版（默认；与其它扩展 DLL 互斥）",
+            text="神奇九动·DLL版（已停发；默认关）",
             variable=self.battle_nine_external_var,
             command=lambda: self._on_battle_exclusive_toggle("nine_dll"),
         ).pack(anchor=tk.W, pady=(4, 0))
         ttk.Checkbutton(
             tab_battle,
-            text="自动烧卡·DLL版（有封印卡就扔；点百科 Tip 开关）",
+            text="自动烧卡·DLL版（默认；有封印卡就扔，面板切开关）",
             variable=self.auto_seal_external_var,
             command=lambda: self._on_battle_exclusive_toggle("seal"),
         ).pack(anchor=tk.W, pady=(8, 0))
         ttk.Label(
             tab_battle,
-            text="默认关闭。点侧栏百科：Tip「自动烧卡已开启」/「自动烧卡已关闭」。仅队长本机回合烧队长背包；队员不烧。与抓宠/盗贼辅助互斥。",
+            text="默认开启。助手面板内切换；仅队长本机回合烧队长背包；队员不烧。",
             wraplength=500,
             foreground="#666666",
             font=("Microsoft YaHei UI", 8),
         ).pack(anchor=tk.W, padx=(18, 0), pady=(2, 0))
         ttk.Checkbutton(
             tab_battle,
-            text="自动抓宠·DLL版（自动封印：一级非迷你蝙蝠；点百科 Tip 开关）",
+            text="自动抓宠·DLL版（默认；自动封印：一级非迷你蝙蝠，面板切开关）",
             variable=self.auto_catch_external_var,
             command=lambda: self._on_battle_exclusive_toggle("catch"),
         ).pack(anchor=tk.W, pady=(8, 0))
         ttk.Label(
             tab_battle,
-            text="默认关闭。点百科 Tip 开关。有一级：P1 扔卡 · P2 一号技能 · 其余人物 G · 宠物固定防御 W|0（SkillId74，不检技能栏）。与烧卡/盗贼辅助互斥。",
+            text="默认开启。助手面板内切换。有一级：P1 扔卡 · P2 一号技能 · 其余人物 G · 宠物固定防御 W|0（SkillId74）。",
+            wraplength=500,
+            foreground="#666666",
+            font=("Microsoft YaHei UI", 8),
+        ).pack(anchor=tk.W, padx=(18, 0), pady=(2, 0))
+        ttk.Checkbutton(
+            tab_battle,
+            text="自动抓宠·无宠二动（默认；不带宠时第二动防御；面板切开关）",
+            variable=self.auto_catch_nopet_external_var,
+            command=lambda: self._on_battle_exclusive_toggle("catch_nopet"),
+        ).pack(anchor=tk.W, pady=(8, 0))
+        ttk.Checkbutton(
+            tab_battle,
+            text="抓宠卖银币·DLL版（默认；掉档≥Y且无@→回收，面板切开关）",
+            variable=self.auto_catch_sell_external_var,
+            command=lambda: self._on_battle_exclusive_toggle("catch_sell"),
+        ).pack(anchor=tk.W, pady=(8, 0))
+        ttk.Label(
+            tab_battle,
+            text="默认开启。抓宠卖银币：名字已#跳过；掉档≥Y且无@→回收；其余改名后满仓存仓。",
             wraplength=500,
             foreground="#666666",
             font=("Microsoft YaHei UI", 8),
@@ -443,26 +464,33 @@ class ComboPatchApp:
             self._patch_toggle_guard = False
 
     def _on_battle_exclusive_toggle(self, which: str) -> None:
-        """DLL 互斥：九动DLL / 烧卡 / 抓宠 / 盗贼辅助 / 桥接。勾九动DLL 时顺带关掉 IL 九动。"""
+        """DLL 互斥：九动DLL / 遇1级 / 盗贼辅助 / 插件Host / 桥接。勾九动DLL 时顺带关掉 IL 九动。
+
+        面板模式下 抓宠（无宠二动）/抓宠/抓宠卖银币/烧卡 可共存（面板内互斥切换），
+        勾它们时不取消其它 DLL。
+        """
         if self._patch_toggle_guard:
             return
         var_map = {
             "nine_dll": self.battle_nine_external_var,
             "seal": self.auto_seal_external_var,
             "catch": self.auto_catch_external_var,
+            "catch_nopet": self.auto_catch_nopet_external_var,
+            "catch_sell": self.auto_catch_sell_external_var,
             "lv1": self.lv1_auto_external_var,
             "sell": self.auto_sell_external_var,
             "host": self.plugin_host_var,
             "bridge": self.inject_bridge_var,
         }
+        exclusive_keys = ("nine_dll", "lv1", "sell", "host", "bridge")
         active = var_map.get(which)
         if active is None or not active.get():
             return
         self._patch_toggle_guard = True
         try:
-            for key, var in var_map.items():
+            for key in exclusive_keys:
                 if key != which:
-                    var.set(False)
+                    var_map[key].set(False)
             if which == "nine_dll":
                 self.battle_nine_action_var.set(False)
         finally:
@@ -700,7 +728,10 @@ class ComboPatchApp:
                 battle_nine_action=self.battle_nine_action_var.get(),
                 battle_nine_external=self.battle_nine_external_var.get(),
                 auto_seal_external=self.auto_seal_external_var.get(),
-                auto_catch_external=self.auto_catch_external_var.get(),
+                auto_catch_external=(
+                    self.auto_catch_external_var.get() or self.auto_catch_sell_external_var.get()
+                ),
+                auto_catch_nopet_external=self.auto_catch_nopet_external_var.get(),
                 lv1_auto_external=self.lv1_auto_external_var.get(),
                 auto_sell_external=self.auto_sell_external_var.get(),
                 customer_gm=self.customer_gm_var.get(),
@@ -755,6 +786,8 @@ class ComboPatchApp:
                 or self.battle_nine_external_var.get()
                 or self.auto_seal_external_var.get()
                 or self.auto_catch_external_var.get()
+                or self.auto_catch_nopet_external_var.get()
+                or self.auto_catch_sell_external_var.get()
                 or self.lv1_auto_external_var.get()
                 or self.auto_sell_external_var.get()
                 or self.plugin_host_var.get()
@@ -776,8 +809,6 @@ class ComboPatchApp:
                 return
             dll_exclusive = [
                 self.battle_nine_external_var.get(),
-                self.auto_seal_external_var.get(),
-                self.auto_catch_external_var.get(),
                 self.lv1_auto_external_var.get(),
                 self.auto_sell_external_var.get(),
                 self.plugin_host_var.get(),
@@ -786,26 +817,38 @@ class ComboPatchApp:
             if sum(1 for x in dll_exclusive if x) > 1:
                 messagebox.showerror(
                     "互斥冲突",
-                    "DLL 扩展只能勾一类：神奇九动·DLL / 烧卡 / 抓宠 / 遇1级自动 / 盗贼辅助 / 插件 Host / 桥接。\n"
-                    "（IL 九动可与盗贼辅助等同打；Host 一期暂与其它扩展 DLL 互斥）",
+                    "九动·DLL / 遇1级自动 / 盗贼辅助 / 插件 Host / 桥接 只能勾一类。\n"
+                    "（面板模式下 烧卡/抓宠/抓宠（无宠二动）/抓宠卖银币 可同打，面板内切换）",
                 )
                 return
             if self.battle_nine_action_var.get() and self.battle_nine_external_var.get():
                 messagebox.showerror("互斥冲突", "神奇九动 IL原版 与 DLL版 不能同时勾选。")
                 return
-            wiki_exclusive = [
-                self.auto_seal_external_var.get(),
-                self.auto_catch_external_var.get(),
-                self.lv1_auto_external_var.get(),
-                self.auto_sell_external_var.get(),
-                self.plugin_host_var.get(),
-                self.wiki_fps_var.get(),
-                self.wiki_test_ui_var.get(),
-            ]
-            if sum(1 for x in wiki_exclusive if x) > 1:
+            panel_mode = self.wiki_test_ui_var.get()
+            wiki_users: list[str] = []
+            if not panel_mode:
+                if (
+                    self.auto_catch_external_var.get()
+                    or self.auto_catch_nopet_external_var.get()
+                    or self.auto_catch_sell_external_var.get()
+                ):
+                    wiki_users.append("自动抓宠")
+                if self.lv1_auto_external_var.get():
+                    wiki_users.append("遇1级自动")
+                if self.auto_seal_external_var.get():
+                    wiki_users.append("自动烧卡")
+            if self.auto_sell_external_var.get():
+                wiki_users.append("盗贼辅助")
+            if self.plugin_host_var.get():
+                wiki_users.append("插件Host")
+            if self.wiki_fps_var.get():
+                wiki_users.append("百科限帧")
+            if self.wiki_test_ui_var.get():
+                wiki_users.append("助手面板")
+            if len(wiki_users) > 1:
                 messagebox.showerror(
                     "互斥冲突",
-                    "侧栏百科只能占一类：烧卡 / 抓宠 / 遇1级自动 / 盗贼 / Host / 限帧 / 助手面板。",
+                    "侧栏百科只能占一类：" + " / ".join(wiki_users) + "。",
                 )
                 return
 
@@ -817,6 +860,8 @@ class ComboPatchApp:
                 battle_nine_external=self.battle_nine_external_var.get(),
                 auto_seal_external=self.auto_seal_external_var.get(),
                 auto_catch_external=self.auto_catch_external_var.get(),
+                auto_catch_nopet_external=self.auto_catch_nopet_external_var.get(),
+                auto_catch_sell_external=self.auto_catch_sell_external_var.get(),
                 lv1_auto_external=self.lv1_auto_external_var.get(),
                 auto_sell_external=self.auto_sell_external_var.get(),
                 plugin_host=self.plugin_host_var.get(),

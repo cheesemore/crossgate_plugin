@@ -46,6 +46,7 @@ DEFAULT_GIFT_CODES = [
     "mlbb521",
     "mlbb24",
     "mlbb0803",
+    "mlbb0805",
 ]
 
 
@@ -1060,8 +1061,7 @@ def apply_combo(
     # 百科→助手面板时：抓宠/烧卡/遇1级走面板模式（不占百科），可与助手同开
     panel_mode = bool(wiki_test_ui)
 
-    # 面板模式下：普通抓宠与无宠人防可同时部署，由助手面板 SetEnabled 运行时互斥切换；
-    # 非面板模式（都占同一百科/Pause 入口）仍互斥。
+    # 面板模式下 普通抓宠 与 无宠二动 共存（面板内互斥切换）；非面板模式只能二选一
     if auto_catch_external and auto_catch_nopet_external and not panel_mode:
         raise RuntimeError("自动抓宠·DLL 与 自动抓宠·无宠人防御 不能同时启用，请只选一项。")
 

@@ -82,7 +82,14 @@ internal static class LevelOneIncludeAllIlPatcher
             InMemory = true,
         });
 
-        var method = RequireRefreshData(asm);
+        var (method, builtin) = FindRefreshData(asm);
+        if (builtin)
+        {
+            Console.WriteLine(
+                "[SKIP] 官方已内建：RefreshData 不再排除哥布林/迷你蝙蝠，LevelOneFlag 覆盖全部一级");
+            return;
+        }
+
         var (codeFileOff, _) = GetMethodCodeRange(data, method.RVA);
 
         var patched = 0;
@@ -128,15 +135,6 @@ internal static class LevelOneIncludeAllIlPatcher
             Console.WriteLine($"[PATCH] RefreshData: ldc.i4 {value} -> {target.Value}");
         }
 
-        // 官方新版已删除 RefreshData 中的 101800/101242 排除逻辑：
-        // 没有任何排除常量可改，一级天然包含所有怪，视为已达成，保持文件不变。
-        if (patched == 0 && already == 0)
-        {
-            Console.WriteLine("[SKIP] 官方新版 RefreshData 已无 LevelOne 排除逻辑，无需改写");
-            File.WriteAllBytes(outputPath, data);
-            return;
-        }
-
         if (patched == 0 && already >= 2)
         {
             Console.WriteLine("[SKIP] LevelOne 排除 ID 已改为无效值");
@@ -178,7 +176,12 @@ internal static class LevelOneIncludeAllIlPatcher
                 AssemblyResolver = resolver,
                 InMemory = true,
             });
-            var method = RequireRefreshData(asm);
+            var (method, builtin) = FindRefreshData(asm);
+            if (builtin)
+            {
+                return true;
+            }
+
             var dummy = 0;
             var old = 0;
             foreach (var insn in method.Body.Instructions)
@@ -198,11 +201,6 @@ internal static class LevelOneIncludeAllIlPatcher
                 }
             }
 
-            // 官方新版已无排除逻辑 → 视为已达成（一级天然含全部）
-            if (dummy == 0 && old == 0)
-            {
-                return true;
-            }
             return dummy >= 2 && old == 0;
         }
         catch
@@ -228,37 +226,62 @@ internal static class LevelOneIncludeAllIlPatcher
         throw new InvalidOperationException($"未知 method header 0x{flags:X2} @ RVA 0x{rva:X}");
     }
 
-    private static MethodDefinition RequireRefreshData(AssemblyDefinition asm)
+    /// <summary>
+    /// 定位 BattleProcesser.RefreshData。
+    /// 返回 (method, builtin)：builtin=true 表示新版官方已删除哥布林/蝙蝠排除（LevelOneFlag 覆盖全部一级），无需补丁。
+    /// </summary>
+    private static (MethodDefinition, bool) FindRefreshData(AssemblyDefinition asm)
     {
         var type = asm.MainModule.Types.FirstOrDefault(t => t.Name == "BattleProcesser")
             ?? throw new InvalidOperationException("未找到 BattleProcesser");
-        // RefreshData 可能重载；优先取带 body 且含 101800/101242/999999 常量的那个，
-        // 官方新版已无排除常量时，退回任意带 body 的 RefreshData（视为无需改写）。
-        MethodDefinition? hit = null;
+
+        MethodDefinition? withExclusion = null;
+        MethodDefinition? withFlag = null;
         foreach (var m in type.Methods.Where(m => m.Name == "RefreshData" && m.HasBody))
         {
+            var hasExclusion = false;
+            var hasFlagStore = false;
             foreach (var insn in m.Body.Instructions)
             {
-                if (insn.OpCode == OpCodes.Ldc_I4 && insn.Operand is int v
-                    && (v == ExcludedGoblin || v == ExcludedBat || v == DummyAnimId))
+                if (insn.OpCode == OpCodes.Ldc_I4 && insn.Operand is int v)
                 {
-                    hit = m;
-                    break;
+                    if (v == ExcludedGoblin || v == ExcludedBat || v == DummyAnimId)
+                    {
+                        hasExclusion = true;
+                    }
+                }
+                else if (insn.OpCode == OpCodes.Stfld
+                         && insn.Operand is FieldReference f
+                         && f.Name == "LevelOneFlag")
+                {
+                    hasFlagStore = true;
                 }
             }
 
-            if (hit != null)
+            if (hasExclusion)
             {
+                withExclusion = m;
                 break;
+            }
+
+            if (hasFlagStore && withFlag == null)
+            {
+                withFlag = m;
             }
         }
 
-        if (hit != null)
+        if (withExclusion != null)
         {
-            return hit;
+            return (withExclusion, false);
         }
 
-        return type.Methods.FirstOrDefault(m => m.Name == "RefreshData" && m.HasBody)
-            ?? throw new InvalidOperationException("未找到 BattleProcesser.RefreshData");
+        if (withFlag != null)
+        {
+            // 新版：仍有 LevelOneFlag 逻辑但没有 101800/101242 排除 → 官方已内建
+            return (withFlag, true);
+        }
+
+        throw new InvalidOperationException(
+            "未找到含 LevelOne 排除常量或 LevelOneFlag 写入的 BattleProcesser.RefreshData");
     }
 }

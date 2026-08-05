@@ -798,7 +798,7 @@ def mark_hotfix_watch_stamp(
     marked_by: str = "manual",
 ) -> dict:
     """初始化 / 打补丁成功后记录当前游戏 hotfix 指纹（size+sha 为主，mtime 辅助）。"""
-    root = game_root or get_game_root()
+    root = Path(game_root) if game_root is not None else get_game_root()
     if root is None:
         raise FileNotFoundError(f"未设置游戏目录，请选择包含 {DATA_DIR} 的文件夹")
     info = _file_digest_info(hotfix_path(root))
@@ -818,7 +818,7 @@ def mark_hotfix_watch_stamp(
 
 
 def load_hotfix_watch_stamp(game_root: Path | None = None) -> dict | None:
-    root = game_root or get_game_root()
+    root = Path(game_root) if game_root is not None else get_game_root()
     if root is None:
         return None
     path = hotfix_watch_stamp_path()

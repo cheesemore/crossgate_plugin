@@ -1,50 +1,11 @@
-{
+﻿{
   "enabled": false,
+  "comment": "0=不配置。应用 char_anim/role_halo/ride_skin/pet_anim/perfect/max_crest。",
   "slots": [
-    {
-      "slot": 1,
-      "pet_anim": 117163,
-      "role_halo": 114261,
-      "perfect": 0,
-      "max_crest": 1,
-      "char_anim": 100199,
-      "ride_skin": 0
-    },
-    {
-      "slot": 2,
-      "pet_anim": 117163,
-      "role_halo": 114261,
-      "perfect": 0,
-      "max_crest": 4,
-      "char_anim": 100199,
-      "ride_skin": 0
-    },
-    {
-      "slot": 3,
-      "pet_anim": 117163,
-      "role_halo": 114261,
-      "perfect": 0,
-      "max_crest": 4,
-      "char_anim": 100199,
-      "ride_skin": 0
-    },
-    {
-      "slot": 4,
-      "pet_anim": 117163,
-      "role_halo": 114261,
-      "perfect": 0,
-      "max_crest": 5,
-      "char_anim": 100199,
-      "ride_skin": 0
-    },
-    {
-      "slot": 5,
-      "pet_anim": 117163,
-      "role_halo": 114261,
-      "perfect": 0,
-      "max_crest": 5,
-      "char_anim": 100199,
-      "ride_skin": 0
-    }
+    { "slot": 1, "pet_anim": 117163, "role_halo": 114261, "perfect": 0, "max_crest": 1, "char_anim": 100199, "ride_skin": 0 },
+    { "slot": 2, "pet_anim": 117163, "role_halo": 114261, "perfect": 0, "max_crest": 4, "char_anim": 100199, "ride_skin": 0 },
+    { "slot": 3, "pet_anim": 117163, "role_halo": 114261, "perfect": 0, "max_crest": 4, "char_anim": 100199, "ride_skin": 0 },
+    { "slot": 4, "pet_anim": 117163, "role_halo": 114261, "perfect": 0, "max_crest": 5, "char_anim": 100199, "ride_skin": 0 },
+    { "slot": 5, "pet_anim": 117163, "role_halo": 114261, "perfect": 0, "max_crest": 5, "char_anim": 100199, "ride_skin": 0 }
   ]
 }

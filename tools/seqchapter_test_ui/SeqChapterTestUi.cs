@@ -2038,17 +2038,18 @@ public static class SeqChapterTestUi
         _modeButtons.Clear();
         _modeIds.Clear();
         AddModeRow(rtType, ModeNormal, "常规（什么都不开）", ref y, true);
-        if (FeatureAvailable("SeqChapterNineAction", "hotfixdata/SeqChapterNineAction.dll.bytes"))
-        {
-            AddModeRow(rtType, ModeNine, "九动", ref y, true);
-        }
-        else if (_battleMode == ModeNine)
+
+        // 九动 / 无宠二动(Magics) 已不在面板；兼容旧存档状态重置为常规
+        if (_battleMode == ModeNine || _battleMode == ModeNopet2Act)
         {
             _battleMode = ModeNormal;
         }
 
-        // 无宠二动：不依赖独立 DLL；与九动/抓宠/烧卡互斥。技能二动依赖 Magics PE。
-        AddModeRow(rtType, ModeNopet2Act, "无宠二动（一动技能后二动仍可技能）", ref y, true);
+        // 抓宠（无宠二动）：不带宠时第二动防御（SeqChapterAutoCatchNoPet.dll）
+        if (FeatureAvailable("SeqChapterAutoCatchNoPet", "hotfixdata/SeqChapterAutoCatchNoPet.dll.bytes"))
+        {
+            AddModeRow(rtType, ModeCatchNopet, "抓宠（无宠二动）", ref y, true);
+        }
 
         if (FeatureAvailable("SeqChapterAutoCatch", "hotfixdata/SeqChapterAutoCatch.dll.bytes"))
         {
@@ -2063,11 +2064,6 @@ public static class SeqChapterTestUi
         if (FeatureAvailable("SeqChapterAutoSeal", "hotfixdata/SeqChapterAutoSeal.dll.bytes"))
         {
             AddModeRow(rtType, ModeSeal, "烧卡", ref y, true);
-        }
-
-        if (FeatureAvailable("SeqChapterAutoCatchNoPet", "hotfixdata/SeqChapterAutoCatchNoPet.dll.bytes"))
-        {
-            AddModeRow(rtType, ModeCatchNopet, "抓宠（不带宠）", ref y, true);
         }
 
         if (FeatureAvailable("SeqChapterLv1Auto", "hotfixdata/SeqChapterLv1Auto.dll.bytes"))
@@ -8731,7 +8727,7 @@ public static class SeqChapterTestUi
         if (mode == ModeCatch) return "抓宠";
         if (mode == ModeCatchSell) return "抓宠卖银币";
         if (mode == ModeSeal) return "烧卡";
-        if (mode == ModeCatchNopet) return "抓宠（不带宠）";
+        if (mode == ModeCatchNopet) return "抓宠（无宠二动）";
         if (mode == ModeLv1) return "遇1级自动";
         return "常规";
     }

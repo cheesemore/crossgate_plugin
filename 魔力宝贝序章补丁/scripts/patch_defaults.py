@@ -8,10 +8,10 @@ DEFAULT_COMBO_KWARGS = {
     "vip_non_vip": True,
     "vip_scale": 5,
     "battle_nine_action": False,
-    "battle_nine_external": True,
+    "battle_nine_external": False,  # 九动已停发，固定 False
     "auto_seal_external": True,
     "auto_catch_external": True,
-    "auto_catch_nopet_external": False,
+    "auto_catch_nopet_external": True,  # 抓宠（无宠二动）：不带宠时第二动防御
     "auto_catch_sell_external": True,
     "lv1_auto_external": False,
     "auto_sell_external": False,
@@ -39,7 +39,7 @@ DEFAULT_COMBO_KWARGS = {
 }
 
 # 傻瓜补丁·基底：助手面板 + 抓宠/烧卡 DLL（面板切换）。
-# 融合版默认：面板含「抓宠（不带宠）」；九动已停发（battle_nine_external 不再置 True）。
+# 融合版默认：面板含「抓宠（无宠二动）」+ 普通抓宠；九动已停发（battle_nine_external 固定 False）。
 # 皮肤相关默认关闭：battle_appear（进战形象钩子/皮肤挂钩）为 False；
 #   换装循环（SeqChapterWikiSkinCycle）融合版不打（傻瓜换装补丁才打）。
 FOOLPROOF_COMBO_KWARGS = {
@@ -48,6 +48,8 @@ FOOLPROOF_COMBO_KWARGS = {
     "battle_nine_external": False,  # 九动版已停发，固定 False
     "auto_seal_external": True,
     "auto_catch_external": True,
+    "auto_catch_nopet_external": True,
+    "auto_catch_sell_external": True,
     "wiki_test_ui": True,
     "boss_key_fps": True,
     "transition_speed": False,
@@ -63,6 +65,7 @@ FOOLPROOF_NO_NINE_COMBO_KWARGS = {
     # 由助手面板 SetEnabled 运行时互斥切换（战斗分发钩 卖银→无宠→普通）。
     "auto_catch_external": True,
     "auto_catch_nopet_external": True,
+    "auto_catch_sell_external": True,
 }
 
 # 傻瓜「烧卡档」：同面板双 DLL（抓宠+烧卡），倍速/特效取最高；无九动
