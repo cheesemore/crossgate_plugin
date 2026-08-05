@@ -24,8 +24,9 @@ PARTIALCONFIG_STREAMING_REL = Path(DATA_DIR) / "StreamingAssets" / "partialconfi
 KEEP_CHANNELS = frozenset({"1100", "1102"})
 DEFAULT_CHANNEL = "1101"
 OLD_HOTFIX_SIZE = 6_879_744
-EXPECTED_SIZE = 7_109_632
+EXPECTED_SIZE = 7_124_480
 KNOWN_OLD_SIZES: dict[int, str] = {
+    7_109_632: "自动标记：更新前旧版",
     7_097_856: "自动标记：更新前旧版",
     7_092_736: "2026-07-22 ~ 2026-08-03（更新前；无 TimeScale 上报）",
     7_091_712: "自动标记：更新前旧版",

@@ -204,7 +204,7 @@ internal static class SlackReport
             280,
             "cecil_rewrite",
             false,
-            "Cecil 整包重写+外置 DLL，不占用 raw 追加；与烧卡/桥接/九动DLL互斥，可与 IL 九动共存"));
+            "Cecil 整包重写+外置 DLL，不占用 raw 追加；面板模式可与无宠/卖银并存，由面板互斥切换"));
 
         list.Add(new PatchSlackProfile(
             "auto_catch_nopet_external",
@@ -212,7 +212,7 @@ internal static class SlackReport
             280,
             "cecil_rewrite",
             false,
-            "与普通自动抓宠互斥；一级时 P2 人物防御；Cecil 整包重写+外置 DLL"));
+            "一级时 P2 人物防御；Cecil 整包重写+外置 DLL；面板模式可与普通抓宠并存，由面板互斥切换"));
 
         list.Add(new PatchSlackProfile(
             "auto_catch_sell_external",

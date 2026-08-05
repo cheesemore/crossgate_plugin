@@ -41,11 +41,9 @@ DATA_DIR = "cg37_Data"
 HOTFIX_REL = Path(DATA_DIR) / "assets" / "hotfixdata" / "hotfix.dll.bytes"
 ORIG_REL = Path(HOTFIX_REL).with_name("hotfix.dll.bytes.orig")
 
-# 补丁产物（还原时需要移走/备份）
+# 补丁产物（还原时需要移走/备份）；路径相对游戏根，含 hotfixdata 子目录
 PATCH_ARTIFACTS = (
     "SeqChapter*.dll.bytes",
-    "SeqChapterHelperBridge.dll.bytes",
-    "SeqChapterNineAction.dll.bytes",
     "battle_appear.json",
     "seqchapter_*.txt",
 )
@@ -156,12 +154,22 @@ def cmd_status(cross: Path, copy: Path, args) -> int:
 
 
 def _move_patch_artifacts(game_root: Path) -> list[str]:
-    """把补丁产物移到 _seq_patch_backup_<时间戳> 目录，返回消息。"""
+    """把补丁产物移到 _seq_patch_backup_<时间戳> 目录，返回消息。
+
+    补丁 DLL 与配置文件都位于 cg37_Data/assets/hotfixdata/（SeqChapter*.dll.bytes、
+    battle_appear.json、seqchapter_*.txt）；旧版曾在根目录放 SeqChapter 文件，一并扫。
+    """
     msgs: list[str] = []
     moved: list[Path] = []
-    for pat in PATCH_ARTIFACTS:
-        for f in game_root.glob(pat):
-            moved.append(f)
+    hotfixdata = game_root / DATA_DIR / "assets" / "hotfixdata"
+    scan_dirs = [game_root]
+    if hotfixdata.is_dir():
+        scan_dirs.append(hotfixdata)
+    for base in scan_dirs:
+        for pat in PATCH_ARTIFACTS:
+            for f in base.glob(pat):
+                if f not in moved:
+                    moved.append(f)
     if not moved:
         msgs.append("未发现补丁残留文件")
         return msgs

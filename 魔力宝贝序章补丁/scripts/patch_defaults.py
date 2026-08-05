@@ -59,8 +59,9 @@ FOOLPROOF_COMBO_KWARGS = {
 
 FOOLPROOF_NO_NINE_COMBO_KWARGS = {
     **FOOLPROOF_COMBO_KWARGS,
-    # 融合版默认：战斗模式开「抓宠（不带宠）」（与普通抓宠互斥，二选一）
-    "auto_catch_external": False,
+    # 融合版默认：三种抓宠方案（普通抓宠 / 抓宠不带宠 / 抓宠卖银币）同时部署，
+    # 由助手面板 SetEnabled 运行时互斥切换（战斗分发钩 卖银→无宠→普通）。
+    "auto_catch_external": True,
     "auto_catch_nopet_external": True,
 }
 
