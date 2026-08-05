@@ -1,0 +1,53 @@
+======================================================================
+cross ↔ crosscopy 更新对比报告
+时间: 2026-08-05 15:03:42
+CROSS    = E:\cross\魔力宝贝：序章
+CROSSCOPY = E:\crosscopy\魔力宝贝：序章
+cross 文件数=14030  crosscopy 文件数=14013
+新增(仅crosscopy)=0  修改=18  删除(仅cross)=17
+======================================================================
+
+### 官方新增（crosscopy 有，cross 无）（0）
+    （无）
+
+### 修改（两边都有但内容不同）（18）
+  [反外挂重点]
+    !!! UnityPlayer.dll
+    !!! Update.exe
+    !!! baselib.dll
+    !!! cg37_Data\Update.exe
+    !!! cg37_Data\assets\hotfixdata\hotfix.dll.bytes
+    !!! cg37_Data\assets\hotfixdata\hotfix.dll.bytes.orig
+    !!! tools\hotfix.dll.bytes.neworig
+  [普通文件]
+    cg37_Data\Plugins\x86_64\NPGameDLL.dll
+    cg37_Data\Plugins\x86_64\OpenCCUnityBridge.dll
+    cg37_Data\Plugins\x86_64\ProcessPick.dll
+    cg37_Data\Plugins\x86_64\exprtk_condition.dll
+    cg37_Data\Plugins\x86_64\sqlite3.dll
+    cg37_Data\StreamingAssets\filestructure.bin
+    cg37_Data\assets\2d2ac038a83870def5a37f56545b8f2b.b
+    cg37_Data\assets\version.bin
+    cg37_Data\level0
+    cg37_Data\sharedassets0.assets
+    tools\hotfix_baseline.json
+
+### cross 独有（补丁残留或已删除）（17）
+  [普通文件]
+    _seq_patch_backup_20260805_140010\SeqChapterAutoCatch.dll.bytes
+    _seq_patch_backup_20260805_140010\SeqChapterAutoCatchSell.dll.bytes
+    _seq_patch_backup_20260805_140010\SeqChapterAutoSeal.dll.bytes
+    _seq_patch_backup_20260805_140010\SeqChapterBossKeyFps.dll.bytes
+    _seq_patch_backup_20260805_140010\SeqChapterDailyClaim.dll.bytes
+    _seq_patch_backup_20260805_140010\SeqChapterTestUi.dll.bytes
+    _seq_patch_backup_20260805_140010\seqchapter_gift_codes.txt
+    _seq_patch_backup_20260805_140010\seqchapter_share_opts.txt
+    cg37_Data\assets\hotfixdata\SeqChapterAutoCatch.dll.bytes
+    cg37_Data\assets\hotfixdata\SeqChapterAutoCatchNoPet.dll.bytes
+    cg37_Data\assets\hotfixdata\SeqChapterAutoCatchSell.dll.bytes
+    cg37_Data\assets\hotfixdata\SeqChapterAutoSeal.dll.bytes
+    cg37_Data\assets\hotfixdata\SeqChapterBossKeyFps.dll.bytes
+    cg37_Data\assets\hotfixdata\SeqChapterDailyClaim.dll.bytes
+    cg37_Data\assets\hotfixdata\SeqChapterTestUi.dll.bytes
+    cg37_Data\assets\hotfixdata\seqchapter_gift_codes.txt
+    cg37_Data\assets\hotfixdata\seqchapter_share_opts.txt

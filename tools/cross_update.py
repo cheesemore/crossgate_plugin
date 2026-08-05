@@ -268,7 +268,7 @@ def cmd_diff(cross: Path, copy: Path, args) -> int:
         if cp.stat().st_size != gp.stat().st_size:
             modified.append(rel)
             continue
-        if args.full_hash:
+        if args.full_hash or is_anticheat_relevant(rel):
             if sha256_file(cp) != sha256_file(gp):
                 modified.append(rel)
 
@@ -343,8 +343,9 @@ def cmd_sync(cross: Path, copy: Path, args) -> int:
     for r in common:
         if copy_map[r].stat().st_size != cross_map[r].stat().st_size:
             modified.append(r)
-        elif args.full_hash and sha256_file(copy_map[r]) != sha256_file(cross_map[r]):
-            modified.append(r)
+        elif args.full_hash or is_anticheat_relevant(r):
+            if sha256_file(copy_map[r]) != sha256_file(cross_map[r]):
+                modified.append(r)
     removed = sorted(set(cross_map) - set(copy_map))
 
     to_copy = sorted(set(added) | set(modified))
