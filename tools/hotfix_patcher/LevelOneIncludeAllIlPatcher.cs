@@ -128,6 +128,15 @@ internal static class LevelOneIncludeAllIlPatcher
             Console.WriteLine($"[PATCH] RefreshData: ldc.i4 {value} -> {target.Value}");
         }
 
+        // 官方新版已删除 RefreshData 中的 101800/101242 排除逻辑：
+        // 没有任何排除常量可改，一级天然包含所有怪，视为已达成，保持文件不变。
+        if (patched == 0 && already == 0)
+        {
+            Console.WriteLine("[SKIP] 官方新版 RefreshData 已无 LevelOne 排除逻辑，无需改写");
+            File.WriteAllBytes(outputPath, data);
+            return;
+        }
+
         if (patched == 0 && already >= 2)
         {
             Console.WriteLine("[SKIP] LevelOne 排除 ID 已改为无效值");
@@ -189,6 +198,11 @@ internal static class LevelOneIncludeAllIlPatcher
                 }
             }
 
+            // 官方新版已无排除逻辑 → 视为已达成（一级天然含全部）
+            if (dummy == 0 && old == 0)
+            {
+                return true;
+            }
             return dummy >= 2 && old == 0;
         }
         catch
@@ -218,7 +232,8 @@ internal static class LevelOneIncludeAllIlPatcher
     {
         var type = asm.MainModule.Types.FirstOrDefault(t => t.Name == "BattleProcesser")
             ?? throw new InvalidOperationException("未找到 BattleProcesser");
-        // RefreshData 可能重载；取带 body 且含 101800/101242/999999 常量的那个
+        // RefreshData 可能重载；优先取带 body 且含 101800/101242/999999 常量的那个，
+        // 官方新版已无排除常量时，退回任意带 body 的 RefreshData（视为无需改写）。
         MethodDefinition? hit = null;
         foreach (var m in type.Methods.Where(m => m.Name == "RefreshData" && m.HasBody))
         {
@@ -238,7 +253,12 @@ internal static class LevelOneIncludeAllIlPatcher
             }
         }
 
-        return hit ?? throw new InvalidOperationException(
-            "未找到含 LevelOne 排除常量的 BattleProcesser.RefreshData");
+        if (hit != null)
+        {
+            return hit;
+        }
+
+        return type.Methods.FirstOrDefault(m => m.Name == "RefreshData" && m.HasBody)
+            ?? throw new InvalidOperationException("未找到 BattleProcesser.RefreshData");
     }
 }

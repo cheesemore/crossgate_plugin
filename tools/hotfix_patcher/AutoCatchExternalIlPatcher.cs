@@ -137,13 +137,18 @@ internal static class AutoCatchExternalIlPatcher
             deployedNew = true;
             Console.WriteLine(LogTag + " 已部署 " + assetOut);
 
-            var other = Path.Combine(
-                Path.GetDirectoryName(outputPath)!,
-                _noPetHumanDefend ? AssetFileName : NoPetAssetFileName);
-            if (File.Exists(other))
+            // 非面板模式：普通抓宠与无宠人防占用同一百科/Pause 入口，互斥，部署时删除对方。
+            // 面板模式：两者可共存，由助手面板 SetEnabled 运行时互斥切换（卖银→无宠→普通分发）。
+            if (!_panelMode)
             {
-                File.Delete(other);
-                Console.WriteLine(LogTag + " 已删除互斥 " + Path.GetFileName(other));
+                var other = Path.Combine(
+                    Path.GetDirectoryName(outputPath)!,
+                    _noPetHumanDefend ? AssetFileName : NoPetAssetFileName);
+                if (File.Exists(other))
+                {
+                    File.Delete(other);
+                    Console.WriteLine(LogTag + " 已删除互斥 " + Path.GetFileName(other));
+                }
             }
 
             // 面板模式保留 Lv1/烧卡 DLL，供助手面板互斥切换

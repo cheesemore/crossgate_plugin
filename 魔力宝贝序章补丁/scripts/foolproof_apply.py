@@ -3,7 +3,7 @@
 """
 傻瓜补丁：诊断客户端后一键打补丁（由 GUI 调用）。
 
-发布物为融合版（百科助手面板：常规/抓宠（不带宠）/抓宠卖银币/烧卡）。
+发布物为融合版（百科助手面板：常规/抓宠/抓宠（不带宠）/抓宠卖银币/烧卡）。
 九动版已无限期停发，enable_nine 仅保留给历史包兼容调用。
 界面外层选项仅「战斗加速」：开→战斗倍速+心跳回传1.5x；关→原速+心跳回传1.0x。
 
@@ -150,18 +150,18 @@ def run_foolproof_patch(
         _emit(
             messages,
             on_log,
-            "预设：百科助手面板（常规/抓宠（不带宠）/抓宠卖银币/烧卡 · 无九动）",
+            "预设：百科助手面板（常规/抓宠/抓宠（不带宠）/抓宠卖银币/烧卡 · 无九动）",
         )
         kwargs = dict(FOOLPROOF_NO_NINE_COMBO_KWARGS)
         kwargs["battle_nine_action"] = False
         kwargs["battle_nine_external"] = False
         kwargs["auto_seal_external"] = True
-        kwargs["auto_catch_external"] = False
+        kwargs["auto_catch_external"] = True
         kwargs["auto_catch_nopet_external"] = True
         kwargs["auto_catch_sell_external"] = True
         kwargs["wiki_test_ui"] = True
         nine_checks = []
-        catch_check = ["auto_catch_nopet_external"]
+        catch_check = ["auto_catch_external", "auto_catch_nopet_external"]
 
     extra_checks = ["auto_seal_external", "auto_catch_sell_external"] + catch_check
     if kwargs.get("level_one_include_all"):
@@ -222,7 +222,7 @@ def run_foolproof_patch(
     panel_part = (
         " · 百科面板(常规/九动/抓宠/抓宠卖银币/烧卡)"
         if enable_nine
-        else " · 百科面板(常规/抓宠（不带宠）/抓宠卖银币/烧卡)"
+        else " · 百科面板(常规/抓宠/抓宠（不带宠）/抓宠卖银币/烧卡)"
     )
     daily_part = ""
     if kwargs.get("daily_claim") or kwargs.get("newbie_gift_code"):

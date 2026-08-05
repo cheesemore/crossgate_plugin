@@ -8,8 +8,17 @@ namespace CrossgateMod.Patcher;
 /// 心跳 Echo.Speed：仅 VIP 加速时固定报 1.5；启用非 VIP 加速时固定报 1.0（防检测）。
 /// 可选 --echo 1.0|1.5 显式指定心跳上报倍率（覆盖上述默认规则）；仅指定 --echo 时不改倍速（仅心跳回传补丁）。
 /// 同步：KickOff 打飞速度 MoveSpeed×4 → ×(4×倍速)，如 5x → 20。
-/// 注意（2026-08 起）：官方 GmManager 会定时查 UnityEngine.Time.timeScale&gt;1 并 Web 上报；
-/// 本补丁只改 BattleTimeScale，不碰 Time.timeScale，与该检测岔开。
+/// 防检测（2026-08 起）：官方 GmManager::StartTimeScaleCheck 定时调 CheckTimeScaleWarning，
+/// 战斗中读 BattleManager.BattleTimeScale&gt;1.0（阈值约 1.00003）即触发
+/// NetManager::SendTimeScaleWarning Web 上报（HTTP + MD5 签名 + 时间戳）。
+/// 本补丁默认把 CheckTimeScaleWarning 与 SendTimeScaleWarning 两个方法打成空方法（首指令 ret），
+/// 彻底掐断倍速检测上报出口；可用 --no-kill-report 关闭。
+/// 假设备指纹（--fake-mac）：即使倍速上报被掐断，deviceId/device（MAC+UUID）仍会随
+/// m_WebFrom 模板与登录协议 Proto_CS_Login 上报。SpoofMacIlPatcher 可把
+/// NetManager.OnInit 与 LoginManager.SendLogin 里对 AppManager::GetMacAddress/GetMacInfo
+/// 的 4 处 call 原位替换为 ldstr 假值。
+/// 注意：默认关闭（临时放弃，测试改用虚拟机），需要时用 --fake-mac AA-BB-CC-DD-EE-FF
+/// 显式开启并指定假 MAC（省略则随机）。
 /// </summary>
 internal static class VipTimeScaleIlPatcher
 {
@@ -31,6 +40,9 @@ internal static class VipTimeScaleIlPatcher
         var patchDefaultBranch = false;
         float? echoOverride = null;
         var echoOnly = false;
+        var killReport = true;
+        var spoofMac = false;
+        string? fakeMac = null;
 
         for (var i = 0; i < args.Length; i++)
         {
@@ -58,6 +70,16 @@ internal static class VipTimeScaleIlPatcher
                     patchVipBranch = false;
                     patchDefaultBranch = true;
                     break;
+                case "--no-kill-report":
+                    killReport = false;
+                    break;
+                case "--no-fake-mac":
+                    spoofMac = false;
+                    break;
+                case "--fake-mac" when i + 1 < args.Length:
+                    spoofMac = true;
+                    fakeMac = args[++i];
+                    break;
             }
         }
 
@@ -70,14 +92,14 @@ internal static class VipTimeScaleIlPatcher
         if (string.IsNullOrWhiteSpace(source))
         {
             Console.WriteLine(
-                "用法: HotfixPatcher vip-timescale-patch --hotfix <orig> --output <out> [--scale 3|5|10] [--non-vip] [--non-vip-only] [--echo 1.0|1.5] [--echo-only]");
+                "用法: HotfixPatcher vip-timescale-patch --hotfix <orig> --output <out> [--scale 3|5|10] [--non-vip] [--non-vip-only] [--echo 1.0|1.5] [--echo-only] [--no-kill-report] [--no-fake-mac] [--fake-mac AA-BB-CC-DD-EE-FF]");
             return 1;
         }
 
         output ??= source;
         try
         {
-            Apply(source, output, scale, patchVipBranch, patchDefaultBranch, echoOverride);
+            Apply(source, output, scale, patchVipBranch, patchDefaultBranch, echoOverride, killReport, spoofMac, fakeMac);
             Console.WriteLine("[OK] VIP 倍速补丁已写入: " + output);
             return 0;
         }
@@ -94,7 +116,10 @@ internal static class VipTimeScaleIlPatcher
         float battleScale = 3f,
         bool patchVipBranch = true,
         bool patchDefaultBranch = false,
-        float? echoReportOverride = null)
+        float? echoReportOverride = null,
+        bool killReport = true,
+        bool spoofMac = false,
+        string? fakeMac = null)
     {
         if (!patchVipBranch && !patchDefaultBranch && echoReportOverride == null)
         {
@@ -131,6 +156,9 @@ internal static class VipTimeScaleIlPatcher
         var getScale = battleMgr.Methods.First(m => m.Name == "get_BattleTimeScale" && m.HasBody);
         var netMgr = asm.MainModule.Types.First(t => t.Name == "NetManager");
         var update = netMgr.Methods.First(m => m.Name == "update" && m.HasBody);
+        var gmMgr = asm.MainModule.Types.FirstOrDefault(t => t.Name == "GmManager");
+        var checkTimeScaleWarning = gmMgr?.Methods.FirstOrDefault(m => m.Name == "CheckTimeScaleWarning" && m.HasBody);
+        var sendTimeScaleWarning = netMgr.Methods.FirstOrDefault(m => m.Name == "SendTimeScaleWarning" && m.HasBody);
         var getBattleTimeScale = getScale;
 
         // 仅心跳模式（--echo 且未启用倍速分支）：不查 KickOff、不改 BattleTimeScale
@@ -155,9 +183,24 @@ internal static class VipTimeScaleIlPatcher
                 && !ContainsLdcR4(kickOffBody, OriginalKickOffMul);
         }
 
-        if (vipDone && echoDone && defaultDone && kickOffDone)
+        var killDone = true;
+        if (killReport)
         {
-            throw new InvalidOperationException("VIP 倍速补丁可能已打过（BattleTimeScale + Echo.Speed + KickOff）");
+            killDone = checkTimeScaleWarning != null
+                && sendTimeScaleWarning != null
+                && IsEarlyReturn(ReadMethodBodyFromPe(origBytes, checkTimeScaleWarning.RVA))
+                && IsEarlyReturn(ReadMethodBodyFromPe(origBytes, sendTimeScaleWarning.RVA));
+        }
+
+        var spoofDone = true;
+        if (spoofMac)
+        {
+            spoofDone = SpoofMacIlPatcher.IsPatched(origBytes, asm);
+        }
+
+        if (vipDone && echoDone && defaultDone && kickOffDone && killDone && spoofDone)
+        {
+            throw new InvalidOperationException("VIP 倍速补丁可能已打过（BattleTimeScale + Echo.Speed + KickOff + 上报掐断 + 假设备指纹）");
         }
 
         if (patchVipBranch && !PatchBattleTimeScaleInPlace(getScaleBody, battleScale))
@@ -221,9 +264,55 @@ internal static class VipTimeScaleIlPatcher
             BinaryPeWriter.ReplaceMethodBody(data, kickOffMethod!.RVA, patchedKickOffBody!, patchedKickOffBody!);
         }
 
-        if (!wroteScale && !wroteEcho && !wroteKickOff)
+        var wroteKill = false;
+        if (killReport && !killDone)
         {
-            throw new InvalidOperationException("VIP 倍速补丁可能已打过（BattleTimeScale + Echo.Speed + KickOff）");
+            foreach (var (method, label) in new[]
+                     {
+                         (Method: checkTimeScaleWarning, Label: "GmManager.CheckTimeScaleWarning"),
+                         (Method: sendTimeScaleWarning, Label: "NetManager.SendTimeScaleWarning"),
+                     })
+            {
+                if (method == null)
+                {
+                    Console.WriteLine($"[WARN] 未找到 {label}，跳过");
+                    continue;
+                }
+
+                if (method.ReturnType.FullName != "System.Void")
+                {
+                    throw new InvalidOperationException(
+                        $"{label} 返回类型 {method.ReturnType.FullName} 非 void，拒绝打成空方法");
+                }
+
+                var body = ReadMethodBodyFromPe(origBytes, method.RVA);
+                if (IsEarlyReturn(body))
+                {
+                    Console.WriteLine($"[PATCH] {label} 已是空方法（跳过）");
+                    continue;
+                }
+
+                PatchEarlyReturnInPlace(body);
+                BinaryPeWriter.ReplaceMethodBody(data, method.RVA, body, body);
+                wroteKill = true;
+                Console.WriteLine($"[PATCH] {label} 打成空方法（首指令 ret），上报出口已掐断");
+            }
+        }
+
+        var wroteSpoof = false;
+        string? spoofNote = null;
+        if (spoofMac && !spoofDone)
+        {
+            if (SpoofMacIlPatcher.ApplyToData(data, asm, origBytes, fakeMac, out var note))
+            {
+                spoofNote = note;
+                wroteSpoof = true;
+            }
+        }
+
+        if (!wroteScale && !wroteEcho && !wroteKickOff && !wroteKill && !wroteSpoof)
+        {
+            throw new InvalidOperationException("VIP 倍速补丁可能已打过（BattleTimeScale + Echo.Speed + KickOff + 上报掐断 + 假设备指纹）");
         }
 
         HotfixSize.EnsureUnchanged(data, expectedSize);
@@ -274,6 +363,18 @@ internal static class VipTimeScaleIlPatcher
             else
             {
                 Console.WriteLine($"[PATCH] KickOff 打飞速度 已是 ×{kickOffTarget}（跳过）");
+            }
+        }
+
+        if (spoofMac)
+        {
+            if (wroteSpoof && spoofNote != null)
+            {
+                Console.WriteLine("[PATCH] " + spoofNote);
+            }
+            else
+            {
+                Console.WriteLine("[PATCH] 假设备指纹：已是补丁状态（跳过）");
             }
         }
 
@@ -580,6 +681,27 @@ internal static class VipTimeScaleIlPatcher
             0x3 => 12,
             _ => throw new InvalidOperationException($"未知 method header 0x{flags:X2}"),
         };
+    }
+
+    private static bool IsEarlyReturn(byte[] methodBody)
+    {
+        var codeOffset = GetCodeOffset(methodBody);
+        return codeOffset < methodBody.Length && methodBody[codeOffset] == (byte)OpCodes.Ret.Value;
+    }
+
+    private static void PatchEarlyReturnInPlace(byte[] methodBody)
+    {
+        var codeOffset = GetCodeOffset(methodBody);
+        if (codeOffset >= methodBody.Length)
+        {
+            throw new InvalidOperationException("方法体过短，无法写入 ret");
+        }
+
+        methodBody[codeOffset] = (byte)OpCodes.Ret.Value;
+        for (var i = codeOffset + 1; i < methodBody.Length; i++)
+        {
+            methodBody[i] = (byte)OpCodes.Nop.Value;
+        }
     }
 
     private static int GetCodeSize(byte[] methodBody)

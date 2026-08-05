@@ -84,6 +84,9 @@ def apply_vip(
     non_vip: bool = False,
     echo: float | None = None,
 ) -> tuple[bool, str]:
+    # 约定：带加速/心跳回传的补丁一律默认携带 kill-report（掐断 CheckTimeScaleWarning /
+    # SendTimeScaleWarning 倍速上报）。C# 侧默认开启，这里不传 --no-kill-report 即可；
+    # 切勿在调用处显式关闭，除非有明确需求。
     args = [
         "vip-timescale-patch",
         "--hotfix",
@@ -1054,11 +1057,13 @@ def apply_combo(
     if wiki_download_res and wiki_label:
         raise RuntimeError("百科→资源下载 与 百科文字→百科1 不能同时启用。")
 
-    if auto_catch_external and auto_catch_nopet_external:
-        raise RuntimeError("自动抓宠·DLL 与 自动抓宠·无宠人防御 不能同时启用，请只选一项。")
-
     # 百科→助手面板时：抓宠/烧卡/遇1级走面板模式（不占百科），可与助手同开
     panel_mode = bool(wiki_test_ui)
+
+    # 面板模式下：普通抓宠与无宠人防可同时部署，由助手面板 SetEnabled 运行时互斥切换；
+    # 非面板模式（都占同一百科/Pause 入口）仍互斥。
+    if auto_catch_external and auto_catch_nopet_external and not panel_mode:
+        raise RuntimeError("自动抓宠·DLL 与 自动抓宠·无宠人防御 不能同时启用，请只选一项。")
 
     wiki_users = [
         (

@@ -155,6 +155,11 @@ internal static class Program
             return VipTimeScaleIlPatcher.Run(args.Skip(1).ToArray());
         }
 
+        if (args.Length > 0 && args[0] == "spoof-mac-patch")
+        {
+            return SpoofMacIlPatcher.Run(args.Skip(1).ToArray());
+        }
+
         if (args.Length > 0 && args[0] == "boss-challenge-tower-tab-patch")
         {
             return BossChallengeTowerTabIlPatcher.Run(args.Skip(1).ToArray());
