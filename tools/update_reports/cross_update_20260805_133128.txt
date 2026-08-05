@@ -1,0 +1,119 @@
+======================================================================
+cross ↔ crosscopy 更新对比报告
+时间: 2026-08-05 13:31:28
+CROSS    = E:\cross\魔力宝贝：序章
+CROSSCOPY = E:\crosscopy\魔力宝贝：序章
+cross 文件数=14011  crosscopy 文件数=14013
+新增(仅crosscopy)=36  修改=32  删除(仅cross)=34
+======================================================================
+
+### 官方新增（crosscopy 有，cross 无）（36）
+  [反外挂重点]
+    !!! cg37-1-20260805113456.setup
+    !!! cg37_Data\install\cg37-1-20260805113456-simple\GameAssembly.dll
+    !!! cg37_Data\install\cg37-1-20260805113456-simple\UnityPlayer.dll
+    !!! cg37_Data\install\cg37-1-20260805113456-simple\baselib.dll
+    !!! cg37_Data\install\cg37-1-20260805113456-simple\cg37-1-20260805113456.setup
+    !!! cg37_Data\install\cg37-1-20260805113456-simple\cg37.exe
+    !!! cg37_Data\install\cg37-1-20260805113456-simple\cg37_Data\Update.exe
+    !!! cg37_Data\install\cg37-1-20260805113456-simple\cg37_Data\globalgamemanagers
+    !!! cg37_Data\install\cg37-1-20260805113456-simple\cg37_Data\globalgamemanagers.assets
+    cg37_Data\assets\04a709d531f89de4443b97a6eac25bcb.b
+    cg37_Data\install\cg37-1-20260805113456-simple\cg37_Data\Plugins\x86_64\NPGameDLL.dll
+    cg37_Data\install\cg37-1-20260805113456-simple\cg37_Data\Plugins\x86_64\OpenCCUnityBridge.dll
+    cg37_Data\install\cg37-1-20260805113456-simple\cg37_Data\Plugins\x86_64\ProcessPick.dll
+    cg37_Data\install\cg37-1-20260805113456-simple\cg37_Data\Plugins\x86_64\exprtk_condition.dll
+    cg37_Data\install\cg37-1-20260805113456-simple\cg37_Data\Plugins\x86_64\liblzma.dll
+    cg37_Data\install\cg37-1-20260805113456-simple\cg37_Data\Plugins\x86_64\sqlite3.dll
+    cg37_Data\install\cg37-1-20260805113456-simple\cg37_Data\Resources\unity default resources
+    cg37_Data\install\cg37-1-20260805113456-simple\cg37_Data\Resources\unity_builtin_extra
+    cg37_Data\install\cg37-1-20260805113456-simple\cg37_Data\RuntimeInitializeOnLoads.json
+    cg37_Data\install\cg37-1-20260805113456-simple\cg37_Data\ScriptingAssemblies.json
+    cg37_Data\install\cg37-1-20260805113456-simple\cg37_Data\StreamingAssets\abinfo.bin
+    cg37_Data\install\cg37-1-20260805113456-simple\cg37_Data\StreamingAssets\filestructure.bin
+    cg37_Data\install\cg37-1-20260805113456-simple\cg37_Data\StreamingAssets\softinfo.bin
+    cg37_Data\install\cg37-1-20260805113456-simple\cg37_Data\StreamingAssets\video\login_video.mp4
+    cg37_Data\install\cg37-1-20260805113456-simple\cg37_Data\app.info
+    cg37_Data\install\cg37-1-20260805113456-simple\cg37_Data\boot.config
+    cg37_Data\install\cg37-1-20260805113456-simple\cg37_Data\il2cpp_data\Metadata\global-metadata.dat
+    cg37_Data\install\cg37-1-20260805113456-simple\cg37_Data\il2cpp_data\Resources\ChineseConverter.dll-resources.dat
+    cg37_Data\install\cg37-1-20260805113456-simple\cg37_Data\il2cpp_data\Resources\I18N.CJK.dll-resources.dat
+    cg37_Data\install\cg37-1-20260805113456-simple\cg37_Data\il2cpp_data\Resources\System.Data.dll-resources.dat
+    cg37_Data\install\cg37-1-20260805113456-simple\cg37_Data\il2cpp_data\Resources\mscorlib.dll-resources.dat
+    cg37_Data\install\cg37-1-20260805113456-simple\cg37_Data\level0
+    cg37_Data\install\cg37-1-20260805113456-simple\cg37_Data\resources.assets
+    cg37_Data\install\cg37-1-20260805113456-simple\cg37_Data\resources.assets.resS
+    cg37_Data\install\cg37-1-20260805113456-simple\cg37_Data\sharedassets0.assets
+    cg37_Data\install\cg37-1-20260805113456-simple\cg37_Data\sharedassets0.assets.resS
+
+### 修改（两边都有但内容不同）（32）
+  [反外挂重点]
+    !!! GameAssembly.dll
+    !!! cg37.exe
+    !!! cg37_Data\assets\hotfixdata\assembly-csharp-e.dll.bytes
+    !!! cg37_Data\assets\hotfixdata\hotfix.dll.bytes
+    !!! cg37_Data\globalgamemanagers
+    !!! cg37_Data\globalgamemanagers.assets
+    cg37_Data\Plugins\x86_64\liblzma.dll
+    cg37_Data\StreamingAssets\abinfo.bin
+    cg37_Data\StreamingAssets\softinfo.bin
+    cg37_Data\StreamingAssets\video\login_video.mp4
+    cg37_Data\assets\09d31bcb88f3b85dbb6cc8fd838958da.b
+    cg37_Data\assets\15ba855c451c9189bc2ea80adfc428ff.b
+    cg37_Data\assets\194822dcb9770dd16300644edf7a3eed.b
+    cg37_Data\assets\1aa355706e1767666124331a716c7890.b
+    cg37_Data\assets\2d2237807336a5013403d2f2a28a5a8e.b
+    cg37_Data\assets\2ed420c89b153453f3e66fdf4c60db19.b
+    cg37_Data\assets\3044298619dfe5ec647e6c5596679d35.b
+    cg37_Data\assets\30b3869c5dd0ab23de69a76ac0a1394a.b
+    cg37_Data\assets\3ab5f34d339e2222e98e4735831c3530.b
+    cg37_Data\assets\42bd564cafd191705a60b7b2a719d89f.b
+    cg37_Data\assets\44abe811fc38e1970cd5aff01377e142.b
+    cg37_Data\assets\4bd60e623f3f8796cb234b3f01f0c91a.b
+    cg37_Data\assets\74f8152b1d2e0664bd661642c2328b33.b
+    cg37_Data\assets\9ff192b1ba87b50b2a59204c12b732d8.b
+    cg37_Data\assets\a61343834283411a8639fedd59a6f4f2.b
+    cg37_Data\assets\a67d150863f53c864ba888187eaa51e6.b
+    cg37_Data\assets\abinfo.bin
+    cg37_Data\assets\e8425ffd6c7d3b254ebaba70f04a2b5b.b
+    cg37_Data\assets\f527b3ffc035cf2f8de227e15dadbc80.b
+    cg37_Data\assets\filestructure.bin
+    cg37_Data\il2cpp_data\Metadata\global-metadata.dat
+    cg37_Data\resources.assets
+
+### cross 独有（补丁残留或已删除）（34）
+  [反外挂重点]
+    !!! cg37_Data\install\cg37-1-20260722110614-simple\GameAssembly.dll
+    !!! cg37_Data\install\cg37-1-20260722110614-simple\UnityPlayer.dll
+    !!! cg37_Data\install\cg37-1-20260722110614-simple\baselib.dll
+    !!! cg37_Data\install\cg37-1-20260722110614-simple\cg37-1-20260722110614.setup
+    !!! cg37_Data\install\cg37-1-20260722110614-simple\cg37.exe
+    !!! cg37_Data\install\cg37-1-20260722110614-simple\cg37_Data\Update.exe
+    !!! cg37_Data\install\cg37-1-20260722110614-simple\cg37_Data\globalgamemanagers
+    !!! cg37_Data\install\cg37-1-20260722110614-simple\cg37_Data\globalgamemanagers.assets
+    cg37_Data\install\cg37-1-20260722110614-simple\cg37_Data\Plugins\x86_64\NPGameDLL.dll
+    cg37_Data\install\cg37-1-20260722110614-simple\cg37_Data\Plugins\x86_64\OpenCCUnityBridge.dll
+    cg37_Data\install\cg37-1-20260722110614-simple\cg37_Data\Plugins\x86_64\ProcessPick.dll
+    cg37_Data\install\cg37-1-20260722110614-simple\cg37_Data\Plugins\x86_64\exprtk_condition.dll
+    cg37_Data\install\cg37-1-20260722110614-simple\cg37_Data\Plugins\x86_64\liblzma.dll
+    cg37_Data\install\cg37-1-20260722110614-simple\cg37_Data\Plugins\x86_64\sqlite3.dll
+    cg37_Data\install\cg37-1-20260722110614-simple\cg37_Data\Resources\unity default resources
+    cg37_Data\install\cg37-1-20260722110614-simple\cg37_Data\Resources\unity_builtin_extra
+    cg37_Data\install\cg37-1-20260722110614-simple\cg37_Data\RuntimeInitializeOnLoads.json
+    cg37_Data\install\cg37-1-20260722110614-simple\cg37_Data\ScriptingAssemblies.json
+    cg37_Data\install\cg37-1-20260722110614-simple\cg37_Data\StreamingAssets\abinfo.bin
+    cg37_Data\install\cg37-1-20260722110614-simple\cg37_Data\StreamingAssets\filestructure.bin
+    cg37_Data\install\cg37-1-20260722110614-simple\cg37_Data\StreamingAssets\softinfo.bin
+    cg37_Data\install\cg37-1-20260722110614-simple\cg37_Data\StreamingAssets\video\login_video.mp4
+    cg37_Data\install\cg37-1-20260722110614-simple\cg37_Data\app.info
+    cg37_Data\install\cg37-1-20260722110614-simple\cg37_Data\boot.config
+    cg37_Data\install\cg37-1-20260722110614-simple\cg37_Data\il2cpp_data\Metadata\global-metadata.dat
+    cg37_Data\install\cg37-1-20260722110614-simple\cg37_Data\il2cpp_data\Resources\ChineseConverter.dll-resources.dat
+    cg37_Data\install\cg37-1-20260722110614-simple\cg37_Data\il2cpp_data\Resources\I18N.CJK.dll-resources.dat
+    cg37_Data\install\cg37-1-20260722110614-simple\cg37_Data\il2cpp_data\Resources\System.Data.dll-resources.dat
+    cg37_Data\install\cg37-1-20260722110614-simple\cg37_Data\il2cpp_data\Resources\mscorlib.dll-resources.dat
+    cg37_Data\install\cg37-1-20260722110614-simple\cg37_Data\level0
+    cg37_Data\install\cg37-1-20260722110614-simple\cg37_Data\resources.assets
+    cg37_Data\install\cg37-1-20260722110614-simple\cg37_Data\resources.assets.resS
+    cg37_Data\install\cg37-1-20260722110614-simple\cg37_Data\sharedassets0.assets
+    cg37_Data\install\cg37-1-20260722110614-simple\cg37_Data\sharedassets0.assets.resS

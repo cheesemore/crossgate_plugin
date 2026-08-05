@@ -84,6 +84,9 @@ def apply_vip(
     non_vip: bool = False,
     echo: float | None = None,
 ) -> tuple[bool, str]:
+    # 约定：带加速/心跳回传的补丁一律默认携带 kill-report（掐断 CheckTimeScaleWarning /
+    # SendTimeScaleWarning 倍速上报）。C# 侧默认开启，这里不传 --no-kill-report 即可；
+    # 切勿在调用处显式关闭，除非有明确需求。
     args = [
         "vip-timescale-patch",
         "--hotfix",

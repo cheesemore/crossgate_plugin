@@ -8,8 +8,11 @@ namespace CrossgateMod.Patcher;
 /// 心跳 Echo.Speed：仅 VIP 加速时固定报 1.5；启用非 VIP 加速时固定报 1.0（防检测）。
 /// 可选 --echo 1.0|1.5 显式指定心跳上报倍率（覆盖上述默认规则）；仅指定 --echo 时不改倍速（仅心跳回传补丁）。
 /// 同步：KickOff 打飞速度 MoveSpeed×4 → ×(4×倍速)，如 5x → 20。
-/// 注意（2026-08 起）：官方 GmManager 会定时查 UnityEngine.Time.timeScale&gt;1 并 Web 上报；
-/// 本补丁只改 BattleTimeScale，不碰 Time.timeScale，与该检测岔开。
+/// 防检测（2026-08 起）：官方 GmManager::StartTimeScaleCheck 定时调 CheckTimeScaleWarning，
+/// 战斗中读 BattleManager.BattleTimeScale&gt;1.0（阈值约 1.00003）即触发
+/// NetManager::SendTimeScaleWarning Web 上报（HTTP + MD5 签名 + 时间戳）。
+/// 本补丁默认把 CheckTimeScaleWarning 与 SendTimeScaleWarning 两个方法打成空方法（首指令 ret），
+/// 彻底掐断倍速检测上报出口；可用 --no-kill-report 关闭。
 /// </summary>
 internal static class VipTimeScaleIlPatcher
 {
@@ -31,6 +34,7 @@ internal static class VipTimeScaleIlPatcher
         var patchDefaultBranch = false;
         float? echoOverride = null;
         var echoOnly = false;
+        var killReport = true;
 
         for (var i = 0; i < args.Length; i++)
         {
@@ -58,6 +62,9 @@ internal static class VipTimeScaleIlPatcher
                     patchVipBranch = false;
                     patchDefaultBranch = true;
                     break;
+                case "--no-kill-report":
+                    killReport = false;
+                    break;
             }
         }
 
@@ -70,14 +77,14 @@ internal static class VipTimeScaleIlPatcher
         if (string.IsNullOrWhiteSpace(source))
         {
             Console.WriteLine(
-                "用法: HotfixPatcher vip-timescale-patch --hotfix <orig> --output <out> [--scale 3|5|10] [--non-vip] [--non-vip-only] [--echo 1.0|1.5] [--echo-only]");
+                "用法: HotfixPatcher vip-timescale-patch --hotfix <orig> --output <out> [--scale 3|5|10] [--non-vip] [--non-vip-only] [--echo 1.0|1.5] [--echo-only] [--no-kill-report]");
             return 1;
         }
 
         output ??= source;
         try
         {
-            Apply(source, output, scale, patchVipBranch, patchDefaultBranch, echoOverride);
+            Apply(source, output, scale, patchVipBranch, patchDefaultBranch, echoOverride, killReport);
             Console.WriteLine("[OK] VIP 倍速补丁已写入: " + output);
             return 0;
         }
@@ -94,7 +101,8 @@ internal static class VipTimeScaleIlPatcher
         float battleScale = 3f,
         bool patchVipBranch = true,
         bool patchDefaultBranch = false,
-        float? echoReportOverride = null)
+        float? echoReportOverride = null,
+        bool killReport = true)
     {
         if (!patchVipBranch && !patchDefaultBranch && echoReportOverride == null)
         {
@@ -131,6 +139,9 @@ internal static class VipTimeScaleIlPatcher
         var getScale = battleMgr.Methods.First(m => m.Name == "get_BattleTimeScale" && m.HasBody);
         var netMgr = asm.MainModule.Types.First(t => t.Name == "NetManager");
         var update = netMgr.Methods.First(m => m.Name == "update" && m.HasBody);
+        var gmMgr = asm.MainModule.Types.FirstOrDefault(t => t.Name == "GmManager");
+        var checkTimeScaleWarning = gmMgr?.Methods.FirstOrDefault(m => m.Name == "CheckTimeScaleWarning" && m.HasBody);
+        var sendTimeScaleWarning = netMgr.Methods.FirstOrDefault(m => m.Name == "SendTimeScaleWarning" && m.HasBody);
         var getBattleTimeScale = getScale;
 
         // 仅心跳模式（--echo 且未启用倍速分支）：不查 KickOff、不改 BattleTimeScale
@@ -155,9 +166,18 @@ internal static class VipTimeScaleIlPatcher
                 && !ContainsLdcR4(kickOffBody, OriginalKickOffMul);
         }
 
-        if (vipDone && echoDone && defaultDone && kickOffDone)
+        var killDone = true;
+        if (killReport)
         {
-            throw new InvalidOperationException("VIP 倍速补丁可能已打过（BattleTimeScale + Echo.Speed + KickOff）");
+            killDone = checkTimeScaleWarning != null
+                && sendTimeScaleWarning != null
+                && IsEarlyReturn(ReadMethodBodyFromPe(origBytes, checkTimeScaleWarning.RVA))
+                && IsEarlyReturn(ReadMethodBodyFromPe(origBytes, sendTimeScaleWarning.RVA));
+        }
+
+        if (vipDone && echoDone && defaultDone && kickOffDone && killDone)
+        {
+            throw new InvalidOperationException("VIP 倍速补丁可能已打过（BattleTimeScale + Echo.Speed + KickOff + 上报掐断）");
         }
 
         if (patchVipBranch && !PatchBattleTimeScaleInPlace(getScaleBody, battleScale))
@@ -221,9 +241,44 @@ internal static class VipTimeScaleIlPatcher
             BinaryPeWriter.ReplaceMethodBody(data, kickOffMethod!.RVA, patchedKickOffBody!, patchedKickOffBody!);
         }
 
-        if (!wroteScale && !wroteEcho && !wroteKickOff)
+        var wroteKill = false;
+        if (killReport && !killDone)
         {
-            throw new InvalidOperationException("VIP 倍速补丁可能已打过（BattleTimeScale + Echo.Speed + KickOff）");
+            foreach (var (method, label) in new[]
+                     {
+                         (Method: checkTimeScaleWarning, Label: "GmManager.CheckTimeScaleWarning"),
+                         (Method: sendTimeScaleWarning, Label: "NetManager.SendTimeScaleWarning"),
+                     })
+            {
+                if (method == null)
+                {
+                    Console.WriteLine($"[WARN] 未找到 {label}，跳过");
+                    continue;
+                }
+
+                if (method.ReturnType.FullName != "System.Void")
+                {
+                    throw new InvalidOperationException(
+                        $"{label} 返回类型 {method.ReturnType.FullName} 非 void，拒绝打成空方法");
+                }
+
+                var body = ReadMethodBodyFromPe(origBytes, method.RVA);
+                if (IsEarlyReturn(body))
+                {
+                    Console.WriteLine($"[PATCH] {label} 已是空方法（跳过）");
+                    continue;
+                }
+
+                PatchEarlyReturnInPlace(body);
+                BinaryPeWriter.ReplaceMethodBody(data, method.RVA, body, body);
+                wroteKill = true;
+                Console.WriteLine($"[PATCH] {label} 打成空方法（首指令 ret），上报出口已掐断");
+            }
+        }
+
+        if (!wroteScale && !wroteEcho && !wroteKickOff && !wroteKill)
+        {
+            throw new InvalidOperationException("VIP 倍速补丁可能已打过（BattleTimeScale + Echo.Speed + KickOff + 上报掐断）");
         }
 
         HotfixSize.EnsureUnchanged(data, expectedSize);
@@ -580,6 +635,27 @@ internal static class VipTimeScaleIlPatcher
             0x3 => 12,
             _ => throw new InvalidOperationException($"未知 method header 0x{flags:X2}"),
         };
+    }
+
+    private static bool IsEarlyReturn(byte[] methodBody)
+    {
+        var codeOffset = GetCodeOffset(methodBody);
+        return codeOffset < methodBody.Length && methodBody[codeOffset] == (byte)OpCodes.Ret.Value;
+    }
+
+    private static void PatchEarlyReturnInPlace(byte[] methodBody)
+    {
+        var codeOffset = GetCodeOffset(methodBody);
+        if (codeOffset >= methodBody.Length)
+        {
+            throw new InvalidOperationException("方法体过短，无法写入 ret");
+        }
+
+        methodBody[codeOffset] = (byte)OpCodes.Ret.Value;
+        for (var i = codeOffset + 1; i < methodBody.Length; i++)
+        {
+            methodBody[i] = (byte)OpCodes.Nop.Value;
+        }
     }
 
     private static int GetCodeSize(byte[] methodBody)
