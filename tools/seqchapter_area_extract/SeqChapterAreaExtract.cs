@@ -5,9 +5,11 @@ using System.Threading;
 
 /// <summary>
 /// 采集自动提取 DLL。部署为 hotfixdata/SeqChapterAreaExtract.dll.bytes
-/// 由助手面板「战斗」页开关（SetEnabled），与战斗模式共存（不互斥）。
+/// 由助手面板「战斗」页开关（SetEnabled），与战斗模式共存（不互斥）；
+/// 「脚本」页有「立刻提取」按钮（ExtractNowFromUi，绕过冷却强制提取一次）。
 /// 不需要自动采集：只监控已采集物品，已采集物共 5 格，单格达到 999 时
-/// 对该格发 SendArea("取出物品", uid, index+1, pile) 提取到背包。
+/// 对该格发 SendArea("取出物品到账号仓库", uid, index+1, pile) 提取到账号银行。
+/// 每次提取最多尝试 2 次（1 次 + 等待服务端回推后仍满则重试 1 次）。
 /// 触发：启动即检 + 每次 CollectionManager.OnEvent（服务端采集数据推送）即检
 ///       + 每 10 分钟后台兜底。采集很慢（一格最快10分钟+），无需高频扫描。
 /// 标题由助手面板统一协调：BuildTitleSuffix 返回「 ★自动提取★X格已满」。
@@ -25,6 +27,12 @@ public static class SeqChapterAreaExtract
 
     /// <summary>提取冷却（毫秒）：距上次提取不足此值则不再次提取，防重复发。</summary>
     public const int ExtractCooldownMs = 60_000;
+
+    /// <summary>每次提取最多尝试次数（1 次 + 1 次重试）。</summary>
+    public const int MaxAttemptsPerSlot = 2;
+
+    /// <summary>提取后等待服务端回推数据再校验的毫秒数。</summary>
+    public const int RetryCheckDelayMs = 3000;
 
     /// <summary>总开关。默认关闭；面板战斗页切换。</summary>
     public static volatile bool PipelineEnabled = false;
@@ -212,6 +220,33 @@ public static class SeqChapterAreaExtract
     /// <summary>读所有角色 AreaInfos，对单格 Pile>=999 的格子逐个提取；返回满格总数。</summary>
     private static int CheckAndExtractAll()
     {
+        return CheckAndExtractAllInternal(false);
+    }
+
+    /// <summary>立刻提取（脚本页按钮）：绕过冷却，强制扫描提取一次；返回满格总数。</summary>
+    public static int ExtractNowFromUi()
+    {
+        Bootstrap();
+        try
+        {
+            var cm = GetManagerInstance("CollectionManager");
+            if (cm == null)
+            {
+                return 0;
+            }
+        }
+        catch
+        {
+            // ignore
+        }
+
+        var full = CheckAndExtractAllInternal(true);
+        Tip(full > 0 ? "立即提取：发现 " + full + " 个满格，已提取到账号银行" : "立即提取：当前没有满格采集物");
+        return full;
+    }
+
+    private static int CheckAndExtractAllInternal(bool force)
+    {
         var cm = GetManagerInstance("CollectionManager");
         if (cm == null)
         {
@@ -273,14 +308,14 @@ public static class SeqChapterAreaExtract
         _fullSlotCount = full;
         if (fullSlots.Count > 0)
         {
-            ExtractFullSlots(fullSlots);
+            ExtractFullSlots(fullSlots, force);
         }
 
         NotifyTitleRefresh();
         return full;
     }
 
-    private static void ExtractFullSlots(System.Collections.Generic.List<object[]> fullSlots)
+    private static void ExtractFullSlots(System.Collections.Generic.List<object[]> fullSlots, bool force)
     {
         if (Interlocked.CompareExchange(ref _extractRunning, 1, 0) != 0)
         {
@@ -290,7 +325,7 @@ public static class SeqChapterAreaExtract
         try
         {
             var now = NowMs();
-            if (now - _lastExtractMs < ExtractCooldownMs)
+            if (!force && now - _lastExtractMs < ExtractCooldownMs)
             {
                 return;
             }
@@ -301,7 +336,7 @@ public static class SeqChapterAreaExtract
                 var uid = Convert.ToString(slot[0]) ?? "";
                 var index = Convert.ToInt32(slot[1]);
                 var pile = Convert.ToInt32(slot[2]);
-                if (SendTakeOut(uid, index, pile))
+                if (SendTakeOutToAccountBank(uid, index, pile))
                 {
                     sent++;
                 }
@@ -319,7 +354,17 @@ public static class SeqChapterAreaExtract
             if (sent > 0)
             {
                 Interlocked.Exchange(ref _lastExtractMs, NowMs());
-                Tip("自动提取：已提取 " + sent + " 个满格采集物到背包");
+                // 等待服务端回推采集数据，对仍满的格子重试一次
+                TrySleep(RetryCheckDelayMs);
+                var retried = RetryStillFullSlots(fullSlots);
+                if (retried > 0)
+                {
+                    Tip("自动提取：已提取 " + sent + " 格到账号银行（重试 " + retried + " 格）");
+                }
+                else
+                {
+                    Tip("自动提取：已提取 " + sent + " 格采集物到账号银行");
+                }
             }
         }
         catch
@@ -332,8 +377,112 @@ public static class SeqChapterAreaExtract
         }
     }
 
-    /// <summary>对齐 CollectionManager.SendArea("取出物品", uid, index+1, pile)。</summary>
-    private static bool SendTakeOut(string uid, int index, int pile)
+    /// <summary>提取后服务端已回推，仍满（≥999）的格子重试一次。</summary>
+    private static int RetryStillFullSlots(System.Collections.Generic.List<object[]> attemptedSlots)
+    {
+        var retried = 0;
+        foreach (var slot in attemptedSlots)
+        {
+            var uid = Convert.ToString(slot[0]) ?? "";
+            var index = Convert.ToInt32(slot[1]);
+            var pile = Convert.ToInt32(slot[2]);
+
+            // 读取最新 Pile，仍满则再发一次
+            var cur = ReadSlotPile(uid, index);
+            if (cur < FullPile)
+            {
+                continue;
+            }
+
+            if (SendTakeOutToAccountBank(uid, index, cur))
+            {
+                retried++;
+            }
+
+            try
+            {
+                Thread.Sleep(150);
+            }
+            catch
+            {
+                // ignore
+            }
+        }
+
+        return retried;
+    }
+
+    /// <summary>读某角色某格最新 Pile；读取失败返回 -1。</summary>
+    private static int ReadSlotPile(string uid, int slotIndex)
+    {
+        try
+        {
+            var cm = GetManagerInstance("CollectionManager");
+            if (cm == null)
+            {
+                return -1;
+            }
+
+            var areaInfos = GetMember(cm, "AreaInfos") as IDictionary;
+            if (areaInfos == null)
+            {
+                return -1;
+            }
+
+            object area = null;
+            try
+            {
+                area = areaInfos[uid];
+            }
+            catch
+            {
+                return -1;
+            }
+
+            if (area == null)
+            {
+                return -1;
+            }
+
+            var have = GetMember(area, "Itemhave") as IEnumerable;
+            if (have == null)
+            {
+                return -1;
+            }
+
+            var idx = 0;
+            foreach (var item in have)
+            {
+                if (idx == slotIndex)
+                {
+                    return Convert.ToInt32(GetMember(item, "Pile") ?? 0);
+                }
+
+                idx++;
+            }
+
+            return -1;
+        }
+        catch
+        {
+            return -1;
+        }
+    }
+
+    private static void TrySleep(int ms)
+    {
+        try
+        {
+            Thread.Sleep(ms);
+        }
+        catch
+        {
+            // ignore
+        }
+    }
+
+    /// <summary>对齐面板：SendArea("取出物品到账号仓库", uid, index+1, num) 提取到账号银行。</summary>
+    private static bool SendTakeOutToAccountBank(string uid, int index, int pile)
     {
         var cm = GetManagerInstance("CollectionManager");
         if (cm == null)
@@ -353,7 +502,7 @@ public static class SeqChapterAreaExtract
             return false;
         }
 
-        send.Invoke(cm, new object[] { "取出物品", uid, index + 1, pile, -1, 0 });
+        send.Invoke(cm, new object[] { "取出物品到账号仓库", uid, index + 1, pile, -1, 0 });
         return true;
     }
 
