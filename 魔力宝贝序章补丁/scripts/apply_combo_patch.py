@@ -628,6 +628,25 @@ def apply_auto_catch_sell_external(
     return True, "抓宠卖银币·DLL版：已部署 DLL + 战斗分发钩 + 百科开关"
 
 
+def apply_count_farm_external(hotfix: Path, source: Path) -> tuple[bool, str]:
+    """计数挂机·DLL版：编译部署 SeqChapterCountFarm.dll.bytes（面板战斗页互斥切换）。"""
+    proc = run_patcher_capture(
+        [
+            "count-farm-external-patch",
+            "--hotfix",
+            str(source),
+            "--output",
+            str(hotfix),
+        ]
+    )
+    out = (proc.stdout or "") + (proc.stderr or "")
+    if proc.returncode != 0:
+        return False, out.strip() or "计数挂机·DLL版补丁失败"
+    if "[SKIP]" in out and "计数挂机" in out:
+        return True, "计数挂机·DLL版：已是补丁状态（跳过）"
+    return True, "计数挂机·DLL版：已部署 DLL（面板战斗页可选）"
+
+
 
 def apply_lv1_auto_external(hotfix: Path, source: Path) -> tuple[bool, str]:
     """遇1级自动·DLL版：SeqChapterLv1Auto.dll.bytes + Player/Pet/VIP 钩 + 百科开关。"""
@@ -709,6 +728,7 @@ def _apply_gameplay_patches(
     auto_catch_external: bool,
     auto_catch_nopet_external: bool = False,
     auto_catch_sell_external: bool = False,
+    count_farm: bool = False,
     lv1_auto_external: bool = False,
     auto_sell_external: bool,
     plugin_host: bool,
@@ -980,6 +1000,15 @@ def _apply_gameplay_patches(
         _emit_combo(messages, on_log, msg)
         work = hotfix
 
+    # 计数挂机：仅部署 DLL，由面板战斗页互斥切换
+    if count_farm:
+        _emit_combo(messages, on_log, "正在部署：计数挂机…")
+        ok, msg = apply_count_farm_external(hotfix, work)
+        if not ok:
+            raise RuntimeError(msg)
+        _emit_combo(messages, on_log, msg)
+        work = hotfix
+
     if battle_appear:
         _emit_combo(messages, on_log, "正在打：进战形象钩子…")
         ok, msg = apply_battle_appear_external(hotfix, work)
@@ -1010,6 +1039,7 @@ def apply_combo(
     auto_catch_sell_external: bool = False,
     lv1_auto_external: bool = False,
     auto_sell_external: bool = False,
+    count_farm: bool = False,
     plugin_host: bool = False,
     customer_gm: bool = False,
     customer_gm_mode: str = "autoskill",
@@ -1170,6 +1200,7 @@ def apply_combo(
         or auto_catch_external
         or auto_catch_nopet_external
         or auto_catch_sell_external
+        or count_farm
         or lv1_auto_external
         or auto_sell_external
         or plugin_host
@@ -1202,6 +1233,7 @@ def apply_combo(
         auto_catch_external=auto_catch_external,
         auto_catch_nopet_external=auto_catch_nopet_external,
         auto_catch_sell_external=auto_catch_sell_external,
+        count_farm=count_farm,
         lv1_auto_external=lv1_auto_external,
         auto_sell_external=auto_sell_external,
         plugin_host=plugin_host,
@@ -1259,6 +1291,7 @@ def apply_combo(
         "auto_catch_external": auto_catch_external,
         "auto_catch_nopet_external": auto_catch_nopet_external,
         "auto_catch_sell_external": auto_catch_sell_external,
+        "count_farm": count_farm,
         "lv1_auto_external": lv1_auto_external,
         "auto_sell_external": auto_sell_external,
         "plugin_host": plugin_host,

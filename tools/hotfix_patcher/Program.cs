@@ -125,6 +125,11 @@ internal static class Program
             return AutoSellExternalIlPatcher.Run(args.Skip(1).ToArray());
         }
 
+        if (args.Length > 0 && args[0] == "count-farm-external-patch")
+        {
+            return CountFarmExternalIlPatcher.Run(args.Skip(1).ToArray());
+        }
+
         if (args.Length > 0 && args[0] == "plugin-host-patch")
         {
             return PluginHostIlPatcher.Run(args.Skip(1).ToArray());

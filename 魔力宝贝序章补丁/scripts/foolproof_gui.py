@@ -79,7 +79,7 @@ def _profile_title() -> str:
 def _panel_modes_tip() -> str:
     if NINE_PACK:
         return "常规 / 九动 / 抓宠 / 抓宠卖银币 / 烧卡"
-    return "常规 / 抓宠（无宠二动）/ 抓宠 / 抓宠卖银币 / 烧卡"
+    return "常规 / 抓宠（无宠二动）/ 抓宠 / 抓宠卖银币 / 烧卡 / 计数挂机"
 
 
 def run_auto() -> int:

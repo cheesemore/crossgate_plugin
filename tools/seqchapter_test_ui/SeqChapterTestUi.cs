@@ -36,6 +36,7 @@ public static class SeqChapterTestUi
     private const string ModeSeal = "seal";
     private const string ModeCatchNopet = "catch_nopet";
     private const string ModeLv1 = "lv1";
+    private const string ModeCountFarm = "count_farm";
 
     private static readonly object LogLock = new object();
     private static readonly Dictionary<string, long> MoshiBuffReqMs =
@@ -504,6 +505,7 @@ public static class SeqChapterTestUi
         TrySetFeatureEnabled("SeqChapterAutoSeal", "hotfixdata/SeqChapterAutoSeal.dll.bytes", false);
         TrySetFeatureEnabled("SeqChapterLv1Auto", "hotfixdata/SeqChapterLv1Auto.dll.bytes", false);
         TrySetFeatureEnabled("SeqChapterNineAction", "hotfixdata/SeqChapterNineAction.dll.bytes", false);
+        TrySetFeatureEnabled("SeqChapterCountFarm", "hotfixdata/SeqChapterCountFarm.dll.bytes", false);
 
         if (mode == ModeCatch)
         {
@@ -528,6 +530,10 @@ public static class SeqChapterTestUi
         else if (mode == ModeNine)
         {
             TrySetFeatureEnabled("SeqChapterNineAction", "hotfixdata/SeqChapterNineAction.dll.bytes", true);
+        }
+        else if (mode == ModeCountFarm)
+        {
+            TrySetFeatureEnabled("SeqChapterCountFarm", "hotfixdata/SeqChapterCountFarm.dll.bytes", true);
         }
         // normal / nopet_2act: 全部 DLL 关；无宠二动靠 Magics PE
     }
@@ -2059,6 +2065,11 @@ public static class SeqChapterTestUi
         if (FeatureAvailable("SeqChapterAutoCatchSell", "hotfixdata/SeqChapterAutoCatchSell.dll.bytes"))
         {
             AddModeRow(rtType, ModeCatchSell, "抓宠卖银币", ref y, true);
+        }
+
+        if (FeatureAvailable("SeqChapterCountFarm", "hotfixdata/SeqChapterCountFarm.dll.bytes"))
+        {
+            AddModeRow(rtType, ModeCountFarm, "计数挂机（标题 ★挂机中★ 已战斗X次）", ref y, true);
         }
 
         if (FeatureAvailable("SeqChapterAutoSeal", "hotfixdata/SeqChapterAutoSeal.dll.bytes"))
@@ -8729,6 +8740,7 @@ public static class SeqChapterTestUi
         if (mode == ModeSeal) return "烧卡";
         if (mode == ModeCatchNopet) return "抓宠（无宠二动）";
         if (mode == ModeLv1) return "遇1级自动";
+        if (mode == ModeCountFarm) return "计数挂机";
         return "常规";
     }
 

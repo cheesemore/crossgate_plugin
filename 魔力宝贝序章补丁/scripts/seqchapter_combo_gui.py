@@ -141,6 +141,7 @@ class ComboPatchApp:
         self.auto_catch_external_var = tk.BooleanVar(value=True)
         self.auto_catch_nopet_external_var = tk.BooleanVar(value=True)
         self.auto_catch_sell_external_var = tk.BooleanVar(value=True)
+        self.count_farm_var = tk.BooleanVar(value=True)
         self.lv1_auto_external_var = tk.BooleanVar(value=False)
         self.auto_sell_external_var = tk.BooleanVar(value=False)
         self.plugin_host_var = tk.BooleanVar(value=False)
@@ -309,7 +310,7 @@ class ComboPatchApp:
         # --- 战斗扩展 ---
         ttk.Label(
             tab_battle,
-            text="面板模式（助手面板默认开）：抓宠（无宠二动）/抓宠/抓宠卖银币/烧卡 可同打，面板内互斥切换。九动·DLL/遇1级/盗贼/插件Host/桥接仍互斥。",
+            text="面板模式（助手面板默认开）：抓宠（无宠二动）/抓宠/抓宠卖银币/烧卡/计数挂机 可同打，面板内互斥切换。九动·DLL/遇1级/盗贼/插件Host/桥接仍互斥。",
             wraplength=520,
             foreground="#555555",
         ).pack(anchor=tk.W, pady=(0, 8))
@@ -367,6 +368,19 @@ class ComboPatchApp:
         ttk.Label(
             tab_battle,
             text="默认开启。抓宠卖银币：名字已#跳过；掉档≥Y且无@→回收；其余改名后满仓存仓。",
+            wraplength=500,
+            foreground="#666666",
+            font=("Microsoft YaHei UI", 8),
+        ).pack(anchor=tk.W, padx=(18, 0), pady=(2, 0))
+        ttk.Checkbutton(
+            tab_battle,
+            text="计数挂机（默认；面板战斗页互斥切换；标题 ★挂机中★ 已战斗X次）",
+            variable=self.count_farm_var,
+            command=lambda: self._on_battle_exclusive_toggle("count_farm"),
+        ).pack(anchor=tk.W, pady=(8, 0))
+        ttk.Label(
+            tab_battle,
+            text="默认开启。仅计数+标题：每次进战斗 +1，标题「★挂机中★ 已战斗N次」；关闭清零恢复。不拦截战斗，可与抓宠/烧卡同开。",
             wraplength=500,
             foreground="#666666",
             font=("Microsoft YaHei UI", 8),
@@ -477,6 +491,7 @@ class ComboPatchApp:
             "catch": self.auto_catch_external_var,
             "catch_nopet": self.auto_catch_nopet_external_var,
             "catch_sell": self.auto_catch_sell_external_var,
+            "count_farm": self.count_farm_var,
             "lv1": self.lv1_auto_external_var,
             "sell": self.auto_sell_external_var,
             "host": self.plugin_host_var,
@@ -864,6 +879,7 @@ class ComboPatchApp:
                 auto_catch_sell_external=self.auto_catch_sell_external_var.get(),
                 lv1_auto_external=self.lv1_auto_external_var.get(),
                 auto_sell_external=self.auto_sell_external_var.get(),
+                count_farm=self.count_farm_var.get(),
                 plugin_host=self.plugin_host_var.get(),
                 customer_gm=self.customer_gm_var.get(),
                 customer_gm_mode=self.customer_gm_mode_var.get(),

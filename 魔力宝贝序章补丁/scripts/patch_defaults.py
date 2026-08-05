@@ -13,6 +13,7 @@ DEFAULT_COMBO_KWARGS = {
     "auto_catch_external": True,
     "auto_catch_nopet_external": True,  # 抓宠（无宠二动）：不带宠时第二动防御
     "auto_catch_sell_external": True,
+    "count_farm": True,  # 计数挂机：面板战斗页互斥切换（标题 ★挂机中★ 已战斗X次）
     "lv1_auto_external": False,
     "auto_sell_external": False,
     "customer_gm": True,
