@@ -31,6 +31,17 @@ public static class SeqChapterCountFarm
         return ReadPipelineEnabledFromAnyCopy();
     }
 
+    /// <summary>面板标题协调用：后缀，未开启返回空。</summary>
+    public static string BuildTitleSuffix()
+    {
+        if (!IsPipelineActive())
+        {
+            return "";
+        }
+
+        return "★挂机中★ 已战斗" + _battleCount + "次";
+    }
+
     public static void Bootstrap()
     {
         if (_bootstrapped)
@@ -77,11 +88,31 @@ public static class SeqChapterCountFarm
     }
 
     /// <summary>
-    /// 与游戏一致：{产品名} {服务器} {角色} Lv.{等级}；
-    /// 计数挂机开启时追加「 ★挂机中★ 已战斗N次」。
+    /// 刷新标题：优先通知助手面板统一协调（合并计数挂机+自动提取等后缀），
+    /// 面板不在时自己写（与游戏一致：{产品名} {服务器} {角色} Lv.{等级}）。
     /// </summary>
     private static void RefreshWindowTitle()
     {
+        try
+        {
+            var panelType = FindLoadedType("SeqChapterTestUi");
+            if (panelType != null)
+            {
+                var m = panelType.GetMethod(
+                    "RefreshTitleFromFeature",
+                    BindingFlags.Public | BindingFlags.Static,
+                    null,
+                    Type.EmptyTypes,
+                    null);
+                m?.Invoke(null, null);
+                return;
+            }
+        }
+        catch
+        {
+            // fall through
+        }
+
         try
         {
             var product = GetUnityProductName();
@@ -424,6 +455,27 @@ public static class SeqChapterCountFarm
         {
             return null;
         }
+    }
+
+    private static Type FindLoadedType(string typeName)
+    {
+        foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+        {
+            try
+            {
+                var t = asm.GetType(typeName, false, false);
+                if (t != null)
+                {
+                    return t;
+                }
+            }
+            catch
+            {
+                // ignore
+            }
+        }
+
+        return null;
     }
 
     private static Assembly FindHotfixAssembly()

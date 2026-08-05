@@ -142,6 +142,7 @@ class ComboPatchApp:
         self.auto_catch_nopet_external_var = tk.BooleanVar(value=True)
         self.auto_catch_sell_external_var = tk.BooleanVar(value=True)
         self.count_farm_var = tk.BooleanVar(value=True)
+        self.area_extract_var = tk.BooleanVar(value=True)
         self.lv1_auto_external_var = tk.BooleanVar(value=False)
         self.auto_sell_external_var = tk.BooleanVar(value=False)
         self.plugin_host_var = tk.BooleanVar(value=False)
@@ -387,6 +388,19 @@ class ComboPatchApp:
         ).pack(anchor=tk.W, padx=(18, 0), pady=(2, 0))
         ttk.Checkbutton(
             tab_battle,
+            text="采集自动提取（默认；面板战斗页独立开关，与战斗模式共存）",
+            variable=self.area_extract_var,
+            command=lambda: self._on_battle_exclusive_toggle("area_extract"),
+        ).pack(anchor=tk.W, pady=(8, 0))
+        ttk.Label(
+            tab_battle,
+            text="默认开启。不需要自动采集：已采集物共5格，单格满999时自动提取该格到背包。采集数据推送时即检+每10分钟兜底。可在助手面板战斗页开/关，标题合并显示「★自动提取★X格已满」。",
+            wraplength=500,
+            foreground="#666666",
+            font=("Microsoft YaHei UI", 8),
+        ).pack(anchor=tk.W, padx=(18, 0), pady=(2, 0))
+        ttk.Checkbutton(
+            tab_battle,
             text="遇1级自动·DLL版（P1封印/P2技能1/其余防御；点百科 Tip 开关）",
             variable=self.lv1_auto_external_var,
             command=lambda: self._on_battle_exclusive_toggle("lv1"),
@@ -492,6 +506,7 @@ class ComboPatchApp:
             "catch_nopet": self.auto_catch_nopet_external_var,
             "catch_sell": self.auto_catch_sell_external_var,
             "count_farm": self.count_farm_var,
+            "area_extract": self.area_extract_var,
             "lv1": self.lv1_auto_external_var,
             "sell": self.auto_sell_external_var,
             "host": self.plugin_host_var,
@@ -880,6 +895,7 @@ class ComboPatchApp:
                 lv1_auto_external=self.lv1_auto_external_var.get(),
                 auto_sell_external=self.auto_sell_external_var.get(),
                 count_farm=self.count_farm_var.get(),
+                area_extract=self.area_extract_var.get(),
                 plugin_host=self.plugin_host_var.get(),
                 customer_gm=self.customer_gm_var.get(),
                 customer_gm_mode=self.customer_gm_mode_var.get(),

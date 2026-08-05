@@ -130,6 +130,11 @@ internal static class Program
             return CountFarmExternalIlPatcher.Run(args.Skip(1).ToArray());
         }
 
+        if (args.Length > 0 && args[0] == "area-extract-external-patch")
+        {
+            return AreaExtractExternalIlPatcher.Run(args.Skip(1).ToArray());
+        }
+
         if (args.Length > 0 && args[0] == "plugin-host-patch")
         {
             return PluginHostIlPatcher.Run(args.Skip(1).ToArray());

@@ -98,6 +98,11 @@ public static class SeqChapterTestUi
     private static string _battleMode = ModeNormal;
     private static string _statusLine = "";
 
+    // ----- 窗口标题统一协调（各功能 DLL 后缀合并） -----
+    private static long _lastTitleRefreshMs;
+    private const long TitleRefreshIntervalMs = 2000;
+    private static string _lastTitle = "";
+
     // ----- 进战宠物形象（轻量配置；预览在游戏外 Python） -----
     private static object _appearStatusText;
     private static object _appearEnableBtn;
@@ -329,6 +334,21 @@ public static class SeqChapterTestUi
     {
         _updateCalls++;
 
+        // 窗口标题统一协调：各功能后缀（计数挂机/自动提取等）合并刷新。
+        // 放 _visible 判断之前：面板隐藏时挂机也保持标题提示。
+        if (NowMs() - _lastTitleRefreshMs >= TitleRefreshIntervalMs)
+        {
+            _lastTitleRefreshMs = NowMs();
+            try
+            {
+                RefreshTitleFromFeature();
+            }
+            catch
+            {
+                // ignore
+            }
+        }
+
         // 护航/刷灵堂/超级AI在关面板时也要跑；自动暂停铃声同理
         try
         {
@@ -396,6 +416,179 @@ public static class SeqChapterTestUi
     public static void DrawGui()
     {
         // HybridCLR 通常不进 OnGUI
+    }
+
+    // ---------- 窗口标题统一协调 ----------
+
+    /// <summary>
+    /// 汇总各功能 DLL 后缀（计数挂机/自动提取等）刷新窗口标题。
+    /// 供 DLL 在事件触发时调用（RefreshTitleFromFeature），面板 Tick 每 2s 兜底。
+    /// 标题格式：{产品名} {服务器} {角色} Lv.{等级} + 空格 + 各后缀（空格分隔）。
+    /// </summary>
+    public static void RefreshTitleFromFeature()
+    {
+        try
+        {
+            var baseTitle = BuildGameTitle();
+            if (string.IsNullOrEmpty(baseTitle))
+            {
+                return;
+            }
+
+            var suffix = CollectTitleSuffix();
+            var full = string.IsNullOrEmpty(suffix) ? baseTitle : baseTitle + " " + suffix;
+            if (full == _lastTitle)
+            {
+                return;
+            }
+
+            _lastTitle = full;
+            SetGameWindowTitle(full);
+        }
+        catch
+        {
+            // ignore
+        }
+    }
+
+    private static string BuildGameTitle()
+    {
+        var product = GetUnityProductName();
+        if (string.IsNullOrEmpty(product))
+        {
+            return "";
+        }
+
+        var server = "";
+        var serverInfo = GetStaticMember("PlayerDataHolder", "currentServerInfo");
+        if (serverInfo != null)
+        {
+            server = Convert.ToString(GetMember(serverInfo, "name") ?? "") ?? "";
+        }
+
+        var player = GetStaticMember("PlayerDataHolder", "playerData");
+        var roleName = "";
+        var level = 0;
+        if (player != null)
+        {
+            roleName = Convert.ToString(GetMember(player, "name") ?? "") ?? "";
+            level = Convert.ToInt32(GetMember(player, "level") ?? 0);
+        }
+
+        return string.IsNullOrEmpty(roleName)
+            ? product
+            : string.Format("{0} {1} {2} Lv.{3}", product, server, roleName, level);
+    }
+
+    private static string CollectTitleSuffix()
+    {
+        var parts = new System.Collections.Generic.List<string>();
+        AppendFeatureSuffix("SeqChapterCountFarm", parts);
+        AppendFeatureSuffix("SeqChapterAreaExtract", parts);
+        AppendFeatureSuffix("SeqChapterAutoSell", parts);
+        return string.Join(" ", parts);
+    }
+
+    private static void AppendFeatureSuffix(string typeName, System.Collections.Generic.List<string> parts)
+    {
+        try
+        {
+            var t = FindLoadedType(typeName);
+            if (t == null)
+            {
+                return;
+            }
+
+            var m = t.GetMethod(
+                "BuildTitleSuffix",
+                BindingFlags.Public | BindingFlags.Static,
+                null,
+                Type.EmptyTypes,
+                null);
+            if (m == null)
+            {
+                return;
+            }
+
+            var s = Convert.ToString(m.Invoke(null, null) ?? "") ?? "";
+            if (!string.IsNullOrEmpty(s))
+            {
+                parts.Add(s);
+            }
+        }
+        catch
+        {
+            // ignore
+        }
+    }
+
+    private static string GetUnityProductName()
+    {
+        try
+        {
+            foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+            {
+                Type t = null;
+                try
+                {
+                    t = asm.GetType("UnityEngine.Application", false, false);
+                }
+                catch
+                {
+                    continue;
+                }
+
+                if (t == null)
+                {
+                    continue;
+                }
+
+                var p = t.GetProperty(
+                    "productName",
+                    BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic);
+                if (p != null)
+                {
+                    return Convert.ToString(p.GetValue(null, null) ?? "") ?? "";
+                }
+            }
+        }
+        catch
+        {
+            // ignore
+        }
+
+        return "";
+    }
+
+    private static void SetGameWindowTitle(string title)
+    {
+        var appMgr = FindType("AppManager");
+        var setTitle = appMgr?.GetMethod(
+            "SetWindowTitle",
+            BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic,
+            null,
+            new[] { typeof(string) },
+            null);
+        if (setTitle == null && appMgr != null)
+        {
+            foreach (var m in appMgr.GetMethods(
+                BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic))
+            {
+                if (m.Name != "SetWindowTitle")
+                {
+                    continue;
+                }
+
+                var ps = m.GetParameters();
+                if (ps.Length == 1 && ps[0].ParameterType.FullName == "System.String")
+                {
+                    setTitle = m;
+                    break;
+                }
+            }
+        }
+
+        setTitle?.Invoke(null, new object[] { title });
     }
 
     // ---------- tabs / modes ----------
@@ -2087,7 +2280,81 @@ public static class SeqChapterTestUi
             AddCatchSellYRow(rtType, ref y);
         }
 
+        // 采集自动提取：不属于战斗，独立开关，与战斗模式共存（不互斥）
+        if (FeatureAvailable("SeqChapterAreaExtract", "hotfixdata/SeqChapterAreaExtract.dll.bytes"))
+        {
+            AddAreaExtractToggleRow(rtType, ref y);
+        }
+
         WriteLog("BuildBattleBody done");
+    }
+
+    /// <summary>战斗模式页：采集自动提取独立开关（单格满 999 自动提取到背包）。</summary>
+    private static void AddAreaExtractToggleRow(Type rtType, ref float y)
+    {
+        y -= 10f;
+        var on = IsAreaExtractActive();
+
+        var row = CreateUiChild(_bodyRoot, "AreaExtractRow", rtType);
+        SetAnchoredTop(RequireRect(row, "aer"), 0f, y, 500f, 32f);
+        var img = AddComp(row, "UnityEngine.UI.Image");
+        SetColor(img, 0.16f, 0.24f, 0.26f, 1f);
+        var lab = CreateUiChild(row, "L", rtType);
+        StretchFull(RequireRect(lab, "ael"));
+        var text = AddText(lab);
+        SetText(text, (on ? "● " : "○ ") + "采集自动提取（单格满999提取，与战斗模式共存）", 13);
+        BindButton(row, img, ToggleAreaExtractFromUi);
+
+        y -= 34f;
+    }
+
+    private static bool IsAreaExtractActive()
+    {
+        try
+        {
+            var t = FindLoadedType("SeqChapterAreaExtract");
+            if (t == null)
+            {
+                return false;
+            }
+
+            var m = t.GetMethod("IsPipelineActive", BindingFlags.Public | BindingFlags.Static, null, Type.EmptyTypes, null);
+            return m != null && m.Invoke(null, null) is bool b && b;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static void ToggleAreaExtractFromUi()
+    {
+        try
+        {
+            WriteLog("ToggleAreaExtractFromUi");
+            var t = EnsureFeatureType("SeqChapterAreaExtract", "hotfixdata/SeqChapterAreaExtract.dll.bytes");
+            if (t == null)
+            {
+                Tip("采集自动提取 DLL 加载失败（见日志）");
+                return;
+            }
+
+            var toggle = t.GetMethod("ToggleFromUi", BindingFlags.Public | BindingFlags.Static, null, Type.EmptyTypes, null);
+            var r = toggle != null ? toggle.Invoke(null, null) : null;
+            Tip(r is bool b && b ? "采集自动提取已开启" : "采集自动提取已关闭");
+
+            if (_tab == TabBattle)
+            {
+                ClearBody();
+                BuildBattleBody();
+                RefreshTabButtonLabels();
+            }
+        }
+        catch (Exception ex)
+        {
+            WriteLog("ToggleAreaExtractFromUi EX: " + RootMessage(ex));
+            Tip("采集自动提取失败: " + RootMessage(ex));
+        }
     }
 
     /// <summary>战斗模式页：抓宠卖银币的回收阈值 Y（默认 6）。</summary>

@@ -14,6 +14,7 @@ DEFAULT_COMBO_KWARGS = {
     "auto_catch_nopet_external": True,  # 抓宠（无宠二动）：不带宠时第二动防御
     "auto_catch_sell_external": True,
     "count_farm": True,  # 计数挂机：面板战斗页互斥切换（标题 ★挂机中★ 已战斗X次）
+    "area_extract": True,  # 采集自动提取：面板战斗页独立开关（单格满999提取，与战斗模式共存）
     "lv1_auto_external": False,
     "auto_sell_external": False,
     "customer_gm": True,

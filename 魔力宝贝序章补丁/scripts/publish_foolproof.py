@@ -37,6 +37,7 @@ TEST_UI_SRC = GAME_ROOT / "tools" / "seqchapter_test_ui"
 LV1_AUTO_SRC = GAME_ROOT / "tools" / "seqchapter_lv1_auto"
 BATTLE_APPEAR_SRC = GAME_ROOT / "tools" / "seqchapter_battle_appear"
 COUNT_FARM_SRC = GAME_ROOT / "tools" / "seqchapter_count_farm"
+AREA_EXTRACT_SRC = GAME_ROOT / "tools" / "seqchapter_area_extract"
 BATTLE_APPEAR_JSON = GAME_ROOT / "tools" / "battle_appear.json"
 PET_RANK_BIN = GAME_ROOT / "tools" / "pet_rank.bin"
 TOOLS_SRC = GAME_ROOT / "tools"
@@ -66,7 +67,8 @@ ANIMATOR_DATA = [
 
 # 九动版已无限期停发：本脚本只构建融合版，忽略任何 --nine-pack 类参数。
 APP_NAME = "傻瓜补丁_融合版"
-PANEL_MODES = "常规 / 抓宠（无宠二动）/ 抓宠 / 抓宠卖银币 / 烧卡 / 计数挂机"
+PANEL_MODES = "常规 / 抓宠（无宠二动）/ 抓宠 / 抓宠卖银币 / 烧卡 / 计数挂机 / 采集自动提取"
+PANEL_SCRIPT_BTNS = "做日常 / 礼包码"
 
 SERIES_CLEANUP_PREFIXES = [APP_NAME]
 # 清理旧系列命名，避免发布目录堆积
@@ -105,6 +107,8 @@ README = f"""魔力宝贝：序章 — {APP_NAME}
 【本包做什么】
 · 侧栏「百科」→ 助手面板，战斗模式：{PANEL_MODES}
 · 战斗模式默认：抓宠（无宠二动）/ 抓宠 / 抓宠卖银币 / 烧卡 / 计数挂机（面板内互斥切换）
+· 采集自动提取：战斗页独立开关，与战斗模式共存；已采集5格单格满999自动提取到背包
+· 面板「脚本」页：做日常 / 礼包码
 · 界面外层选项：「战斗加速」（开→战斗倍速+心跳回传1.5x；关→原速+心跳回传1.0x）与「跳帧（切后台/老板键限帧 10FPS）」
 · 默认含：分享改日常、礼包码、客服→高级自动战斗
 
@@ -345,6 +349,7 @@ def build_exe() -> Path:
         (LV1_AUTO_SRC, "seqchapter_lv1_auto"),
         (BATTLE_APPEAR_SRC, "seqchapter_battle_appear"),
         (COUNT_FARM_SRC, "seqchapter_count_farm"),
+        (AREA_EXTRACT_SRC, "seqchapter_area_extract"),
     ]
 
     for src, name in bundle_srcs:
