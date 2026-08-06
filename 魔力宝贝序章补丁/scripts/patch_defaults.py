@@ -63,8 +63,7 @@ FOOLPROOF_COMBO_KWARGS = {
     "boss_key_fps": True,
     "transition_speed": False,
     "battle_appear": False,  # 皮肤挂钩（进战形象钩子）默认关
-    "vip_scale": 3,  # 仅在勾选战斗加速时生效（vip=True）
-    "vip_echo": 1.5,  # 加速开：心跳回传固定 1.5x；关则由 foolproof_apply 覆盖为 1.0x
+    "vip_scale": 3,  # 仅在勾选战斗加速时生效（vip=True，vip_echo 由 foolproof_apply 设置）
     "map_sprint": False,  # 移动加速默认关
 }
 

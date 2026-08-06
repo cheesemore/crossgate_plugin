@@ -181,16 +181,20 @@ def run_foolproof_patch(
     kwargs["on_log"] = on_log
 
     if not apply_accel:
+        # 加速关：完全不碰 vip-timescale-patch（不设 vip_echo → 不打心跳回传，避免连带 kill-report）
         kwargs["vip"] = False
         kwargs["vip_non_vip"] = False
-        kwargs["vip_echo"] = 1.0  # 加速关：心跳回传固定 1.0
+        kwargs["vip_echo"] = None
         kwargs["map_sprint"] = False
         kwargs["skill_effect_speed"] = False
         kwargs["transition_speed"] = False
-        _emit(messages, on_log, "加速补丁：关（不打战斗倍速/跑速/特效/过场，心跳回传固定 1.0x）")
+        _emit(messages, on_log, "加速补丁：关（不打战斗倍速/心跳回传/跑速/特效/过场，不触碰倍速检测上报）")
     else:
-        kwargs["vip_echo"] = 1.5  # 加速开：战斗倍速 + 心跳回传固定 1.5x
-        _emit(messages, on_log, "加速补丁：开（战斗倍速 + 心跳回传固定 1.5x）")
+        # 加速开：战斗倍速（VIP+非VIP 同倍速）+ 心跳回传 1.5x（强制绑定 kill-report，掐断倍速检测上报）
+        kwargs["vip"] = True
+        kwargs["vip_non_vip"] = True
+        kwargs["vip_echo"] = 1.5
+        _emit(messages, on_log, "加速补丁：开（战斗倍速 + 心跳回传固定 1.5x，强制携带 kill-report）")
 
     kwargs["boss_key_fps"] = bool(apply_frameskip)
     _emit(
