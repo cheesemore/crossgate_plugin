@@ -17,10 +17,16 @@ public static class SeqChapterCountFarm
     /// <summary>计数挂机总开关。默认关闭；面板战斗模式页切换。</summary>
     public static volatile bool PipelineEnabled = false;
 
+    /// <summary>计数挂机满魔石停止。默认开启；面板战斗页独立勾选。</summary>
+    public static volatile bool StopWhenMoshiFull = true;
+
     private static bool _bootstrapped;
     private static bool _enterHooked;
     private static Action _onEnterBattle;
     private static int _battleCount;
+
+    /// <summary>已因魔石满而发送过停止挂机（避免重复发）。</summary>
+    private static bool _stopSentForCurrentFull;
 
     public static bool IsPipelineActive()
     {
@@ -112,16 +118,20 @@ public static class SeqChapterCountFarm
                 }
 
                 hasAny = true;
-                if (limit > 0)
+                if (limit <= 0)
                 {
-                    // 有零头（当前 > 上限）时按上限计
-                    var capped = cur > limit ? limit : cur;
-                    totalCur += capped;
-                    totalLimit += limit;
-                    if (cur < limit)
-                    {
-                        allFull = false;
-                    }
+                    // 上限未就绪（Time 为 0 等）：按未满处理，不能算满
+                    allFull = false;
+                    continue;
+                }
+
+                // 有零头（当前 > 上限）时按上限计
+                var capped = cur > limit ? limit : cur;
+                totalCur += capped;
+                totalLimit += limit;
+                if (cur < limit)
+                {
+                    allFull = false;
                 }
             }
 
@@ -295,9 +305,41 @@ public static class SeqChapterCountFarm
         if (!enable)
         {
             _battleCount = 0;
+            _stopSentForCurrentFull = false;
         }
 
         RefreshWindowTitle();
+    }
+
+    /// <summary>面板战斗页：切换「满魔石停止」；返回是否开启。</summary>
+    public static bool ToggleStopWhenMoshiFullFromUi()
+    {
+        Bootstrap();
+        var enable = !IsStopWhenMoshiFull();
+        SetStopWhenMoshiFull(enable);
+        return enable;
+    }
+
+    /// <summary>面板读取当前「满魔石停止」开关（含多副本同步）。</summary>
+    public static bool IsStopWhenMoshiFull()
+    {
+        if (StopWhenMoshiFull)
+        {
+            return true;
+        }
+
+        return ReadStopWhenMoshiFullFromAnyCopy();
+    }
+
+    /// <summary>设置「满魔石停止」开关（同步多副本），重置停止发送标志。</summary>
+    public static void SetStopWhenMoshiFull(bool enable)
+    {
+        StopWhenMoshiFull = enable;
+        SetStopWhenMoshiFullAllCopies(enable);
+        if (!enable)
+        {
+            _stopSentForCurrentFull = false;
+        }
     }
 
     /// <summary>侧栏百科切换（兼容旧入口）。</summary>
@@ -309,7 +351,7 @@ public static class SeqChapterCountFarm
         return enable;
     }
 
-    /// <summary>进战斗：计数 +1 并刷新标题。</summary>
+    /// <summary>进战斗：计数 +1，检测魔石满则停止自动遇敌，并刷新标题。</summary>
     private static void OnBattleEntered()
     {
         if (!IsPipelineActive())
@@ -318,7 +360,182 @@ public static class SeqChapterCountFarm
         }
 
         _battleCount++;
+        CheckStopWhenMoshiFull();
         RefreshWindowTitle();
+    }
+
+    /// <summary>
+    /// 计数挂机满魔石停止：开关开且全员魔石满时，对队伍/多开所有号发
+    /// SendAutoBattle("停止挂机", uid)（协议 3015），并 Tip 提示。只发一次。
+    /// </summary>
+    private static void CheckStopWhenMoshiFull()
+    {
+        if (!IsPipelineActive() || !IsStopWhenMoshiFull())
+        {
+            _stopSentForCurrentFull = false;
+            return;
+        }
+
+        try
+        {
+            if (!IsMoshiFull())
+            {
+                // 未满：重置标志，允许后续满时再触发
+                _stopSentForCurrentFull = false;
+                return;
+            }
+
+            if (_stopSentForCurrentFull)
+            {
+                return;
+            }
+
+            _stopSentForCurrentFull = true;
+            var uids = CollectTeamOrMultiUids();
+            var sent = 0;
+            foreach (var uid in uids)
+            {
+                if (string.IsNullOrEmpty(uid))
+                {
+                    continue;
+                }
+
+                if (SendStopAutoBattle(uid))
+                {
+                    sent++;
+                }
+            }
+
+            Tip(sent > 0
+                ? "魔石已满，已停止自动遇敌（" + sent + " 个角色）"
+                : "魔石已满，已停止自动遇敌");
+        }
+        catch
+        {
+            // ignore
+        }
+    }
+
+    /// <summary>向指定 uid 发 SendAutoBattle("停止挂机")；返回是否实际发送。</summary>
+    private static bool SendStopAutoBattle(string uid)
+    {
+        try
+        {
+            // 已停（encounterStatus==0）则不重复发
+            var player = GetPlayerFromUid(uid);
+            var status = 0;
+            if (player != null)
+            {
+                status = Convert.ToInt32(GetMember(player, "encounterStatus") ?? 0);
+            }
+
+            if (status == 0)
+            {
+                var pdata = GetStaticField("PlayerDataHolder", "playerData");
+                status = Convert.ToInt32(GetMember(pdata, "encounterStatus") ?? 0);
+            }
+
+            if (status == 0)
+            {
+                return false;
+            }
+
+            var roleMgr = GetManagerInstance("RoleManager");
+            var send = roleMgr?.GetType().GetMethod(
+                "SendAutoBattle",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+                null,
+                new[] { typeof(string), typeof(string) },
+                null);
+            if (send == null)
+            {
+                return false;
+            }
+
+            send.Invoke(roleMgr, new object[] { "停止挂机", uid });
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>从某 uid 的 PlayerData 读 uid（抓宠 GetPlayerFromUid 同款兜底）。</summary>
+    private static object GetPlayerFromUid(string uid)
+    {
+        try
+        {
+            var holder = FindType("PlayerDataHolder");
+            var m = holder?.GetMethod(
+                "GetPlayerFromUid",
+                BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic);
+            if (m != null)
+            {
+                return m.Invoke(null, new object[] { uid });
+            }
+        }
+        catch
+        {
+            // ignore
+        }
+
+        return null;
+    }
+
+    /// <summary>全员魔石满（各号当前 ≥ 上限）才为 true。</summary>
+    private static bool IsMoshiFull()
+    {
+        try
+        {
+            var uids = CollectTeamOrMultiUids();
+            if (uids.Count == 0)
+            {
+                return false;
+            }
+
+            var roleMgr = GetManagerInstance("RoleManager");
+            if (roleMgr == null)
+            {
+                return false;
+            }
+
+            var dict = GetMember(roleMgr, "m_buffInfo") as IDictionary;
+            if (dict == null || dict.Count == 0)
+            {
+                return false;
+            }
+
+            var hasAny = false;
+            foreach (var uid in uids)
+            {
+                long cur;
+                long limit;
+                if (!TryReadMoshiProgress(dict, uid, out cur, out limit))
+                {
+                    // 该号暂无魔石缓存，跳过（不算满）
+                    return false;
+                }
+
+                hasAny = true;
+                if (limit <= 0)
+                {
+                    // 上限未就绪：不算满
+                    return false;
+                }
+
+                if (cur < limit)
+                {
+                    return false;
+                }
+            }
+
+            return hasAny;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     /// <summary>
@@ -550,6 +767,82 @@ public static class SeqChapterCountFarm
         {
             // ignore
         }
+    }
+
+    private static void SetStopWhenMoshiFullAllCopies(bool enabled)
+    {
+        StopWhenMoshiFull = enabled;
+        try
+        {
+            foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+            {
+                Type t = null;
+                try
+                {
+                    t = asm.GetType(TypeName, false, false);
+                }
+                catch
+                {
+                    continue;
+                }
+
+                if (t == null || t == typeof(SeqChapterCountFarm))
+                {
+                    continue;
+                }
+
+                var f = t.GetField(
+                    "StopWhenMoshiFull",
+                    BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic);
+                if (f != null && f.FieldType == typeof(bool))
+                {
+                    f.SetValue(null, enabled);
+                }
+            }
+        }
+        catch
+        {
+            // ignore
+        }
+    }
+
+    private static bool ReadStopWhenMoshiFullFromAnyCopy()
+    {
+        try
+        {
+            foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+            {
+                Type t = null;
+                try
+                {
+                    t = asm.GetType(TypeName, false, false);
+                }
+                catch
+                {
+                    continue;
+                }
+
+                if (t == null || t == typeof(SeqChapterCountFarm))
+                {
+                    continue;
+                }
+
+                var f = t.GetField(
+                    "StopWhenMoshiFull",
+                    BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic);
+                if (f != null && f.FieldType == typeof(bool) && Convert.ToBoolean(f.GetValue(null)))
+                {
+                    StopWhenMoshiFull = true;
+                    return true;
+                }
+            }
+        }
+        catch
+        {
+            // ignore
+        }
+
+        return false;
     }
 
     private static bool ReadPipelineEnabledFromAnyCopy()
@@ -785,5 +1078,62 @@ public static class SeqChapterCountFarm
     private static string GetStaticString(string typeName, string name)
     {
         return Convert.ToString(GetStaticMember(typeName, name) ?? "");
+    }
+
+    /// <summary>游戏内飘字提示（NotifyManager.Tip）。</summary>
+    private static void Tip(string msg)
+    {
+        try
+        {
+            if (string.IsNullOrEmpty(msg))
+            {
+                return;
+            }
+
+            var notify = GetManagerInstance("NotifyManager");
+            if (notify == null)
+            {
+                return;
+            }
+
+            MethodInfo tip = null;
+            foreach (var m in notify.GetType().GetMethods(
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+            {
+                if (m.Name != "Tip")
+                {
+                    continue;
+                }
+
+                var ps = m.GetParameters();
+                if (ps.Length >= 1 && ps[0].ParameterType == typeof(string))
+                {
+                    tip = m;
+                    if (ps.Length == 2)
+                    {
+                        break;
+                    }
+                }
+            }
+
+            if (tip == null)
+            {
+                return;
+            }
+
+            var ps2 = tip.GetParameters();
+            if (ps2.Length >= 2)
+            {
+                tip.Invoke(notify, new object[] { msg, false });
+            }
+            else
+            {
+                tip.Invoke(notify, new object[] { msg });
+            }
+        }
+        catch
+        {
+            // ignore
+        }
     }
 }

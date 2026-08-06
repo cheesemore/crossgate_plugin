@@ -982,25 +982,33 @@ internal static class BattleAppearExternalIlPatcher
         var hotfixDir = Path.GetDirectoryName(hotfixPath)!;
         var exeDir = Path.GetDirectoryName(Environment.ProcessPath ?? "")
             ?? AppContext.BaseDirectory;
-        var candidates = new List<string>
-        {
-            Path.GetFullPath(Path.Combine(exeDir, "seqchapter_battle_appear")),
-            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "seqchapter_battle_appear")),
-            Path.GetFullPath(Path.Combine(exeDir, "..", "tools", "seqchapter_battle_appear")),
-            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "tools", "seqchapter_battle_appear")),
-            Path.GetFullPath(Path.Combine(hotfixDir, "..", "..", "..", "tools", "seqchapter_battle_appear")),
-        };
 
-        for (var dir = hotfixDir; !string.IsNullOrEmpty(dir); dir = Path.GetDirectoryName(dir)!)
+        // 优先：从 hotfixPath 所在目录向上探测游戏根目录（含 cg37_Data 的目录）下的 tools/seqchapter_battle_appear。
+        // 这是唯一权威源；exeDir 同级的副本（发布残留）不能优先，否则会编译到旧版源码。
+        var probes = new List<string>();
+        for (var dir = hotfixDir; ; dir = Path.GetDirectoryName(dir)!)
         {
-            var probe = Path.Combine(dir, "tools", "seqchapter_battle_appear");
-            if (!candidates.Contains(probe, StringComparer.OrdinalIgnoreCase))
+            if (string.IsNullOrEmpty(dir))
             {
-                candidates.Add(probe);
+                break;
+            }
+
+            probes.Add(Path.Combine(dir, "tools", "seqchapter_battle_appear"));
+
+            if (Directory.Exists(Path.Combine(dir, "cg37_Data")))
+            {
+                break;
             }
         }
 
-        foreach (var dir in candidates)
+        // 兜底：exeDir 相关路径（发布工具链场景，exe 与 tools 目录结构固定）。
+        probes.Add(Path.GetFullPath(Path.Combine(exeDir, "seqchapter_battle_appear")));
+        probes.Add(Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "seqchapter_battle_appear")));
+        probes.Add(Path.GetFullPath(Path.Combine(exeDir, "..", "tools", "seqchapter_battle_appear")));
+        probes.Add(Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "tools", "seqchapter_battle_appear")));
+        probes.Add(Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "seqchapter_battle_appear")));
+
+        foreach (var dir in probes)
         {
             if (File.Exists(Path.Combine(dir, "SeqChapterBattleAppear.cs")))
             {
@@ -1008,6 +1016,8 @@ internal static class BattleAppearExternalIlPatcher
             }
         }
 
-        throw new DirectoryNotFoundException("找不到 tools/seqchapter_battle_appear 目录");
+        throw new DirectoryNotFoundException(
+            "找不到 tools/seqchapter_battle_appear 目录（请把 seqchapter_battle_appear 放在 HotfixPatcher.exe 同级，或游戏根目录 tools/ 下）");
     }
+
 }

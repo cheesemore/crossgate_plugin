@@ -295,14 +295,12 @@ internal static class WikiChatTestExternalIlPatcher
     private static string ResolveSourceDir(string hotfixPath)
     {
         var hotfixDir = Path.GetDirectoryName(hotfixPath)!;
-        var candidates = new List<string>
-        {
-            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "seqchapter_wiki_chat_test")),
-            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "tools", "seqchapter_wiki_chat_test")),
-            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "seqchapter_wiki_chat_test")),
-            Path.GetFullPath(Path.Combine(hotfixDir, "..", "..", "..", "tools", "seqchapter_wiki_chat_test")),
-        };
+        var exeDir = Path.GetDirectoryName(Environment.ProcessPath ?? "")
+            ?? AppContext.BaseDirectory;
 
+        // 优先：从 hotfixPath 所在目录向上探测游戏根目录（含 cg37_Data 的目录）下的 tools/seqchapter_wiki_chat_test。
+        // 这是唯一权威源；exeDir 同级的副本（发布残留）不能优先，否则会编译到旧版源码。
+        var probes = new List<string>();
         for (var dir = hotfixDir; ; dir = Path.GetDirectoryName(dir)!)
         {
             if (string.IsNullOrEmpty(dir))
@@ -310,14 +308,22 @@ internal static class WikiChatTestExternalIlPatcher
                 break;
             }
 
-            var probe = Path.Combine(dir, "tools", "seqchapter_wiki_chat_test");
-            if (!candidates.Contains(probe))
+            probes.Add(Path.Combine(dir, "tools", "seqchapter_wiki_chat_test"));
+
+            if (Directory.Exists(Path.Combine(dir, "cg37_Data")))
             {
-                candidates.Add(probe);
+                break;
             }
         }
 
-        foreach (var dir in candidates)
+        // 兜底：exeDir 相关路径（发布工具链场景，exe 与 tools 目录结构固定）。
+        probes.Add(Path.GetFullPath(Path.Combine(exeDir, "seqchapter_wiki_chat_test")));
+        probes.Add(Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "seqchapter_wiki_chat_test")));
+        probes.Add(Path.GetFullPath(Path.Combine(exeDir, "..", "tools", "seqchapter_wiki_chat_test")));
+        probes.Add(Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "tools", "seqchapter_wiki_chat_test")));
+        probes.Add(Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "seqchapter_wiki_chat_test")));
+
+        foreach (var dir in probes)
         {
             if (File.Exists(Path.Combine(dir, "SeqChapterWikiChatTest.cs")))
             {

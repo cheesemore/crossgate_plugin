@@ -281,16 +281,10 @@ internal static class AutoSellExternalIlPatcher
         var hotfixDir = Path.GetDirectoryName(hotfixPath)!;
         var exeDir = Path.GetDirectoryName(Environment.ProcessPath ?? "")
             ?? AppContext.BaseDirectory;
-        var candidates = new List<string>
-        {
-            Path.GetFullPath(Path.Combine(exeDir, "seqchapter_auto_sell")),
-            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "seqchapter_auto_sell")),
-            Path.GetFullPath(Path.Combine(exeDir, "..", "tools", "seqchapter_auto_sell")),
-            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "tools", "seqchapter_auto_sell")),
-            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "seqchapter_auto_sell")),
-            Path.GetFullPath(Path.Combine(hotfixDir, "..", "..", "..", "tools", "seqchapter_auto_sell")),
-        };
 
+        // 优先：从 hotfixPath 所在目录向上探测游戏根目录（含 cg37_Data 的目录）下的 tools/seqchapter_auto_sell。
+        // 这是唯一权威源；exeDir 同级的副本（发布残留）不能优先，否则会编译到旧版源码。
+        var probes = new List<string>();
         for (var dir = hotfixDir; ; dir = Path.GetDirectoryName(dir)!)
         {
             if (string.IsNullOrEmpty(dir))
@@ -298,11 +292,7 @@ internal static class AutoSellExternalIlPatcher
                 break;
             }
 
-            var probe = Path.Combine(dir, "tools", "seqchapter_auto_sell");
-            if (!candidates.Contains(probe, StringComparer.OrdinalIgnoreCase))
-            {
-                candidates.Add(probe);
-            }
+            probes.Add(Path.Combine(dir, "tools", "seqchapter_auto_sell"));
 
             if (Directory.Exists(Path.Combine(dir, "cg37_Data")))
             {
@@ -310,7 +300,14 @@ internal static class AutoSellExternalIlPatcher
             }
         }
 
-        foreach (var dir in candidates)
+        // 兜底：exeDir 相关路径（发布工具链场景，exe 与 tools 目录结构固定）。
+        probes.Add(Path.GetFullPath(Path.Combine(exeDir, "seqchapter_auto_sell")));
+        probes.Add(Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "seqchapter_auto_sell")));
+        probes.Add(Path.GetFullPath(Path.Combine(exeDir, "..", "tools", "seqchapter_auto_sell")));
+        probes.Add(Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "tools", "seqchapter_auto_sell")));
+        probes.Add(Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "seqchapter_auto_sell")));
+
+        foreach (var dir in probes)
         {
             if (File.Exists(Path.Combine(dir, "SeqChapterAutoSell.cs")))
             {
@@ -321,6 +318,7 @@ internal static class AutoSellExternalIlPatcher
         throw new DirectoryNotFoundException(
             "找不到 tools/seqchapter_auto_sell 目录（请把 seqchapter_auto_sell 放在 HotfixPatcher.exe 同级，或游戏根目录 tools/ 下）");
     }
+
 
     private static bool ContainsUtf16(byte[] pe, string text)
     {
