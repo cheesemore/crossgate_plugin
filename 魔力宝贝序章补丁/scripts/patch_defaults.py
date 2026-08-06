@@ -36,7 +36,7 @@ DEFAULT_COMBO_KWARGS = {
     "wiki_label": False,
     "daily_claim": True,
     "newbie_gift_code": True,
-    "boss_key_fps": True,  # 切后台 / 老板键隐藏 → 10 FPS
+    "boss_key_fps": True,  # 切后台 / 老板键隐藏 → 30 FPS
     "wiki_fps": False,
     "wiki_test_ui": True,  # 百科 → 助手面板
     "battle_appear": False,  # 进战形象钩子：默认关，需要时再勾
@@ -144,7 +144,7 @@ LAUNCH_INJECT_PRESET = {
     "wiki_label": False,
     "daily_claim": True,
     "newbie_gift_code": True,
-    "boss_key_fps": True,  # 切后台 / 老板键隐藏 → 10 FPS
+    "boss_key_fps": True,  # 切后台 / 老板键隐藏 → 30 FPS
     "wiki_fps": False,
     "wiki_test_ui": True,
     "battle_appear": False,

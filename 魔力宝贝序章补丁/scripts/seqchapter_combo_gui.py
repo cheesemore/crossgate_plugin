@@ -288,7 +288,7 @@ class ComboPatchApp:
 
         ttk.Checkbutton(
             tab_common,
-            text="切后台/老板键限帧（默认开；失焦或隐藏时 10FPS，恢复时还原）",
+            text="切后台/老板键限帧（默认开；失焦或隐藏时 30FPS，恢复时还原）",
             variable=self.boss_key_fps_var,
         ).pack(anchor=tk.W, pady=(8, 0))
 

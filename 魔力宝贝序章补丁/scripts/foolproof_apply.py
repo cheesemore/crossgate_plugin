@@ -6,7 +6,7 @@
 发布物为融合版（百科助手面板：常规/抓宠（无宠二动）/抓宠/抓宠卖银币/烧卡）。
 九动版已无限期停发，enable_nine 仅保留给历史包兼容调用。
 界面外层选项：「战斗加速」（开→战斗倍速+心跳回传1.5x；关→原速+心跳回传1.0x）
-与「跳帧」（切后台/老板键限帧 10FPS）。
+与「跳帧」（切后台/老板键限帧 30FPS）。
 
 活 hotfix 不干净时：界面可选手选干净目录恢复（restore_hotfixdata_from_clean），无默认源。
 体积与 EXPECTED_SIZE 绑定；客户端更新导致体积变化时需发新版傻瓜补丁。
@@ -104,7 +104,7 @@ def run_foolproof_patch(
     apply_accel：战斗加速开关，默认关。开→战斗倍速+心跳回传1.5x；关→原速+心跳回传1.0x。
         注意：战斗倍速补丁默认连带掐断倍速检测上报（CheckTimeScaleWarning /
         SendTimeScaleWarning 打成空方法，防检测）；默认不打加速即避开该改动。
-    apply_frameskip：跳帧开关（切后台/老板键限帧 10FPS），默认开。
+    apply_frameskip：跳帧开关（切后台/老板键限帧 30FPS），默认开。
     daily_claim / newbie_gift_code：分享切页（默认开）。
     gift_codes：可编辑礼包码；None 用默认。
     """
@@ -200,7 +200,7 @@ def run_foolproof_patch(
     _emit(
         messages,
         on_log,
-        "跳帧（切后台/老板键限帧 10FPS）：开" if apply_frameskip else "跳帧（切后台/老板键限帧 10FPS）：关",
+        "跳帧（切后台/老板键限帧 30FPS）：开" if apply_frameskip else "跳帧（切后台/老板键限帧 30FPS）：关",
     )
 
     _emit(messages, on_log, "正在余量预检（启动补丁引擎，首次可能较慢）…")

@@ -114,7 +114,7 @@ internal static class BossKeyFpsExternalIlPatcher
         else
         {
             PrependLoadAndInvokeTick(update, asm.MainModule);
-            Console.WriteLine("[BOSS-FPS] HotfixEntry.Update -> Tick（老板键隐藏限 10FPS）");
+            Console.WriteLine("[BOSS-FPS] HotfixEntry.Update -> Tick（老板键隐藏限 30FPS）");
         }
 
         using var ms = new MemoryStream();

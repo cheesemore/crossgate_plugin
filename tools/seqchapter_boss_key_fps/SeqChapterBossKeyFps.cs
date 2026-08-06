@@ -2,16 +2,19 @@ using System;
 using System.Reflection;
 
 /// <summary>
-/// 切后台 / 老板键限帧：窗口失焦或 BossKey 隐藏时 targetFrameRate=10 且关 VSync；恢复时还原。
+/// 切后台 / 老板键限帧：窗口失焦或 BossKey 隐藏时 targetFrameRate=30 且关 VSync；恢复时还原。
 /// 部署为 hotfixdata/SeqChapterBossKeyFps.dll.bytes；由 HotfixEntry.Update 每帧 Invoke Tick。
+/// 30FPS（2026-08 起由 10 调升）：战斗计时为真实时间驱动（Observable.Interval + WaitForSeconds），
+/// 低帧率只带来 WaitForSeconds 半帧舍入误差；30FPS 将演出累计误差降到 10FPS 的约 1/3，
+/// 画面卡顿明显改善，仍比 60FPS 省一半资源。
 /// </summary>
 public static class SeqChapterBossKeyFps
 {
     public const string AssetPath = "hotfixdata/SeqChapterBossKeyFps.dll.bytes";
     public const string TypeName = "SeqChapterBossKeyFps";
 
-    /// <summary>切后台 / 老板键隐藏时目标帧率。</summary>
-    public const int HiddenFrameRate = 10;
+    /// <summary>切后台 / 老板键隐藏时目标帧率（30FPS：演出误差小，画面较流畅；10FPS 会轻微拉长战斗演出）。</summary>
+    public const int HiddenFrameRate = 30;
 
     private static bool _applied;
     private static int _savedFrameRate = 60;

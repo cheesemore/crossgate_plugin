@@ -459,7 +459,7 @@ def apply_battle_appear_external(hotfix: Path, source: Path) -> tuple[bool, str]
 
 
 def apply_boss_key_fps_external(hotfix: Path, source: Path) -> tuple[bool, str]:
-    """切后台/老板键限帧：失焦或隐藏时 10FPS，恢复时还原（不占百科/Pause）。"""
+    """切后台/老板键限帧：失焦或隐藏时 30FPS，恢复时还原（不占百科/Pause）。"""
     proc = run_patcher_capture(
         [
             "boss-key-fps-patch",
@@ -474,7 +474,7 @@ def apply_boss_key_fps_external(hotfix: Path, source: Path) -> tuple[bool, str]:
         return False, out.strip() or "切后台/老板键限帧补丁失败"
     if "[SKIP]" in out and ("老板键" in out or "限帧" in out):
         return True, "切后台/老板键限帧：已是补丁状态（跳过）"
-    return True, "切后台/老板键限帧：失焦或隐藏→10FPS（关 VSync），恢复→还原"
+    return True, "切后台/老板键限帧：失焦或隐藏→30FPS（关 VSync），恢复→还原"
 
 
 def apply_wiki_fps_external(hotfix: Path, source: Path) -> tuple[bool, str]:
@@ -993,7 +993,7 @@ def _apply_gameplay_patches(
         _emit_combo(messages, on_log, msg)
         work = hotfix
 
-    # 切后台 / 老板键限帧（失焦或隐藏 → 10FPS）
+    # 切后台 / 老板键限帧（失焦或隐藏 → 30FPS）
     if boss_key_fps:
         _emit_combo(messages, on_log, "正在打：切后台/老板键限帧…")
         ok, msg = apply_boss_key_fps_external(hotfix, work)
