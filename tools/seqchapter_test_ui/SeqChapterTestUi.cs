@@ -877,6 +877,34 @@ public static class SeqChapterTestUi
         }
     }
 
+    private static void RunAutoPoint()
+    {
+        try
+        {
+            WriteLog("RunAutoPoint");
+            var t = EnsureFeatureType("SeqChapterAutoPoint", "hotfixdata/SeqChapterAutoPoint.dll.bytes");
+            if (t == null)
+            {
+                Tip("一键加点 DLL 加载失败（见日志）");
+                return;
+            }
+
+            var m = t.GetMethod("RunAllFromUi", BindingFlags.Public | BindingFlags.Static, null, Type.EmptyTypes, null);
+            if (m == null)
+            {
+                Tip("一键加点入口缺失（请更新 AutoPoint DLL）");
+                return;
+            }
+
+            m.Invoke(null, null);
+        }
+        catch (Exception ex)
+        {
+            WriteLog("RunAutoPoint EX: " + RootMessage(ex));
+            Tip("一键加点失败: " + RootMessage(ex));
+        }
+    }
+
     private static void InvokeDailyClaimToggle(string methodName, string label)
     {
         try
@@ -4794,7 +4822,7 @@ public static class SeqChapterTestUi
         SetAnchoredTop(RequireRect(hint, "hs"), 0f, -4f, 500f, 56f);
         SetText(
             AddText(hint),
-            "简单脚本：点按钮运行。\n礼包码读 hotfixdata/seqchapter_gift_codes.txt（最多5角色）。\n采集物满格（999）才提，默认提入账号银行。",
+            "简单脚本：点按钮运行。\n礼包码读 hotfixdata/seqchapter_gift_codes.txt（最多5角色）。\n采集物满格（999）才提，默认提入账号银行。\n一键加点：人物按推荐第一方案，宠物先加力量到极限。",
             12);
         var btn = CreateUiChild(_bodyRoot, "Daily", rtType);
         SetAnchoredTop(RequireRect(btn, "db"), 0f, -68f, 200f, 40f);
@@ -4822,6 +4850,15 @@ public static class SeqChapterTestUi
         StretchFull(RequireRect(enLab, "enl"));
         SetText(AddText(enLab), "立刻提取采集物", 15);
         BindButton(extractNow, enImg, RunAreaExtractNow);
+
+        var autoPoint = CreateUiChild(_bodyRoot, "AutoPoint", rtType);
+        SetAnchoredTop(RequireRect(autoPoint, "apb"), 0f, -218f, 240f, 40f);
+        var apImg = AddComp(autoPoint, "UnityEngine.UI.Image");
+        SetColor(apImg, 0.55f, 0.35f, 0.65f, 1f);
+        var apLab = CreateUiChild(autoPoint, "L", rtType);
+        StretchFull(RequireRect(apLab, "apl"));
+        SetText(AddText(apLab), "一键加点（人物方案+宠物力量）", 13);
+        BindButton(autoPoint, apImg, RunAutoPoint);
 
         // 「测试铃声」「刷灵堂」入口隐藏（逻辑保留，不在此页展示）
         _lingTangStatusText = null;

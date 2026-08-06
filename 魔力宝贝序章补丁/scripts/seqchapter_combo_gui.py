@@ -143,6 +143,7 @@ class ComboPatchApp:
         self.auto_catch_sell_external_var = tk.BooleanVar(value=True)
         self.count_farm_var = tk.BooleanVar(value=True)
         self.area_extract_var = tk.BooleanVar(value=True)
+        self.auto_point_var = tk.BooleanVar(value=True)
         self.lv1_auto_external_var = tk.BooleanVar(value=False)
         self.auto_sell_external_var = tk.BooleanVar(value=False)
         self.plugin_host_var = tk.BooleanVar(value=False)
@@ -401,6 +402,18 @@ class ComboPatchApp:
         ).pack(anchor=tk.W, padx=(18, 0), pady=(2, 0))
         ttk.Checkbutton(
             tab_battle,
+            text="一键加点（默认部署；面板脚本页按钮，人物按推荐第一方案+宠物先加力量）",
+            variable=self.auto_point_var,
+        ).pack(anchor=tk.W, pady=(8, 0))
+        ttk.Label(
+            tab_battle,
+            text="默认部署。在助手面板「脚本」页点「一键加点」：所有角色按职业推荐第一套方案加点（血/攻/强/速/魔按方案权重分配，可加点数有剩余时按权重继续分）；所有宠物优先加力量，加到爆点极限（单属性 BP 不超过总 BP 一半）即止，溢出点不再分配。",
+            wraplength=500,
+            foreground="#666666",
+            font=("Microsoft YaHei UI", 8),
+        ).pack(anchor=tk.W, padx=(18, 0), pady=(2, 0))
+        ttk.Checkbutton(
+            tab_battle,
             text="遇1级自动·DLL版（P1封印/P2技能1/其余防御；点百科 Tip 开关）",
             variable=self.lv1_auto_external_var,
             command=lambda: self._on_battle_exclusive_toggle("lv1"),
@@ -507,6 +520,7 @@ class ComboPatchApp:
             "catch_sell": self.auto_catch_sell_external_var,
             "count_farm": self.count_farm_var,
             "area_extract": self.area_extract_var,
+            "auto_point": self.auto_point_var,
             "lv1": self.lv1_auto_external_var,
             "sell": self.auto_sell_external_var,
             "host": self.plugin_host_var,
@@ -896,6 +910,7 @@ class ComboPatchApp:
                 auto_sell_external=self.auto_sell_external_var.get(),
                 count_farm=self.count_farm_var.get(),
                 area_extract=self.area_extract_var.get(),
+                auto_point=self.auto_point_var.get(),
                 plugin_host=self.plugin_host_var.get(),
                 customer_gm=self.customer_gm_var.get(),
                 customer_gm_mode=self.customer_gm_mode_var.get(),

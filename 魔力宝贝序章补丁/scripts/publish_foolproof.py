@@ -38,6 +38,7 @@ LV1_AUTO_SRC = GAME_ROOT / "tools" / "seqchapter_lv1_auto"
 BATTLE_APPEAR_SRC = GAME_ROOT / "tools" / "seqchapter_battle_appear"
 COUNT_FARM_SRC = GAME_ROOT / "tools" / "seqchapter_count_farm"
 AREA_EXTRACT_SRC = GAME_ROOT / "tools" / "seqchapter_area_extract"
+AUTO_POINT_SRC = GAME_ROOT / "tools" / "seqchapter_auto_point"
 BATTLE_APPEAR_JSON = GAME_ROOT / "tools" / "battle_appear.json"
 PET_RANK_BIN = GAME_ROOT / "tools" / "pet_rank.bin"
 TOOLS_SRC = GAME_ROOT / "tools"
@@ -350,6 +351,7 @@ def build_exe() -> Path:
         (BATTLE_APPEAR_SRC, "seqchapter_battle_appear"),
         (COUNT_FARM_SRC, "seqchapter_count_farm"),
         (AREA_EXTRACT_SRC, "seqchapter_area_extract"),
+        (AUTO_POINT_SRC, "seqchapter_auto_point"),
     ]
 
     for src, name in bundle_srcs:

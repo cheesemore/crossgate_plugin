@@ -563,6 +563,7 @@ _EXTERNAL_PATCH_SOURCES = (
     ("seqchapter_battle_appear", "SeqChapterBattleAppear.cs"),
     ("seqchapter_count_farm", "SeqChapterCountFarm.cs"),
     ("seqchapter_area_extract", "SeqChapterAreaExtract.cs"),
+    ("seqchapter_auto_point", "SeqChapterAutoPoint.cs"),
     ("seqchapter_plugin_host", "SeqChapterPluginHost.cs"),
 )
 
