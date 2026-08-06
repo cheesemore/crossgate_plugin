@@ -88,7 +88,7 @@ def run_foolproof_patch(
     daily_claim: bool = True,
     newbie_gift_code: bool = True,
     gift_codes: list[str] | str | None = None,
-    apply_accel: bool = True,
+    apply_accel: bool = False,
     apply_frameskip: bool = True,
     on_log: LogFn | None = None,
     # 旧多档参数已废弃：一律走百科助手面板，忽略下列开关
@@ -101,7 +101,9 @@ def run_foolproof_patch(
     """一键诊断并打傻瓜补丁（百科助手面板版）。成功返回消息列表；失败抛 FoolproofError。
 
     enable_nine：九动版 True / 融合版 False（由包类型决定，面板内是否出现九动）。
-    apply_accel：战斗加速开关，默认开。开→战斗倍速+心跳回传1.5x；关→原速+心跳回传1.0x。
+    apply_accel：战斗加速开关，默认关。开→战斗倍速+心跳回传1.5x；关→原速+心跳回传1.0x。
+        注意：战斗倍速补丁默认连带掐断倍速检测上报（CheckTimeScaleWarning /
+        SendTimeScaleWarning 打成空方法，防检测）；默认不打加速即避开该改动。
     apply_frameskip：跳帧开关（切后台/老板键限帧 10FPS），默认开。
     daily_claim / newbie_gift_code：分享切页（默认开）。
     gift_codes：可编辑礼包码；None 用默认。

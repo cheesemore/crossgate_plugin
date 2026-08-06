@@ -2,11 +2,15 @@
 # -*- coding: utf-8 -*-
 """GUI / 简单补丁 / 傻瓜补丁共用的默认组合选项。"""
 
-# 助手面板（百科入口）+ 抓宠/烧卡 DLL 面板模式：倍速等 IL 仍走 hotfix，玩法开关在面板里切
+# 助手面板（百科入口）+ 抓宠/烧卡 DLL 面板模式：玩法开关在面板里切
+# 默认组合：不勾加速（vip / vip_non_vip / 心跳回传均关）。
+#   原因：战斗倍速补丁默认连带掐断倍速检测上报（CheckTimeScaleWarning /
+#   SendTimeScaleWarning 打成空方法，防检测）；用户明确默认不打加速。
+#   MAC 伪装（假设备指纹）默认不开（仅 --fake-mac 显式开启）。
 DEFAULT_COMBO_KWARGS = {
-    "vip": True,
-    "vip_non_vip": True,
-    "vip_scale": 5,
+    "vip": False,  # 默认不打战斗倍速（加速关闭）
+    "vip_non_vip": False,  # 默认不启用非VIP倍速
+    "vip_scale": 5,  # 仅勾选倍速时使用
     "battle_nine_action": False,
     "battle_nine_external": False,  # 九动已停发，固定 False
     "auto_seal_external": True,
@@ -19,13 +23,13 @@ DEFAULT_COMBO_KWARGS = {
     "auto_sell_external": False,
     "customer_gm": True,
     "customer_gm_mode": "autoskill",
-    "map_sprint": True,
+    "map_sprint": False,  # 地图跑速默认关（属加速类）
     "map_sprint_scale": 8,
     "battle_longpress": True,
     "level_one_include_all": True,
     "transition_speed": False,
     "transition_speed_scale": 0.4,
-    "skill_effect_speed": True,
+    "skill_effect_speed": False,  # 技能特效加速默认关（属加速类）
     "skill_effect_scale": 2.0,
     "pet_equip_unlock": False,
     "wiki_download_res": False,
@@ -44,6 +48,9 @@ DEFAULT_COMBO_KWARGS = {
 # 融合版默认：面板含「抓宠（无宠二动）」+ 普通抓宠；九动已停发（battle_nine_external 固定 False）。
 # 皮肤相关默认关闭：battle_appear（进战形象钩子/皮肤挂钩）为 False；
 #   换装循环（SeqChapterWikiSkinCycle）融合版不打（傻瓜换装补丁才打）。
+# 加速默认关闭（2026-08 起）：战斗倍速补丁默认连带掐断倍速检测上报
+#   （CheckTimeScaleWarning / SendTimeScaleWarning 空方法），默认不打。
+#   GUI 勾选「战斗加速」时才置 vip=True + vip_echo=1.5。
 FOOLPROOF_COMBO_KWARGS = {
     **DEFAULT_COMBO_KWARGS,
     "battle_nine_action": False,
@@ -56,7 +63,7 @@ FOOLPROOF_COMBO_KWARGS = {
     "boss_key_fps": True,
     "transition_speed": False,
     "battle_appear": False,  # 皮肤挂钩（进战形象钩子）默认关
-    "vip_scale": 3,  # 战斗倍速默认 3x
+    "vip_scale": 3,  # 仅在勾选战斗加速时生效（vip=True）
     "vip_echo": 1.5,  # 加速开：心跳回传固定 1.5x；关则由 foolproof_apply 覆盖为 1.0x
     "map_sprint": False,  # 移动加速默认关
 }
@@ -116,8 +123,8 @@ FOOLPROOF_AUTO_CATCH_NOPET_COMBO_KWARGS = {
 FOOLPROOF_CATCH_PET_COMBO_KWARGS = FOOLPROOF_AUTO_CATCH_COMBO_KWARGS
 
 LAUNCH_INJECT_PRESET = {
-    "vip": True,
-    "vip_non_vip": True,
+    "vip": False,  # 默认不打战斗倍速（加速默认关闭）
+    "vip_non_vip": False,
     "vip_scale": 5,
     "battle_nine_action": False,
     "battle_nine_external": False,
@@ -125,13 +132,13 @@ LAUNCH_INJECT_PRESET = {
     "auto_catch_external": True,
     "customer_gm": True,
     "customer_gm_mode": "autoskill",
-    "map_sprint": True,
+    "map_sprint": False,  # 地图跑速默认关
     "map_sprint_scale": 8,
     "battle_longpress": True,
     "level_one_include_all": True,
     "transition_speed": False,
     "transition_speed_scale": 0.4,
-    "skill_effect_speed": True,
+    "skill_effect_speed": False,  # 技能特效加速默认关
     "skill_effect_scale": 2.0,
     "pet_equip_unlock": False,
     "wiki_download_res": False,

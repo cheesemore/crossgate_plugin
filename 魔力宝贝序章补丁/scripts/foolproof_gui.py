@@ -84,8 +84,9 @@ def _panel_modes_tip() -> str:
 
 def run_auto() -> int:
     try:
-        apply_accel = not any(
-            a in ("--no-accel", "--no-speed", "/no-accel") for a in sys.argv[1:]
+        # 加速默认关（2026-08 起：战斗倍速默认连带掐断倍速检测上报，默认不打）
+        apply_accel = any(
+            a in ("--accel", "--speed", "/accel") for a in sys.argv[1:]
         )
         apply_frameskip = not any(
             a in ("--no-frameskip", "--no-bossfps", "/no-frameskip") for a in sys.argv[1:]
@@ -143,10 +144,10 @@ class FoolproofApp(tk.Tk):
         )
         ttk.Label(body, text=tip, justify=tk.LEFT).pack(anchor=tk.W, pady=(10, 8))
 
-        self.apply_accel_var = tk.BooleanVar(value=True)
+        self.apply_accel_var = tk.BooleanVar(value=False)
         ttk.Checkbutton(
             body,
-            text="战斗加速（默认开：3x 倍速+心跳回传1.5x；关闭=原速+心跳回传1.0x）",
+            text="战斗加速（默认关：3x 倍速+心跳回传1.5x；开启=倍速，会连带掐断倍速检测上报）",
             variable=self.apply_accel_var,
         ).pack(anchor=tk.W, pady=(0, 6))
 

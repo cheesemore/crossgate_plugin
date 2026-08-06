@@ -11,8 +11,8 @@ namespace CrossgateMod.Patcher;
 /// 防检测（2026-08 起）：官方 GmManager::StartTimeScaleCheck 定时调 CheckTimeScaleWarning，
 /// 战斗中读 BattleManager.BattleTimeScale&gt;1.0（阈值约 1.00003）即触发
 /// NetManager::SendTimeScaleWarning Web 上报（HTTP + MD5 签名 + 时间戳）。
-/// 本补丁默认把 CheckTimeScaleWarning 与 SendTimeScaleWarning 两个方法打成空方法（首指令 ret），
-/// 彻底掐断倍速检测上报出口；可用 --no-kill-report 关闭。
+/// 本补丁强制把 CheckTimeScaleWarning 与 SendTimeScaleWarning 两个方法打成空方法（首指令 ret），
+/// 彻底掐断倍速检测上报出口；加速功能强制绑定 kill-report，不可关闭（--no-kill-report 已废弃）。
 /// 假设备指纹（--fake-mac）：即使倍速上报被掐断，deviceId/device（MAC+UUID）仍会随
 /// m_WebFrom 模板与登录协议 Proto_CS_Login 上报。SpoofMacIlPatcher 可把
 /// NetManager.OnInit 与 LoginManager.SendLogin 里对 AppManager::GetMacAddress/GetMacInfo
@@ -40,7 +40,7 @@ internal static class VipTimeScaleIlPatcher
         var patchDefaultBranch = false;
         float? echoOverride = null;
         var echoOnly = false;
-        var killReport = true;
+        var killReport = true;  // 强制开启：加速必带上报掐断，不可关闭
         var spoofMac = false;
         string? fakeMac = null;
 
@@ -71,7 +71,8 @@ internal static class VipTimeScaleIlPatcher
                     patchDefaultBranch = true;
                     break;
                 case "--no-kill-report":
-                    killReport = false;
+                    // 已废弃：加速必带 kill-report（掐断倍速检测上报），忽略该开关
+                    Console.WriteLine("[WARN] --no-kill-report 已忽略：加速补丁强制携带 kill-report");
                     break;
                 case "--no-fake-mac":
                     spoofMac = false;
@@ -92,7 +93,7 @@ internal static class VipTimeScaleIlPatcher
         if (string.IsNullOrWhiteSpace(source))
         {
             Console.WriteLine(
-                "用法: HotfixPatcher vip-timescale-patch --hotfix <orig> --output <out> [--scale 3|5|10] [--non-vip] [--non-vip-only] [--echo 1.0|1.5] [--echo-only] [--no-kill-report] [--no-fake-mac] [--fake-mac AA-BB-CC-DD-EE-FF]");
+                "用法: HotfixPatcher vip-timescale-patch --hotfix <orig> --output <out> [--scale 3|5|10] [--non-vip] [--non-vip-only] [--echo 1.0|1.5] [--echo-only] [--no-fake-mac] [--fake-mac AA-BB-CC-DD-EE-FF]");
             return 1;
         }
 

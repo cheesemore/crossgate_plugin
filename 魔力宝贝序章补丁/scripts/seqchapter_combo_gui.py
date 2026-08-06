@@ -131,8 +131,8 @@ class ComboPatchApp:
         ttk.Entry(row, textvariable=self.path_var).pack(side=tk.LEFT, fill=tk.X, expand=True)
         ttk.Button(row, text="浏览…", command=self.pick_game_dir, width=8).pack(side=tk.LEFT, padx=(6, 0))
 
-        self.vip_var = tk.BooleanVar(value=True)
-        self.vip_non_vip_var = tk.BooleanVar(value=True)
+        self.vip_var = tk.BooleanVar(value=False)  # 默认不打战斗倍速（加速默认关）
+        self.vip_non_vip_var = tk.BooleanVar(value=False)
         self.vip_scale_var = tk.StringVar(value="5")
         self._patch_toggle_guard = False
         self.battle_nine_action_var = tk.BooleanVar(value=False)
@@ -149,13 +149,13 @@ class ComboPatchApp:
         self.inject_bridge_var = tk.BooleanVar(value=False)
         self.customer_gm_var = tk.BooleanVar(value=True)
         self.customer_gm_mode_var = tk.StringVar(value="autoskill")
-        self.map_sprint_var = tk.BooleanVar(value=True)
+        self.map_sprint_var = tk.BooleanVar(value=False)  # 地图跑速默认关（加速类）
         self.map_sprint_scale_var = tk.StringVar(value="8")
         self.battle_longpress_var = tk.BooleanVar(value=True)
         self.level_one_include_all_var = tk.BooleanVar(value=True)
         self.transition_speed_var = tk.BooleanVar(value=False)
         self.transition_speed_scale_var = tk.StringVar(value="0.4")
-        self.skill_effect_speed_var = tk.BooleanVar(value=True)
+        self.skill_effect_speed_var = tk.BooleanVar(value=False)  # 技能特效加速默认关（加速类）
         self.skill_effect_scale_var = tk.StringVar(value="2")
         self.daily_claim_var = tk.BooleanVar(value=True)
         self.newbie_gift_code_var = tk.BooleanVar(value=True)
@@ -173,7 +173,7 @@ class ComboPatchApp:
         notebook.add(tab_battle, text="战斗扩展")
 
         # --- 常用 ---
-        ttk.Checkbutton(tab_common, text="VIP 战斗倍速（含打飞加速：倍速N→打飞×4N）", variable=self.vip_var).pack(
+        ttk.Checkbutton(tab_common, text="VIP 战斗倍速（默认关：3x/5x/10x + 打飞×4N；开启会连带掐断倍速检测上报）", variable=self.vip_var).pack(
             anchor=tk.W
         )
         vip_row = ttk.Frame(tab_common)
