@@ -61,12 +61,16 @@ public static class SeqChapterCountFarm
         return suffix;
     }
 
-    /// <summary>魔石后缀：只在战斗数变化时重算，否则用缓存。</summary>
+    /// <summary>魔石后缀：只在战斗数变化时重算，否则用缓存。请求中(--%)不缓存，立即重算。</summary>
     private static string BuildMoshiSuffixCached()
     {
         if (_cachedMoshiBattleCount == _battleCount)
         {
-            return _cachedMoshiSuffix;
+            // 若是“请求中”状态则不使用缓存，马上重算（可能数据已到）
+            if (_cachedMoshiSuffix != "魔石--%")
+            {
+                return _cachedMoshiSuffix;
+            }
         }
 
         var value = BuildMoshiSuffix();
@@ -98,7 +102,17 @@ public static class SeqChapterCountFarm
             var dict = GetMember(roleMgr, "m_buffInfo") as IDictionary;
             if (dict == null || dict.Count == 0)
             {
-                return "";
+                // 缓存为空：主动请求，标题显示请求中
+                var anyReq = false;
+                foreach (var uid in uids)
+                {
+                    if (TryRequestMoshiBuff(uid))
+                    {
+                        anyReq = true;
+                    }
+                }
+
+                return anyReq ? "魔石--%" : "";
             }
 
             // 有数据的人数、汇总当前值、汇总上限；全部达上限才算满
@@ -106,13 +120,19 @@ public static class SeqChapterCountFarm
             var allFull = true;
             var totalCur = 0L;
             var totalLimit = 0L;
+            var pending = false;
             foreach (var uid in uids)
             {
                 long cur;
                 long limit;
                 if (!TryReadMoshiProgress(dict, uid, out cur, out limit))
                 {
-                    // 该号暂无魔石缓存，跳过，不计入满/百分比分母
+                    // 该号暂无魔石缓存：主动向服务器请求 BUFF 填充缓存
+                    if (TryRequestMoshiBuff(uid))
+                    {
+                        pending = true;
+                    }
+
                     allFull = false;
                     continue;
                 }
@@ -133,6 +153,11 @@ public static class SeqChapterCountFarm
                 {
                     allFull = false;
                 }
+            }
+
+            if (pending && !hasAny)
+            {
+                return "魔石--%"; // 请求中，暂无任何号的数据
             }
 
             if (!hasAny)
@@ -513,7 +538,8 @@ public static class SeqChapterCountFarm
                 long limit;
                 if (!TryReadMoshiProgress(dict, uid, out cur, out limit))
                 {
-                    // 该号暂无魔石缓存，跳过（不算满）
+                    // 该号暂无魔石缓存：主动请求填充（供下次判断），本回合不算满
+                    TryRequestMoshiBuff(uid);
                     return false;
                 }
 
@@ -1134,6 +1160,112 @@ public static class SeqChapterCountFarm
         catch
         {
             // ignore
+        }
+    }
+
+    // ---------- 魔石 buff 数据主动请求（与助手概况一致） ----------
+
+    /// <summary>各 uid 最近一次 BUFF 请求时间（8 秒限流）。</summary>
+    private static readonly System.Collections.Generic.Dictionary<string, long> MoshiBuffReqMs =
+        new System.Collections.Generic.Dictionary<string, long>();
+
+    private static long NowMs()
+    {
+        try
+        {
+            return DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        }
+        catch
+        {
+            return 0;
+        }
+    }
+
+    private static void SetMember(object obj, string name, object value)
+    {
+        if (obj == null)
+        {
+            return;
+        }
+
+        try
+        {
+            var t = obj.GetType();
+            var p = t.GetProperty(
+                name,
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            if (p != null && p.CanWrite)
+            {
+                p.SetValue(obj, value);
+                return;
+            }
+
+            var f = t.GetField(
+                name,
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            f?.SetValue(obj, value);
+        }
+        catch
+        {
+            // ignore
+        }
+    }
+
+    /// <summary>
+    /// 向服务器请求玩家 BUFF（含每日魔石），填充 RoleManager.m_buffInfo 缓存。
+    /// 同 uid 8 秒内只发一次。返回是否已请求/在请求窗口。
+    /// </summary>
+    private static bool TryRequestMoshiBuff(string uid)
+    {
+        if (string.IsNullOrEmpty(uid))
+        {
+            return false;
+        }
+
+        try
+        {
+            var now = NowMs();
+            long last;
+            if (MoshiBuffReqMs.TryGetValue(uid, out last) && now - last < 8000)
+            {
+                return true; // 已在请求窗口内
+            }
+
+            var protoType = FindType("Proto_CS_PlayerBuff");
+            if (protoType == null)
+            {
+                return false;
+            }
+
+            var proto = Activator.CreateInstance(protoType);
+            SetMember(proto, "Type", "玩家BUFF数据");
+            SetMember(proto, "KUid", uid);
+
+            var lss = FindType("LSSPROTO");
+            var opcodeField = lss?.GetField(
+                "LSSPROTO_PLAYERBUFF_FUNC",
+                BindingFlags.Public | BindingFlags.Static);
+            if (opcodeField == null)
+            {
+                return false;
+            }
+
+            var net = GetManagerInstance("NetManager");
+            var send = net?.GetType().GetMethod(
+                "SendMessage",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            if (net == null || send == null)
+            {
+                return false;
+            }
+
+            send.Invoke(net, new object[] { opcodeField.GetValue(null), proto });
+            MoshiBuffReqMs[uid] = now;
+            return true;
+        }
+        catch
+        {
+            return false;
         }
     }
 }
