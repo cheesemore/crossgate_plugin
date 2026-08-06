@@ -61,16 +61,12 @@ public static class SeqChapterCountFarm
         return suffix;
     }
 
-    /// <summary>魔石后缀：只在战斗数变化时重算，否则用缓存。请求中(--%)不缓存，立即重算。</summary>
+    /// <summary>魔石后缀：只在战斗数变化时重算，否则用缓存。</summary>
     private static string BuildMoshiSuffixCached()
     {
         if (_cachedMoshiBattleCount == _battleCount)
         {
-            // 若是“请求中”状态则不使用缓存，马上重算（可能数据已到）
-            if (_cachedMoshiSuffix != "魔石--%")
-            {
-                return _cachedMoshiSuffix;
-            }
+            return _cachedMoshiSuffix;
         }
 
         var value = BuildMoshiSuffix();
@@ -102,17 +98,8 @@ public static class SeqChapterCountFarm
             var dict = GetMember(roleMgr, "m_buffInfo") as IDictionary;
             if (dict == null || dict.Count == 0)
             {
-                // 缓存为空：主动请求，标题显示请求中
-                var anyReq = false;
-                foreach (var uid in uids)
-                {
-                    if (TryRequestMoshiBuff(uid))
-                    {
-                        anyReq = true;
-                    }
-                }
-
-                return anyReq ? "魔石--%" : "";
+                // 缓存为空：不在此处请求（请求按战斗场次节奏由 OnBattleEntered 触发）
+                return "";
             }
 
             // 有数据的人数、汇总当前值、汇总上限；全部达上限才算满
@@ -120,19 +107,13 @@ public static class SeqChapterCountFarm
             var allFull = true;
             var totalCur = 0L;
             var totalLimit = 0L;
-            var pending = false;
             foreach (var uid in uids)
             {
                 long cur;
                 long limit;
                 if (!TryReadMoshiProgress(dict, uid, out cur, out limit))
                 {
-                    // 该号暂无魔石缓存：主动向服务器请求 BUFF 填充缓存
-                    if (TryRequestMoshiBuff(uid))
-                    {
-                        pending = true;
-                    }
-
+                    // 该号暂无魔石缓存：跳过（请求由 OnBattleEntered 按场次节奏触发）
                     allFull = false;
                     continue;
                 }
@@ -153,11 +134,6 @@ public static class SeqChapterCountFarm
                 {
                     allFull = false;
                 }
-            }
-
-            if (pending && !hasAny)
-            {
-                return "魔石--%"; // 请求中，暂无任何号的数据
             }
 
             if (!hasAny)
@@ -376,7 +352,7 @@ public static class SeqChapterCountFarm
         return enable;
     }
 
-    /// <summary>进战斗：计数 +1，检测魔石满则停止自动遇敌，并刷新标题。</summary>
+    /// <summary>进战斗：计数 +1，按场次节奏请求魔石数据，检测魔石满则停止自动遇敌，并刷新标题。</summary>
     private static void OnBattleEntered()
     {
         if (!IsPipelineActive())
@@ -385,6 +361,12 @@ public static class SeqChapterCountFarm
         }
 
         _battleCount++;
+        // 魔石 buff 数据：第 1 场固定请求 1 次，之后每 10 场请求一次（降低频率）
+        if (_battleCount == 1 || _battleCount % 10 == 1)
+        {
+            TryRequestMoshiBuffAll();
+        }
+
         CheckStopWhenMoshiFull();
         RefreshWindowTitle();
     }
@@ -538,8 +520,7 @@ public static class SeqChapterCountFarm
                 long limit;
                 if (!TryReadMoshiProgress(dict, uid, out cur, out limit))
                 {
-                    // 该号暂无魔石缓存：主动请求填充（供下次判断），本回合不算满
-                    TryRequestMoshiBuff(uid);
+                    // 该号暂无魔石缓存，跳过（请求由 OnBattleEntered 按场次节奏触发）
                     return false;
                 }
 
@@ -1204,6 +1185,23 @@ public static class SeqChapterCountFarm
                 name,
                 BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
             f?.SetValue(obj, value);
+        }
+        catch
+        {
+            // ignore
+        }
+    }
+
+    /// <summary>对当前队伍/多开所有号请求一次魔石 BUFF 数据。</summary>
+    private static void TryRequestMoshiBuffAll()
+    {
+        try
+        {
+            var uids = CollectTeamOrMultiUids();
+            foreach (var uid in uids)
+            {
+                TryRequestMoshiBuff(uid);
+            }
         }
         catch
         {
