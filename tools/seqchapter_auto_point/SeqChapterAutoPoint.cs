@@ -642,6 +642,15 @@ public static class SeqChapterAutoPoint
                 {
                     return t;
                 }
+
+                // 兜底：按类型名模糊匹配（如 cfg.ConfigManager，完整名带命名空间）
+                foreach (var x in hotfixAsm.GetTypes())
+                {
+                    if (x.Name == name)
+                    {
+                        return x;
+                    }
+                }
             }
         }
         catch
