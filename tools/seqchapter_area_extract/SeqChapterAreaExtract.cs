@@ -506,30 +506,10 @@ public static class SeqChapterAreaExtract
         return true;
     }
 
-    /// <summary>通知助手面板刷新合并标题（面板在则面板统一写，否则本 DLL 自己写）。</summary>
+    /// <summary>窗口标题只保留计数挂机；自动提取不再刷新标题。</summary>
     private static void NotifyTitleRefresh()
     {
-        try
-        {
-            var panelType = FindLoadedType("SeqChapterTestUi");
-            if (panelType != null)
-            {
-                var m = panelType.GetMethod(
-                    "RefreshTitleFromFeature",
-                    BindingFlags.Public | BindingFlags.Static,
-                    null,
-                    Type.EmptyTypes,
-                    null);
-                m?.Invoke(null, null);
-                return;
-            }
-        }
-        catch
-        {
-            // fall through
-        }
-
-        RefreshWindowTitleSelf();
+        // 标题不再受自动提取影响（需求变更：只保留自动挂机标题）
     }
 
     /// <summary>无面板时的自刷新（仅本 DLL 后缀）。</summary>

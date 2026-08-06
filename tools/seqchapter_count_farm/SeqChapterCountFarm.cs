@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Reflection;
 
 /// <summary>
@@ -31,15 +32,248 @@ public static class SeqChapterCountFarm
         return ReadPipelineEnabledFromAnyCopy();
     }
 
+    /// <summary>缓存的魔石后缀（避免面板每 2s 兜底刷新时重复统计）。</summary>
+    private static int _cachedMoshiBattleCount = -1;
+    private static string _cachedMoshiSuffix = "";
+
     /// <summary>面板标题协调用：后缀，未开启返回空。</summary>
     public static string BuildTitleSuffix()
     {
         if (!IsPipelineActive())
         {
+            _cachedMoshiBattleCount = -1;
             return "";
         }
 
-        return "★挂机中★ 已战斗" + _battleCount + "次";
+        var suffix = "★挂机中★ 已战斗" + _battleCount + "次";
+        var moshi = BuildMoshiSuffixCached();
+        if (!string.IsNullOrEmpty(moshi))
+        {
+            suffix += " " + moshi;
+        }
+
+        return suffix;
+    }
+
+    /// <summary>魔石后缀：只在战斗数变化时重算，否则用缓存。</summary>
+    private static string BuildMoshiSuffixCached()
+    {
+        if (_cachedMoshiBattleCount == _battleCount)
+        {
+            return _cachedMoshiSuffix;
+        }
+
+        var value = BuildMoshiSuffix();
+        _cachedMoshiBattleCount = _battleCount;
+        _cachedMoshiSuffix = value;
+        return value;
+    }
+
+    /// <summary>
+    /// 魔石总进度后缀。5 个号每号上限 20000，取各号魔石 buff（Id=10）当前/上限，
+    /// 汇总显示总百分比；全员都达到上限显示「满」。有零头（部分号 &gt;2W）只按上限计入。
+    /// </summary>
+    private static string BuildMoshiSuffix()
+    {
+        try
+        {
+            var uids = CollectTeamOrMultiUids();
+            if (uids.Count == 0)
+            {
+                return "";
+            }
+
+            var roleMgr = GetManagerInstance("RoleManager");
+            if (roleMgr == null)
+            {
+                return "";
+            }
+
+            var dict = GetMember(roleMgr, "m_buffInfo") as IDictionary;
+            if (dict == null || dict.Count == 0)
+            {
+                return "";
+            }
+
+            // 有数据的人数、汇总当前值、汇总上限；全部达上限才算满
+            var hasAny = false;
+            var allFull = true;
+            var totalCur = 0L;
+            var totalLimit = 0L;
+            foreach (var uid in uids)
+            {
+                long cur;
+                long limit;
+                if (!TryReadMoshiProgress(dict, uid, out cur, out limit))
+                {
+                    // 该号暂无魔石缓存，跳过，不计入满/百分比分母
+                    allFull = false;
+                    continue;
+                }
+
+                hasAny = true;
+                if (limit > 0)
+                {
+                    // 有零头（当前 > 上限）时按上限计
+                    var capped = cur > limit ? limit : cur;
+                    totalCur += capped;
+                    totalLimit += limit;
+                    if (cur < limit)
+                    {
+                        allFull = false;
+                    }
+                }
+            }
+
+            if (!hasAny)
+            {
+                return "";
+            }
+
+            if (allFull)
+            {
+                return "魔石满";
+            }
+
+            if (totalLimit <= 0)
+            {
+                return "";
+            }
+
+            var pct = (int)(totalCur * 100 / totalLimit);
+            if (pct > 99)
+            {
+                pct = 99; // 未全员满时最多显示 99%
+            }
+
+            return "魔石" + pct + "%";
+        }
+        catch
+        {
+            return "";
+        }
+    }
+
+    /// <summary>读取某 uid 的魔石 buff（Id=10）当前值/上限；无缓存返回 false。</summary>
+    private static bool TryReadMoshiProgress(
+        IDictionary buffDict,
+        string uid,
+        out long cur,
+        out long limit)
+    {
+        cur = 0;
+        limit = 0;
+        try
+        {
+            if (buffDict == null || !buffDict.Contains(uid))
+            {
+                return false;
+            }
+
+            var buff = buffDict[uid];
+            var infos = GetMember(buff, "Info") as IEnumerable;
+            if (infos == null)
+            {
+                return false;
+            }
+
+            foreach (var info in infos)
+            {
+                if (info == null)
+                {
+                    continue;
+                }
+
+                if (Convert.ToInt32(GetMember(info, "Id") ?? 0) != 10)
+                {
+                    continue;
+                }
+
+                cur = Convert.ToInt64(GetMember(info, "Value") ?? 0);
+                limit = Convert.ToInt64(GetMember(info, "Time") ?? 0);
+                return true;
+            }
+        }
+        catch
+        {
+            // ignore
+        }
+
+        return false;
+    }
+
+    /// <summary>收集队伍/多开在线的队员 uid（队长优先，兜底主号）。</summary>
+    private static System.Collections.Generic.List<string> CollectTeamOrMultiUids()
+    {
+        var result = new System.Collections.Generic.List<string>();
+        try
+        {
+            var teamMgr = GetManagerInstance("TeamManager");
+            var multi = GetMember(teamMgr, "MultiInfo");
+            var players = GetMember(multi, "Players") as IList;
+            if (players != null)
+            {
+                foreach (var p in players)
+                {
+                    if (p == null)
+                    {
+                        continue;
+                    }
+
+                    var uid = Convert.ToString(GetMember(p, "Uid") ?? "");
+                    var online = Convert.ToInt32(GetMember(p, "Online") ?? 0);
+                    if (!string.IsNullOrEmpty(uid) && online >= 1 && !result.Contains(uid))
+                    {
+                        result.Add(uid);
+                    }
+                }
+            }
+        }
+        catch
+        {
+            // ignore
+        }
+
+        if (result.Count > 0)
+        {
+            return result;
+        }
+
+        try
+        {
+            var teamData = GetStaticMember("PlayerDataHolder", "teamData") as Array;
+            if (teamData != null)
+            {
+                foreach (var slot in teamData)
+                {
+                    if (slot == null || Convert.ToInt32(GetMember(slot, "UseFlag") ?? 0) != 1)
+                    {
+                        continue;
+                    }
+
+                    var uid = Convert.ToString(GetMember(GetMember(slot, "Player"), "Uid") ?? "");
+                    if (!string.IsNullOrEmpty(uid) && !result.Contains(uid))
+                    {
+                        result.Add(uid);
+                    }
+                }
+            }
+        }
+        catch
+        {
+            // ignore
+        }
+
+        if (result.Count == 0)
+        {
+            var main = Convert.ToString(GetStaticMember("PlayerDataHolder", "MainPlayerUid") ?? "");
+            if (!string.IsNullOrEmpty(main))
+            {
+                result.Add(main);
+            }
+        }
+
+        return result;
     }
 
     public static void Bootstrap()
@@ -143,7 +377,7 @@ public static class SeqChapterCountFarm
 
             if (IsPipelineActive())
             {
-                title = title + " ★挂机中★ 已战斗" + _battleCount + "次";
+                title = title + " " + BuildTitleSuffix();
             }
 
             var appMgr = FindType("AppManager");

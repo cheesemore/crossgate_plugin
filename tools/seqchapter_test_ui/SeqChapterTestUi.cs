@@ -483,9 +483,8 @@ public static class SeqChapterTestUi
     private static string CollectTitleSuffix()
     {
         var parts = new System.Collections.Generic.List<string>();
+        // 只保留计数挂机标题（挂机）；采集/抓宠等不再影响窗口标题
         AppendFeatureSuffix("SeqChapterCountFarm", parts);
-        AppendFeatureSuffix("SeqChapterAreaExtract", parts);
-        AppendFeatureSuffix("SeqChapterAutoSell", parts);
         return string.Join(" ", parts);
     }
 
