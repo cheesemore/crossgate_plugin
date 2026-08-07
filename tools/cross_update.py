@@ -119,6 +119,35 @@ def is_anticheat_relevant(rel: str) -> bool:
     return any(hint.lower() in low for hint in ANTI_CHEAT_HINTS)
 
 
+def _should_hash_verify(rel: str) -> bool:
+    """默认做哈希校验的路径：同大小但内容可能更新的关键文件。
+
+    覆盖启动场景/全局配置/插件/热更程序集等小文件；排除 StreamingAssets 与
+    assets 下的资源文件（量大、通常体积变化，交给 --full-hash 全量比对）。
+    """
+    low = rel.lower().replace("\\", "/")
+    for prefix in ("cg37_data/streamingassets/", "cg37_data/assets/", "cg37_data/install/"):
+        if low.startswith(prefix):
+            return False
+    core_names = (
+        "level0", "level1", "sharedassets0.assets", "globalgamemanagers",
+        "globalgamemanagers.assets", "globalgamemanagers.assets.resS",
+        "resources.assets", "resources.assets.resS",
+        "boot.config", "app.info", "server_filestructure.bin", "filestructure.bin",
+        "softinfo.bin", "abinfo.bin", "scriptingassemblies.json",
+        "runtimeinitializeonloads.json",
+        "npgamedll.dll", "openccunitybridge.dll", "processpick.dll", "liblzma.dll",
+        "exprtk_condition.dll", "sqlite3.dll",
+        "hotfix.dll.bytes", "hotfix.core.dll.bytes", "assembly-csharp.dll.bytes",
+        "assembly-csharp-e.dll.bytes", "chineseconverter.dll.bytes", "moli.dll.bytes",
+        "uninstall.dat", "unitycrashhandler64.exe",
+        "update.exe", "uninstall.exe", "cg37.exe",
+        "gamedll.dll", "baselib.dll", "unityplayer.dll",
+    )
+    return any(name in low for name in core_names)
+
+
+
 def cmd_status(cross: Path, copy: Path, args) -> int:
     ensure_roots(cross, copy)
     for label, p in (("CROSS", cross), ("CROSSCOPY", copy)):
@@ -343,7 +372,7 @@ def cmd_sync(cross: Path, copy: Path, args) -> int:
     for r in common:
         if copy_map[r].stat().st_size != cross_map[r].stat().st_size:
             modified.append(r)
-        elif args.full_hash or is_anticheat_relevant(r):
+        elif args.full_hash or is_anticheat_relevant(r) or _should_hash_verify(r):
             if sha256_file(copy_map[r]) != sha256_file(cross_map[r]):
                 modified.append(r)
     removed = sorted(set(cross_map) - set(copy_map))
