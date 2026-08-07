@@ -6,6 +6,7 @@ using System.Reflection;
 /// <summary>
 /// 神奇九动 DLL。部署为 hotfixdata/SeqChapterNineAction.dll.bytes
 /// Pause 加载 Bootstrap；OnCommandPlayerCallback 末尾同步 OnCommandPlayerEnd。
+/// 队列序列：P2 P3 … PN P2 P3 … PN P1（P1 只动一次；首号做工具人）。
 /// 日常已迁至 SeqChapterDailyClaim（侧栏分享），本 DLL 不再占用百科。
 /// </summary>
 public static class SeqChapterNineAction
@@ -119,21 +120,17 @@ public static class SeqChapterNineAction
             return;
         }
 
+        // 序列：P2 P3 … PN P2 P3 … PN P1（P1 只动一次，首号做工具人）
+        // 与旧版 P1..P(N-1) P1..P(N-1) PN 的区别：唯一一次动作的人从队尾换到队首。
         var head = n - 1;
-        var prefix = new object[head];
+        var first = list[0];
+        list.RemoveAt(0);
         for (var i = 0; i < head; i++)
         {
-            prefix[i] = list[i];
+            list.Add(list[i]);
         }
 
-        var last = list[n - 1];
-        list.RemoveAt(n - 1);
-        for (var i = 0; i < head; i++)
-        {
-            list.Add(prefix[i]);
-        }
-
-        list.Add(last);
+        list.Add(first);
         WriteStatus("expanded", "n=" + n + " -> " + list.Count);
     }
 
