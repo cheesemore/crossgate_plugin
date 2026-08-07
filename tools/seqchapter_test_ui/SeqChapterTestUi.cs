@@ -2293,10 +2293,10 @@ public static class SeqChapterTestUi
         _modeIds.Clear();
         AddModeRow(rtType, ModeNormal, "常规（什么都不开）", ref y, true);
 
-        // 九动 / 无宠二动(Magics) 已不在面板；兼容旧存档状态重置为常规
-        if (_battleMode == ModeNine || _battleMode == ModeNopet2Act)
+        // 九动：面板可开启（P2 P3 P4 P5 P2 P3 P4 P5 P1，P1 只动一次做工具人）
+        if (FeatureAvailable("SeqChapterNineAction", "hotfixdata/SeqChapterNineAction.dll.bytes"))
         {
-            _battleMode = ModeNormal;
+            AddModeRow(rtType, ModeNine, "九动（P2 P3 P4 P5 P2 P3 P4 P5 P1）", ref y, true);
         }
 
         // 抓宠（无宠二动）：不带宠时第二动防御（SeqChapterAutoCatchNoPet.dll）
