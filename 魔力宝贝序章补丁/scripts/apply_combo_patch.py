@@ -534,6 +534,31 @@ def apply_vip_auto_monthcard_bypass(hotfix: Path, source: Path) -> tuple[bool, s
     return True, "VIP自动月卡 bypass：开关开着即走 VIP 自动逻辑"
 
 
+def apply_combat_accel(hotfix: Path, source: Path) -> tuple[bool, str]:
+    """战斗加速·方案2（不改 BattleTimeScale）：
+    近战跑位 6/9→12/18、击飞撞墙 3→1、箭矢 12→24、气功弹 6→12、
+    慢放清除（击杀 0.125 / 技能结束 0.1 → 1）。
+    强制绑定 kill-report（CheckTimeScaleWarning / SendTimeScaleWarning 空方法），不可关闭。
+    """
+    proc = run_patcher_capture(
+        [
+            "combat-accel-patch",
+            "--hotfix",
+            str(source),
+            "--output",
+            str(hotfix),
+        ]
+    )
+    out = (proc.stdout or "") + (proc.stderr or "")
+    if proc.returncode != 0:
+        if "[SKIP]" in out or "可能已打过" in out:
+            return True, "战斗加速方案2：已是补丁状态（跳过）"
+        return False, out.strip() or "战斗加速方案2补丁失败"
+    if "[SKIP]" in out:
+        return True, "战斗加速方案2：已是补丁状态（跳过）"
+    return True, "战斗加速方案2：跑位12/18 + 击飞撞墙1次 + 箭矢24 + 气功弹12 + 慢放清除 + 上报掐断"
+
+
 def apply_auto_seal_external(
     hotfix: Path, source: Path, *, panel: bool = False
 ) -> tuple[bool, str]:
@@ -782,6 +807,7 @@ def _apply_gameplay_patches(
     transition_speed_scale: float,
     skill_effect_speed: bool,
     skill_effect_scale: float,
+    combat_accel: bool = False,
     pet_equip_unlock: bool,
     wiki_download_res: bool,
     wiki_label: bool = False,
@@ -912,6 +938,14 @@ def _apply_gameplay_patches(
             raise ValueError("skill_effect_scale 须为 1.5、2、3 或 5")
         _emit_combo(messages, on_log, "正在打：技能特效加速…")
         ok, msg = apply_skill_effect_speed(hotfix, work, skill_effect_scale)
+        if not ok:
+            raise RuntimeError(msg)
+        _emit_combo(messages, on_log, msg)
+        work = hotfix
+
+    if combat_accel:
+        _emit_combo(messages, on_log, "正在打：战斗加速方案2…")
+        ok, msg = apply_combat_accel(hotfix, work)
         if not ok:
             raise RuntimeError(msg)
         _emit_combo(messages, on_log, msg)
@@ -1111,6 +1145,7 @@ def apply_combo(
     transition_speed_scale: float = 0.4,
     skill_effect_speed: bool = False,
     skill_effect_scale: float = 2.0,
+    combat_accel: bool = False,
     pet_equip_unlock: bool = False,
     wiki_download_res: bool = False,
     wiki_label: bool = False,
@@ -1272,6 +1307,7 @@ def apply_combo(
         or level_one_include_all
         or transition_speed
         or skill_effect_speed
+        or combat_accel
         or pet_equip_unlock
         or wiki_download_res
         or wiki_label
@@ -1311,6 +1347,7 @@ def apply_combo(
         transition_speed_scale=transition_speed_scale,
         skill_effect_speed=skill_effect_speed,
         skill_effect_scale=skill_effect_scale,
+        combat_accel=combat_accel,
         pet_equip_unlock=pet_equip_unlock,
         wiki_download_res=wiki_download_res,
         wiki_label=wiki_label,
@@ -1371,6 +1408,7 @@ def apply_combo(
         "transition_speed_scale": transition_speed_scale if transition_speed else 0,
         "skill_effect_speed": skill_effect_speed,
         "skill_effect_scale": skill_effect_scale if skill_effect_speed else 0,
+        "combat_accel": combat_accel,
         "pet_equip_unlock": pet_equip_unlock,
         "wiki_download_res": wiki_download_res,
         "wiki_label": wiki_label,

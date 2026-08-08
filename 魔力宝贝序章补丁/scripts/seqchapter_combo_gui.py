@@ -158,6 +158,7 @@ class ComboPatchApp:
         self.transition_speed_scale_var = tk.StringVar(value="0.4")
         self.skill_effect_speed_var = tk.BooleanVar(value=False)  # 技能特效加速默认关（加速类）
         self.skill_effect_scale_var = tk.StringVar(value="2")
+        self.combat_accel_var = tk.BooleanVar(value=False)  # 战斗加速方案2 默认关（加速类，连带掐断上报）
         self.daily_claim_var = tk.BooleanVar(value=True)
         self.newbie_gift_code_var = tk.BooleanVar(value=True)
         self.boss_key_fps_var = tk.BooleanVar(value=True)
@@ -267,6 +268,12 @@ class ComboPatchApp:
                 variable=self.skill_effect_scale_var,
                 value=scale,
             ).pack(side=tk.LEFT, padx=(0, 8))
+
+        ttk.Checkbutton(
+            tab_common,
+            text="战斗加速方案2（近战跑位12/18 + 击飞撞墙1次 + 箭矢24 + 气功弹12 + 慢放清除；连带掐断检测上报）",
+            variable=self.combat_accel_var,
+        ).pack(anchor=tk.W, pady=(8, 0))
 
         ttk.Checkbutton(
             tab_common,
@@ -841,6 +848,7 @@ class ComboPatchApp:
                 or self.level_one_include_all_var.get()
                 or self.transition_speed_var.get()
                 or self.skill_effect_speed_var.get()
+                or self.combat_accel_var.get()
                 or self.daily_claim_var.get()
                 or self.newbie_gift_code_var.get()
                 or self.boss_key_fps_var.get()
@@ -922,6 +930,7 @@ class ComboPatchApp:
                 transition_speed_scale=float(self.transition_speed_scale_var.get()),
                 skill_effect_speed=self.skill_effect_speed_var.get(),
                 skill_effect_scale=float(self.skill_effect_scale_var.get()),
+                combat_accel=self.combat_accel_var.get(),
                 daily_claim=self.daily_claim_var.get(),
                 newbie_gift_code=self.newbie_gift_code_var.get(),
                 gift_codes=self.gift_codes_box.get("1.0", "end"),
