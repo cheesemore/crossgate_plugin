@@ -41,6 +41,7 @@ DEFAULT_COMBO_KWARGS = {
     "wiki_fps": False,
     "wiki_test_ui": True,  # 百科 → 助手面板
     "battle_appear": False,  # 进战形象钩子：总是部署（游戏内可开），勾选=打补丁后默认开启形象
+    "kill_timescale_report": True,  # 默认拦截倍速检测上报（即使加速关也掐断 Check/SendTimeScaleWarning）
     "inject_bridge": False,
     "from_orig": True,
 }

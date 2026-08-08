@@ -574,6 +574,31 @@ def apply_combat_accel(hotfix: Path, source: Path) -> tuple[bool, str]:
     return True, "战斗加速方案2：跑位12/18 + 击飞撞墙1次 + 箭矢24 + 气功弹12 + 慢放清除 + 上报掐断"
 
 
+def apply_kill_timescale_report(hotfix: Path, source: Path) -> tuple[bool, str]:
+    """倍速检测上报拦截（kill-report）：CheckTimeScaleWarning / SendTimeScaleWarning 打成空方法。
+
+    默认组合总是携带（无论加速是否开启），从根上掐断倍速/变速相关 Web 上报。
+    幂等：与 Vip/CombatAccel 自带 kill-report 互斥跳过。
+    """
+    proc = run_patcher_capture(
+        [
+            "kill-timescale-report-patch",
+            "--hotfix",
+            str(source),
+            "--output",
+            str(hotfix),
+        ]
+    )
+    out = (proc.stdout or "") + (proc.stderr or "")
+    if proc.returncode != 0:
+        if "可能已打过" in out:
+            return True, "上报拦截：已是补丁状态（跳过）"
+        return False, out.strip() or "上报拦截补丁失败"
+    if "已是空方法" in out and "文件大小不变" in out:
+        return True, "上报拦截：两个方法均已为空方法（跳过）"
+    return True, "上报拦截：CheckTimeScaleWarning / SendTimeScaleWarning 打成空方法"
+
+
 def apply_auto_seal_external(
     hotfix: Path, source: Path, *, panel: bool = False
 ) -> tuple[bool, str]:
@@ -833,6 +858,7 @@ def _apply_gameplay_patches(
     wiki_fps: bool = False,
     wiki_test_ui: bool = False,
     battle_appear: bool = False,
+    kill_timescale_report: bool = True,
     on_log=None,
 ) -> tuple[list[str], Path]:
     """在现有 hotfix 上叠加玩法补丁（不还原 .orig）。返回 (messages, work_path)。"""
@@ -840,6 +866,15 @@ def _apply_gameplay_patches(
     work = hotfix
     # 助手面板开启时：抓宠/烧卡等只打 DLL+战斗钩，不占百科/Pause
     panel_mode = bool(wiki_test_ui)
+
+    if kill_timescale_report:
+        # 默认组合总是拦截倍速检测上报（即使加速关）；Vip/CombatAccel 自带同逻辑会幂等跳过
+        _emit_combo(messages, on_log, "正在打：倍速上报拦截…")
+        ok, msg = apply_kill_timescale_report(hotfix, work)
+        if not ok:
+            raise RuntimeError(msg)
+        _emit_combo(messages, on_log, msg)
+        work = hotfix
 
     if battle_nine_external:
         _emit_combo(messages, on_log, "正在打：神奇九动·DLL版…")
@@ -1172,6 +1207,7 @@ def apply_combo(
     wiki_fps: bool = False,
     wiki_test_ui: bool = False,
     battle_appear: bool = False,
+    kill_timescale_report: bool = True,
     inject_bridge: bool = False,
     from_orig: bool = False,
     game_root: Path | None = None,
@@ -1333,6 +1369,7 @@ def apply_combo(
         or wiki_fps
         or wiki_test_ui
         or battle_appear
+        or kill_timescale_report
     )
 
     patch_kwargs = dict(
@@ -1374,6 +1411,7 @@ def apply_combo(
         wiki_fps=wiki_fps,
         wiki_test_ui=wiki_test_ui,
         battle_appear=battle_appear,
+        kill_timescale_report=kill_timescale_report,
         on_log=on_log,
     )
 
@@ -1435,6 +1473,7 @@ def apply_combo(
         "wiki_fps": wiki_fps,
         "wiki_test_ui": wiki_test_ui,
         "battle_appear": battle_appear,
+        "kill_timescale_report": kill_timescale_report,
         "inject_bridge": inject_bridge,
         "bridge_patched": is_bridge_patched(game_root),
         "bridge_variant": detect_bridge_variant(game_root),

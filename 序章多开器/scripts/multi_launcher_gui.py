@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+import threading
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, simpledialog, ttk
@@ -19,6 +20,7 @@ from assistant_common.config import get_game_root, load_settings, save_settings,
 from assistant_common.game import GameInstance, find_game_processes, launch_game  # noqa: E402
 from assistant_common.patch_bridge import is_bridge_patched  # noqa: E402
 from assistant_common.single_instance import ensure_single_instance  # noqa: E402
+from assistant_common import ipc  # noqa: E402
 
 APP_TITLE = "序章多开器"
 
@@ -68,6 +70,37 @@ class MultiLauncherApp:
             variable=self.auto_workflow_var,
             command=self._save_launcher_settings,
         ).pack(side=tk.LEFT)
+
+        batch_frm = ttk.LabelFrame(outer, text="批量一键（协议驱动，需先注入桥接）", padding=8)
+        batch_frm.pack(fill=tk.X, pady=(0, 8))
+        batch_row = ttk.Frame(batch_frm)
+        batch_row.pack(fill=tk.X)
+        self.batch_login_btn = ttk.Button(
+            batch_row,
+            text="一键登录并拉取多控",
+            command=self.batch_login_fetch,
+            width=20,
+        )
+        self.batch_login_btn.pack(side=tk.LEFT, padx=(0, 8))
+        self.batch_summon_btn = ttk.Button(
+            batch_row,
+            text="一键召唤",
+            command=self.batch_summon,
+            width=14,
+        )
+        self.batch_summon_btn.pack(side=tk.LEFT)
+        self.batch_status_var = tk.StringVar(value="批量状态：就绪")
+        ttk.Label(batch_frm, textvariable=self.batch_status_var, font=("Microsoft YaHei UI", 8), foreground="#888").pack(
+            anchor=tk.W, pady=(6, 0)
+        )
+        ttk.Label(
+            batch_frm,
+            text="「一键登录并拉取多控」按账号库顺序给已注入桥接的实例自动登录→进游戏→拉起离线多控；"
+            "「一键召唤」对所有实例发一键召唤，按 team>=5 协议判定聚齐（不依赖坐标）。",
+            font=("Microsoft YaHei UI", 8),
+            foreground="#888",
+            wraplength=680,
+        ).pack(anchor=tk.W, pady=(2, 0))
 
         action_frm = ttk.LabelFrame(outer, text="快捷操作", padding=8)
         action_frm.pack(fill=tk.X, pady=(0, 8))
@@ -261,6 +294,130 @@ class MultiLauncherApp:
             if inst is None:
                 self.instances.append(GameInstance(instance_id=iid, pid=pid))
             self.inst_tree.insert("", tk.END, iid=str(pid), values=(pid, iid))
+
+    # --- 批量一键（协议驱动，靠 bridge 命令与 team>=5 判定） ---
+
+    def _live_bridge_instances(self) -> list[str]:
+        """返回当前有桥接心跳的实例 ID（按 PID 稳定排序）。"""
+        rows = ipc.list_instance_snapshots()
+        live = [r for r in rows if r.get("alive")]
+        live.sort(key=lambda r: r.get("pid_txt") or 0)
+        return [r["instance_id"] for r in live]
+
+    def _require_accounts(self) -> list[AccountProfile] | None:
+        accounts = load_accounts()
+        if not accounts:
+            messagebox.showwarning("无账号", "账号库为空，请先在左侧「账号库」添加账号。")
+            return None
+        return accounts
+
+    def batch_login_fetch(self) -> None:
+        """批量：按账号库顺序对每个已注入桥接的实例 登录→进游戏→拉起离线多控。"""
+        if not self._warn_if_auto_workflow_without_bridge():
+            return
+        accounts = self._require_accounts()
+        if accounts is None:
+            return
+        iids = self._live_bridge_instances()
+        if not iids:
+            messagebox.showwarning("无实例", "没有检测到已注入桥接的实例。\n请先启动游戏并确保已注入助手桥接。")
+            return
+        if len(iids) > len(accounts):
+            messagebox.showwarning(
+                "账号不足",
+                f"当前 {len(iids)} 个实例，但账号库只有 {len(accounts)} 个账号。\n"
+                "多余实例将跳过登录。",
+            )
+        pairs = list(zip(iids, accounts))
+        self._set_batch_busy(True, f"正在批量登录拉取 {len(pairs)} 个实例…")
+        threading.Thread(target=self._batch_login_worker, args=(pairs,), daemon=True).start()
+
+    def _batch_login_worker(self, pairs: list[tuple[str, AccountProfile]]) -> None:
+        ok_count = 0
+        lines: list[str] = []
+        for iid, acc in pairs:
+            label = acc.label or acc.phone
+            st = ipc.read_state(iid) or {}
+            phase = st.get("phase", "")
+            try:
+                if phase == "in_game":
+                    self._set_batch_status(f"[{label}] 已进游戏，拉起离线多控…")
+                    ipc.multi_login_offline_all(iid)
+                    multi_ok = ipc.wait_multi_ready(iid, timeout=120)
+                else:
+                    self._set_batch_status(f"[{label}] 登录→进游戏→拉起多控…")
+                    ipc.workflow_login_enter(iid, acc.phone, acc.password)
+                    entered = ipc.wait_for_in_game(iid, timeout=300)
+                    if not entered:
+                        ok, msg = ipc.wait_workflow_done(iid, timeout=60)
+                        if not ok:
+                            lines.append(f"[FAIL] {label}: 登录/进游戏失败 {msg}")
+                            self._set_batch_status(f"[{label}] 失败")
+                            continue
+                    ipc.multi_login_offline_all(iid)
+                    multi_ok = ipc.wait_multi_ready(iid, timeout=120)
+                if multi_ok:
+                    ok_count += 1
+                    lines.append(f"[OK] {label}: 已进游戏并拉起多控")
+                    self._set_batch_status(f"[{label}] 完成")
+                else:
+                    lines.append(f"[WARN] {label}: 已进游戏但多控未全部上线（可稍后一键召唤）")
+                    self._set_batch_status(f"[{label}] 多控未全上线")
+            except Exception as exc:
+                lines.append(f"[FAIL] {label}: {type(exc).__name__}: {exc}")
+                self._set_batch_status(f"[{label}] 异常")
+        summary = f"批量登录拉取完成：成功 {ok_count}/{len(pairs)}"
+        if lines:
+            summary += "\n" + "\n".join(lines)
+        self._set_batch_done(summary)
+
+    def batch_summon(self) -> None:
+        """批量：对所有实例发一键召唤（协议），按 team>=5 判定聚齐。"""
+        iids = self._live_bridge_instances()
+        if not iids:
+            messagebox.showwarning("无实例", "没有检测到已注入桥接的实例。")
+            return
+        self._set_batch_busy(True, f"正在一键召唤 {len(iids)} 个实例…")
+        threading.Thread(target=self._batch_summon_worker, args=(iids,), daemon=True).start()
+
+    def _batch_summon_worker(self, iids: list[str]) -> None:
+        ok_count = 0
+        lines: list[str] = []
+        for iid in iids:
+            self._set_batch_status(f"[{iid}] 一键召唤…")
+            ipc.one_key_summon(iid)
+            ok = ipc.wait_for_team(iid, timeout=90)
+            if ok:
+                ok_count += 1
+                lines.append(f"[OK] {iid}: 队伍聚齐 (team>=5)")
+            else:
+                # 补一发队伍召集再试
+                ipc.team_gather(iid)
+                ok2 = ipc.wait_for_team(iid, timeout=60)
+                if ok2:
+                    ok_count += 1
+                    lines.append(f"[OK] {iid}: 队伍召集后聚齐")
+                else:
+                    lines.append(f"[FAIL] {iid}: 召唤/召集未聚齐")
+        summary = f"一键召唤完成：成功 {ok_count}/{len(iids)}"
+        if lines:
+            summary += "\n" + "\n".join(lines)
+        self._set_batch_done(summary)
+
+    def _set_batch_busy(self, busy: bool, status: str) -> None:
+        state = ("disabled" if busy else "normal")
+        for btn in (self.batch_login_btn, self.batch_summon_btn):
+            btn.config(state=state)
+        self.batch_status_var.set(status)
+
+    def _set_batch_status(self, text: str) -> None:
+        self.root.after(0, lambda: self.batch_status_var.set(text))
+
+    def _set_batch_done(self, text: str) -> None:
+        def _finish() -> None:
+            self._set_batch_busy(False, "批量状态：就绪")
+            self.batch_status_var.set(text)
+        self.root.after(0, _finish)
 
     def open_assistant_for_selected(self) -> None:
         sel = self.inst_tree.selection()

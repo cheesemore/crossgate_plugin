@@ -484,6 +484,32 @@ def wait_workflow_done(instance_id: str, timeout: float = 360.0) -> tuple[bool, 
     return False, "自动流程超时"
 
 
+def wait_for_team(instance_id: str, timeout: float = 90.0, min_members: int = 5) -> bool:
+    """协议判定聚齐：轮询 state.team_num >= min_members（默认 5 人满队）。"""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        st = read_state(instance_id) or {}
+        if int(st.get("team_num") or 0) >= min_members:
+            return True
+        if st.get("workflow_error"):
+            return False
+        time.sleep(0.5)
+    return False
+
+
+def wait_multi_ready(instance_id: str, timeout: float = 120.0) -> bool:
+    """协议判定多控上线：轮询 state.multi_ready（所有多控槽位 Online>0）。"""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        st = read_state(instance_id) or {}
+        if st.get("multi_ready"):
+            return True
+        if st.get("workflow_error"):
+            return False
+        time.sleep(0.5)
+    return False
+
+
 # --- 游戏内等价操作（由 Bridge 调用 TeamManager / Login 等方法） ---
 
 def login(instance_id: str, phone: str, password: str) -> str:

@@ -165,6 +165,7 @@ class ComboPatchApp:
         self.wiki_fps_var = tk.BooleanVar(value=False)
         self.wiki_test_ui_var = tk.BooleanVar(value=True)
         self.battle_appear_var = tk.BooleanVar(value=False)
+        self.kill_timescale_report_var = tk.BooleanVar(value=True)  # 默认勾选：总是拦截倍速检测上报
 
         notebook = ttk.Notebook(body)
         notebook.pack(fill=tk.BOTH, expand=True, pady=(0, 8))
@@ -193,6 +194,12 @@ class ComboPatchApp:
             text="非VIP同样倍速",
             variable=self.vip_non_vip_var,
         ).pack(anchor=tk.W, padx=(18, 0), pady=(4, 0))
+
+        ttk.Checkbutton(
+            tab_common,
+            text="拦截倍速检测上报（默认开：CheckTimeScaleWarning/SendTimeScaleWarning 空方法，防检测）",
+            variable=self.kill_timescale_report_var,
+        ).pack(anchor=tk.W, pady=(8, 0))
 
         ttk.Checkbutton(
             tab_common,
@@ -938,6 +945,7 @@ class ComboPatchApp:
                 wiki_fps=self.wiki_fps_var.get(),
                 wiki_test_ui=self.wiki_test_ui_var.get(),
                 battle_appear=self.battle_appear_var.get(),
+                kill_timescale_report=self.kill_timescale_report_var.get(),
                 inject_bridge=self.inject_bridge_var.get(),
                 from_orig=True,
                 game_root=root,

@@ -102,8 +102,8 @@ def run_foolproof_patch(
 
     enable_nine：九动版 True / 融合版 False（由包类型决定，面板内是否出现九动）。
     apply_accel：战斗加速开关，默认关。开→战斗倍速+心跳回传1.5x；关→原速+心跳回传1.0x。
-        注意：战斗倍速补丁默认连带掐断倍速检测上报（CheckTimeScaleWarning /
-        SendTimeScaleWarning 打成空方法，防检测）；默认不打加速即避开该改动。
+        注意：默认组合总是拦截倍速检测上报（CheckTimeScaleWarning /
+        SendTimeScaleWarning 打成空方法，防检测），无论加速是否开启。
     apply_frameskip：跳帧开关（切后台/老板键限帧 30FPS），默认开。
     daily_claim / newbie_gift_code：分享切页（默认开）。
     gift_codes：可编辑礼包码；None 用默认。
@@ -188,7 +188,7 @@ def run_foolproof_patch(
         kwargs["map_sprint"] = False
         kwargs["skill_effect_speed"] = False
         kwargs["transition_speed"] = False
-        _emit(messages, on_log, "加速补丁：关（不打战斗倍速/心跳回传/跑速/特效/过场，不触碰倍速检测上报）")
+        _emit(messages, on_log, "加速补丁：关（不打战斗倍速/心跳回传/跑速/特效/过场）")
     else:
         # 加速开：战斗倍速（VIP+非VIP 同倍速）+ 心跳回传 1.5x（强制绑定 kill-report，掐断倍速检测上报）
         kwargs["vip"] = True

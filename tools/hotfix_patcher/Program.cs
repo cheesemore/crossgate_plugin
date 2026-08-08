@@ -175,6 +175,11 @@ internal static class Program
             return CombatAccelIlPatcher.Run(args.Skip(1).ToArray());
         }
 
+        if (args.Length > 0 && args[0] == "kill-timescale-report-patch")
+        {
+            return KillTimeScaleReportIlPatcher.Run(args.Skip(1).ToArray());
+        }
+
         if (args.Length > 0 && args[0] == "probe-combat-accel")
         {
             return ProbeCombatAccel.Run(args.Skip(1).ToArray());
