@@ -150,16 +150,17 @@ class MultiLauncherApp:
         paned.add(acc_frm, weight=1)
         paned.add(inst_frm, weight=1)
 
-        self.acc_tree = ttk.Treeview(acc_frm, columns=("phone", "label"), show="headings", height=7)
+        self.acc_tree = ttk.Treeview(acc_frm, columns=("label", "phone"), show="headings", height=7)
         self.acc_tree.heading("label", text="备注")
         self.acc_tree.heading("phone", text="手机号")
-        self.acc_tree.column("label", width=100)
+        self.acc_tree.column("label", width=140)
         self.acc_tree.column("phone", width=120)
         self.acc_tree.pack(fill=tk.BOTH, expand=True)
         acc_btn = ttk.Frame(acc_frm)
         acc_btn.pack(fill=tk.X, pady=(6, 0))
         ttk.Button(acc_btn, text="添加账号", command=self.add_account, width=10).pack(side=tk.LEFT)
         ttk.Button(acc_btn, text="删除账号", command=self.remove_account, width=10).pack(side=tk.LEFT, padx=4)
+        ttk.Button(acc_btn, text="批量导入", command=self.import_accounts, width=10).pack(side=tk.RIGHT)
 
         self.inst_tree = ttk.Treeview(inst_frm, columns=("pid", "iid"), show="headings", height=7)
         self.inst_tree.heading("pid", text="PID")
@@ -246,6 +247,60 @@ class MultiLauncherApp:
         profile = AccountProfile.create(label, phone, password)
         upsert_account(profile)
         self.reload_accounts()
+
+    def import_accounts(self) -> None:
+        """批量导入：粘贴多行，每行「备注 手机号 密码」（空格/制表符分隔）。
+
+        兼容「手机号 密码」两段（备注留空）与「备注 手机号 密码」三段。
+        密码可含空格（从后往前解析）；已存在的手机号跳过（不覆盖）。
+        """
+        raw = simpledialog.askstring(
+            "批量导入账号",
+            "每行一个账号，格式（顺序固定，密码可含空格）：\n\n"
+            "备注 手机号 密码\n\n"
+            "示例：\n"
+            "大号A 13800000001 abc123\n"
+            "小号B 13800000002 xyz789\n\n"
+            "直接粘贴多行即可。已存在的手机号将跳过。",
+            parent=self.root,
+        )
+        if not raw:
+            return
+        lines = [ln.strip() for ln in raw.replace("\r", "\n").split("\n") if ln.strip()]
+        existing = {a.phone for a in load_accounts()}
+        added = 0
+        skipped = 0
+        errors: list[str] = []
+        for ln in lines:
+            parts = [p for p in ln.split() if p]
+            if len(parts) < 2:
+                errors.append(f"跳过（字段不足）: {ln}")
+                continue
+            if len(parts) == 2:
+                # 手机号 密码
+                phone, password = parts[0], parts[1]
+                label = ""
+            else:
+                # 备注 手机号 密码（密码可含空格：从后往前分）
+                label, phone = parts[0], parts[1]
+                password = " ".join(parts[2:])
+            phone = phone.strip()
+            if not phone or len(phone) < 5:
+                errors.append(f"跳过（手机号异常）: {ln}")
+                continue
+            if phone in existing:
+                skipped += 1
+                continue
+            upsert_account(AccountProfile.create(label, phone, password))
+            existing.add(phone)
+            added += 1
+        self.reload_accounts()
+        msg = f"批量导入完成：新增 {added}，跳过已有 {skipped}。"
+        if errors:
+            msg += "\n\n" + "\n".join(errors[:10])
+            if len(errors) > 10:
+                msg += f"\n… 共 {len(errors)} 行未导入"
+        messagebox.showinfo("批量导入", msg, parent=self.root)
 
     def remove_account(self) -> None:
         sel = self.acc_tree.selection()
