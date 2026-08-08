@@ -11,10 +11,16 @@
   6) 在 cross 下重新打补丁（GUI：关闭游戏 → 初始化 → 应用补丁；DLL 由补丁自动部署，无需手动拷贝）
 
 子命令：
-  status  查看 cross 与 crosscopy 的状态（版本/大小/hash）
-  restore 把 cross 还原为官方原版（需关闭游戏）
-  diff    对比两个目录，生成更新报告（反外挂相关高亮）
-  sync    把 crosscopy 中的官方差异同步到 cross（需关闭游戏）
+  status      查看 cross 与 crosscopy 的状态（版本/大小/hash）
+  restore     把 cross 还原为官方原版（需关闭游戏）
+  diff        对比两个目录，生成更新报告（反外挂相关高亮）
+  sync        把 crosscopy 中的官方差异同步到 cross（需关闭游戏）
+  anti-cheat  只读：对比旧底稿与 crosscopy 新 hotfix，做反外挂深度分析
+  auto-update 一条龙：检测更新→探测反外挂→同步→换新底稿→重打默认组合补丁
+
+固定流程（crosscopy 更新后）：
+  python tools/cross_update.py auto-update --dry-run   # 先只读探测反外挂
+  python tools/cross_update.py auto-update             # 确认无风险后一条龙完成
 
 路径可通过环境变量 CROSS_ROOT / CROSSCOPY_ROOT 覆盖，默认：
   CROSS    = E:\\cross\\魔力宝贝：序章
@@ -24,10 +30,14 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import os
+import re
 import shutil
+import struct
 import sys
 import time
+from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 
@@ -68,6 +78,175 @@ ANTI_CHEAT_HINTS = (
 
 # 官方更新器解压缓存目录（跨版本后旧缓存无意义，sync 时安全对齐）
 INSTALL_MARKER = r"cg37_Data\install"
+
+# ---- 反外挂深度分析（hotfix 内容） ----
+# 关键词在 UTF-16LE / UTF-8 双编码下直接字节搜索（不依赖解码）
+SECURITY_KEYWORDS = [
+    "cheat", "anticheat", "anti", "detect", "ban", "report", "speed", "accelerate",
+    "加速", "外挂", "检测", "封号", "校验", "CRC", "MD5", "hash", "signature",
+    "心跳", "heartbeat", "Time.timeScale", "时间", "Kick", "KickPlayer", "GM",
+    "security", "Security", "Warden", "防沉迷", "verify", "Validate", "Checksum", "篡改",
+]
+SECURITY_STRING_PATTERNS = re.compile(
+    r"(?i)(cheat|anticheat|anti.?cheat|detect|ban|report|speed|accelerate|"
+    r"外挂|检测|封号|校验|heartbeat|kick|warden|security|verify|validate|checksum|"
+    r"篡改|time\.timescale|防沉迷|gm\b|crc|md5|signature|hash)",
+)
+
+
+def search_keywords(data: bytes, keywords: list[str]) -> dict[str, list[str]]:
+    hits: dict[str, list[str]] = defaultdict(list)
+    for kw in keywords:
+        for enc in ("utf-16-le", "utf-8"):
+            try:
+                needle = kw.encode(enc)
+            except Exception:
+                continue
+            if needle in data:
+                hits[kw].append(enc)
+    return dict(hits)
+
+
+def extract_utf16_strings(data: bytes, min_len: int = 4) -> set[str]:
+    strings: set[str] = set()
+    i = 0
+    n = len(data)
+    while i < n - 1:
+        if data[i] >= 0x20 and data[i + 1] == 0:
+            start = i
+            chars = []
+            while i < n - 1:
+                lo, hi = data[i], data[i + 1]
+                if hi != 0:
+                    break
+                if lo == 0:
+                    break
+                if lo < 0x20 and lo not in (9, 10, 13):
+                    break
+                try:
+                    chars.append(chr(lo))
+                except ValueError:
+                    break
+                i += 2
+            s = "".join(chars)
+            if len(s) >= min_len:
+                strings.add(s)
+        i += 1
+    return strings
+
+
+def extract_utf8_strings(data: bytes, min_len: int = 4) -> set[str]:
+    strings: set[str] = set()
+    cur: list[int] = []
+    for b in data:
+        if 0x20 <= b <= 0x7E or b in (9, 10, 13) or b >= 0xC0:
+            cur.append(b)
+        else:
+            if len(cur) >= min_len:
+                try:
+                    s = bytes(cur).decode("utf-8", errors="strict")
+                    if len(s) >= min_len:
+                        strings.add(s)
+                except UnicodeDecodeError:
+                    pass
+            cur = []
+    if len(cur) >= min_len:
+        try:
+            s = bytes(cur).decode("utf-8", errors="strict")
+            if len(s) >= min_len:
+                strings.add(s)
+        except UnicodeDecodeError:
+            pass
+    return strings
+
+
+def pe_size(data: bytes) -> int | None:
+    if len(data) < 0x40 or data[:2] != b"MZ":
+        return None
+    e_lfanew = struct.unpack_from("<I", data, 0x3C)[0]
+    if e_lfanew + 0x18 > len(data):
+        return None
+    if data[e_lfanew : e_lfanew + 4] != b"PE\x00\x00":
+        return None
+    opt_off = e_lfanew + 0x18
+    magic = struct.unpack_from("<H", data, opt_off)[0]
+    if magic in (0x10B, 0x20B):  # PE32 / PE32+
+        return struct.unpack_from("<I", data, opt_off + 0x38)[0]
+    return None
+
+
+def analyze_hotfix_anticheat(old_data: bytes, new_data: bytes) -> dict:
+    """只读对比两份 hotfix，返回反外挂相关分析（不写盘）。"""
+    out: dict = {}
+    out["old_size"] = len(old_data)
+    out["new_size"] = len(new_data)
+    out["size_delta"] = len(new_data) - len(old_data)
+    out["old_pe_size_of_image"] = pe_size(old_data)
+    out["new_pe_size_of_image"] = pe_size(new_data)
+
+    old_kw = search_keywords(old_data, SECURITY_KEYWORDS)
+    new_kw = search_keywords(new_data, SECURITY_KEYWORDS)
+    out["keywords_new_not_old"] = sorted(set(new_kw) - set(old_kw))
+    out["keywords_only_in_new"] = {k: v for k, v in new_kw.items() if k not in old_kw}
+
+    all_old = extract_utf16_strings(old_data) | extract_utf8_strings(old_data)
+    all_new = extract_utf16_strings(new_data) | extract_utf8_strings(new_data)
+    new_only = all_new - all_old
+    sec_new = sorted(s for s in new_only if SECURITY_STRING_PATTERNS.search(s))
+    out["security_strings_only_in_new"] = sec_new[:120]
+    out["security_strings_only_in_new_count"] = len(sec_new)
+
+    interesting_new = sorted(
+        s for s in new_only
+        if SECURITY_STRING_PATTERNS.search(s)
+        or (re.search(r"[\u4e00-\u9fff]", s)
+            and re.search(r"(检测|校验|加速|外挂|封号|心跳|篡改|防沉迷|安全|举报|踢|GM|时间)", s))
+    )[:80]
+    out["interesting_new_strings"] = interesting_new
+
+    has_new_security = bool(out["keywords_new_not_old"] or sec_new)
+    if len(old_data) == len(new_data) and old_data == new_data:
+        out["verdict"] = "no"
+        out["verdict_note"] = "新旧 hotfix 完全一致"
+    else:
+        out["verdict"] = "yes" if has_new_security else ("uncertain" if new_kw else "no")
+    return out
+
+
+def format_anticheat_report(ac: dict, old_label: str, new_label: str) -> str:
+    lines = [
+        "=" * 70,
+        "反外挂内容对比（hotfix 深度分析）",
+        f"旧: {old_label}",
+        f"新: {new_label}",
+        "-" * 70,
+        f"体积: {ac['old_size']:,} -> {ac['new_size']:,} 字节 (Δ{ac['size_delta']:+,})",
+        f"PE SizeOfImage: {ac.get('old_pe_size_of_image')} -> {ac.get('new_pe_size_of_image')}",
+        f"新增关键词: {len(ac['keywords_new_not_old'])}  |  新增安全字符串: {ac['security_strings_only_in_new_count']}",
+    ]
+    if ac["keywords_new_not_old"]:
+        lines.append("[新增关键词] " + ", ".join(ac["keywords_new_not_old"]))
+    sec = ac["security_strings_only_in_new"]
+    if sec:
+        lines.append("[新增安全字符串]")
+        for s in sec[:60]:
+            lines.append(f"    {s}")
+    inter = ac["interesting_new_strings"]
+    if inter:
+        lines.append("[其他值得注意的新字符串]")
+        for s in inter[:40]:
+            lines.append(f"    {s}")
+    verdict = ac["verdict"]
+    note = {
+        "yes": "⚠ 检测到反外挂/上报相关变化，打补丁前请人工核对",
+        "uncertain": "存在安全类关键词但无新增，风险低",
+        "no": "✓ 未检测到反外挂相关变化",
+    }[verdict]
+    if ac.get("verdict_note"):
+        note += f"（{ac['verdict_note']}）"
+    lines.append("=" * 70)
+    lines.append(f"结论: {note}")
+    return "\n".join(lines)
 
 
 def _log(msg: str) -> None:
@@ -356,6 +535,32 @@ def cmd_diff(cross: Path, copy: Path, args) -> int:
     return 0
 
 
+def cmd_anticheat(cross: Path, copy: Path, args) -> int:
+    """只读：对比 cross(旧) 与 crosscopy(新) 的 hotfix，做反外挂深度分析。"""
+    ensure_roots(cross, copy)
+
+    hf_rel = HOTFIX_REL
+    old_candidates = [
+        cross / ORIG_REL,                 # 干净旧底稿（优先）
+        copy / hf_rel,                    # 回退：crosscopy 当前（无 .orig 时）
+    ]
+    old_path = next((p for p in old_candidates if p.is_file()), None)
+    new_path = copy / hf_rel
+
+    if old_path is None or not new_path.is_file():
+        _log(f"[错误] 缺少对比文件: old={old_path} new={new_path}")
+        return 1
+
+    old_data = old_path.read_bytes()
+    new_data = new_path.read_bytes()
+    ac = analyze_hotfix_anticheat(old_data, new_data)
+    old_label = f"{cross.parent.name}/{cross.name}/{old_path.relative_to(cross)}"
+    if old_path.samefile(copy / hf_rel):
+        old_label = f"{copy.parent.name}/{copy.name}/hotfix.dll.bytes（回退：cross 无 .orig）"
+    print(format_anticheat_report(ac, old_label, f"{copy.parent.name}/{copy.name}/hotfix.dll.bytes"))
+    return 0 if ac["verdict"] == "no" else 2 if ac["verdict"] == "yes" else 1
+
+
 def cmd_sync(cross: Path, copy: Path, args) -> int:
     ensure_roots(cross, copy)
     _check_game_closed(cross)
@@ -438,6 +643,147 @@ def cmd_sync(cross: Path, copy: Path, args) -> int:
     return 0
 
 
+def _load_baseline_meta(cross: Path) -> dict | None:
+    meta = cross / "tools" / "hotfix_baseline.json"
+    if not meta.is_file():
+        return None
+    try:
+        return json.loads(meta.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def _patch_scripts_dir() -> Path:
+    return PROJECT / "魔力宝贝序章补丁" / "scripts"
+
+
+def _apply_default_combo(cross: Path, on_log=None) -> list[str]:
+    """在 cross 目录跑默认组合补丁（DEFAULT_COMBO_KWARGS，from_orig=True）。"""
+    import importlib.util
+
+    scripts = _patch_scripts_dir()
+    sys.path.insert(0, str(scripts))
+    try:
+        spec = importlib.util.find_spec("apply_combo_patch")
+        if spec is None:
+            raise FileNotFoundError(f"找不到 apply_combo_patch.py: {scripts}")
+        ac = importlib.import_module("apply_combo_patch")
+        pd = importlib.import_module("patch_defaults")
+        msgs = ac.apply_combo(**pd.DEFAULT_COMBO_KWARGS, game_root=cross, on_log=on_log)
+        return msgs
+    finally:
+        if str(scripts) in sys.path:
+            sys.path.remove(str(scripts))
+
+
+def cmd_auto_update(cross: Path, copy: Path, args) -> int:
+    """一条龙：crosscopy 有更新 → 探测反外挂 → 同步 → 换新底稿 → 重打默认组合补丁。
+
+    流程（固定化，减少人工判断）：
+      1) 对比 crosscopy hotfix 与 baseline neworig_sha256 —— 是否官方更新。
+      2) 有更新 → 反外挂深度分析（cross .orig 旧底稿 vs crosscopy 新 hotfix）。
+         - verdict=yes 或 --require-clear 且非 no → 停下，报告人工核对。
+      3) --dry-run 只到第 2 步（只读，不写任何文件）。
+      4) sync 同步官方文件到 cross（复用 cmd_sync 逻辑）。
+      5) 从 crosscopy 复制干净 hotfix 到 cross 的 tools/hotfix.dll.bytes.neworig，
+         更新 EXPECTED_SIZE 常量（体积变时）并重建引擎。
+      6) sync_client_baseline（对齐 .orig + baseline meta）。
+      7) 重打默认组合补丁（from_orig=True，从干净底稿出发）。
+    """
+    ensure_roots(cross, copy)
+
+    copy_hotfix = copy / HOTFIX_REL
+    if not copy_hotfix.is_file():
+        _log(f"[错误] crosscopy 缺少 hotfix: {copy_hotfix}")
+        return 1
+
+    meta = _load_baseline_meta(cross)
+    meta_sha = (meta or {}).get("neworig_sha256")
+    copy_sha = sha256_file(copy_hotfix)
+    copy_size = copy_hotfix.stat().st_size
+
+    if meta_sha and copy_sha == meta_sha:
+        _log("crosscopy hotfix 与基线一致 → 未检测到官方更新。")
+        if not args.force:
+            _log("如需强制重打补丁，请加 --force。")
+            return 0
+        _log("--force：继续强制重打补丁。")
+
+    if not meta_sha:
+        _log("[提示] 无基线记录（tools/hotfix_baseline.json 缺失）——按首次/新底稿处理。")
+
+    # ---- 2) 反外挂深度分析（只读） ----
+    old_candidates = [
+        cross / ORIG_REL,
+        cross / HOTFIX_REL,
+    ]
+    old_path = next((p for p in old_candidates if p.is_file()), None)
+    if old_path is None:
+        _log("[提示] cross 无 .orig/hotfix 可作旧底稿参考，跳过反外挂内容对比。")
+        ac: dict | None = None
+    else:
+        old_label = f"{cross.parent.name}/{cross.name}/{old_path.relative_to(cross)}"
+        new_label = f"{copy.parent.name}/{copy.name}/hotfix.dll.bytes"
+        ac = analyze_hotfix_anticheat(old_path.read_bytes(), copy_hotfix.read_bytes())
+        print(format_anticheat_report(ac, old_label, new_label))
+
+    if args.dry_run:
+        _log("\n--dry-run：仅探测，未做任何写入。")
+        return 0
+
+    if ac is not None and ac["verdict"] == "yes":
+        _log("\n[停止] 检测到反外挂/上报相关变化，需人工核对后再同步补丁。")
+        _log("确认无风险后请重新执行（不加 --require-clear 且为 no/uncertain 时会继续）。")
+        return 3
+    if getattr(args, "require_clear", False) and ac is not None and ac["verdict"] != "no":
+        _log("\n[停止] --require-clear：反外挂结论非 no，暂停同步。")
+        return 3
+
+    # ---- 3) 同步官方文件 ----
+    _log("\n[同步] 用 crosscopy 更新 cross 的官方文件…")
+    rc = cmd_sync(cross, copy, args)
+    if rc != 0:
+        return rc
+
+    # ---- 4) 换新底稿：crosscopy hotfix → cross tools/neworig ----
+    _log("\n[底稿] 从 crosscopy 复制干净 hotfix 作为新底稿…")
+    neworig = cross / "tools" / "hotfix.dll.bytes.neworig"
+    neworig.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        shutil.copy2(copy_hotfix, neworig)
+        _log(f"  已复制: crosscopy hotfix → {neworig.relative_to(cross)}")
+    except OSError as exc:
+        _log(f"  [错误] 复制底稿失败: {exc}")
+        return 4
+
+    # ---- 5) 同步 EXPECTED_SIZE / 重建引擎 / 对齐 .orig 与 baseline ----
+    _log("\n[基线] 更新 EXPECTED_SIZE 常量、重建引擎、对齐 .orig/baseline…")
+    scripts = _patch_scripts_dir()
+    sys.path.insert(0, str(scripts))
+    try:
+        pc = importlib.import_module("patch_common")
+        bump_msgs = pc._bump_expected_size_constants(copy_size)
+        for m in bump_msgs:
+            _log("  " + m)
+        if not bump_msgs:
+            _log("  EXPECTED_SIZE 未变，无需重建引擎")
+        base_msgs = pc.sync_client_baseline(cross, force=True)
+        for m in base_msgs:
+            _log("  " + m)
+    finally:
+        if str(scripts) in sys.path:
+            sys.path.remove(str(scripts))
+
+    # ---- 6) 重打默认组合补丁 ----
+    _log("\n[补丁] 从干净 .orig 重打默认组合…")
+    msgs = _apply_default_combo(cross)
+    for m in msgs:
+        _log("  [OK] " + m)
+    _log("\n完成：cross 已更新至 crosscopy 版本并重打默认组合补丁。")
+    _log("提示：请关闭游戏后再打补丁；运行中的客户端需重启新窗口才生效。")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -456,6 +802,19 @@ def main(argv: list[str] | None = None) -> int:
     p_sync.add_argument("--dry-run", action="store_true", help="只列出不复制")
     p_sync.add_argument("--full-hash", action="store_true", help="同大小文件也逐一比对 hash")
     p_sync.set_defaults(fn=cmd_sync)
+
+    p_ac = sub.add_parser("anti-cheat", help="只读：hotfix 反外挂深度分析（旧底稿 vs crosscopy 新版本）")
+    p_ac.set_defaults(fn=cmd_anticheat)
+
+    p_au = sub.add_parser(
+        "auto-update",
+        help="一条龙：crosscopy 有更新→探测反外挂→同步→换新底稿→重打默认组合补丁",
+    )
+    p_au.add_argument("--dry-run", action="store_true", help="只探测反外挂，不写任何文件")
+    p_au.add_argument("--force", action="store_true", help="基线一致时也强制重打补丁")
+    p_au.add_argument("--require-clear", action="store_true", help="反外挂结论非 no 即停止（默认仅 yes 停止）")
+    p_au.add_argument("--full-hash", action="store_true", help="sync 阶段同大小文件也逐一比对 hash")
+    p_au.set_defaults(fn=cmd_auto_update)
 
     args = parser.parse_args(argv)
     cross, copy = resolve_paths()

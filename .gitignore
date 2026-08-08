@@ -83,6 +83,7 @@ tools/_config_extract/
 tools/_hotfixdata_backup_*/
 tools/_launch_test/
 tools/fake_game_root/
+tools/_unused_backup/
 tools/_*.log
 tools/_*.txt
 tools/_cmp_*.py
