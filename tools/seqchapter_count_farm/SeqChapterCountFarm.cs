@@ -58,7 +58,7 @@ public static class SeqChapterCountFarm
         return suffix;
     }
 
-    /// <summary>魔石后缀：只在战斗数变化时重算，否则用缓存。</summary>
+    /// <summary>魔石后缀：只在战斗数变化时重算，否则用缓存。数据未就绪（空结果）时不缓存，便于数据到达后及时显示。</summary>
     private static string BuildMoshiSuffixCached()
     {
         if (_cachedMoshiBattleCount == _battleCount)
@@ -67,6 +67,14 @@ public static class SeqChapterCountFarm
         }
 
         var value = BuildMoshiSuffix();
+        if (string.IsNullOrEmpty(value))
+        {
+            // 数据未就绪：不更新缓存，下个刷新周期（面板 Tick 2s / 战斗数变化）重试
+            _cachedMoshiBattleCount = -1;
+            _cachedMoshiSuffix = "";
+            return value;
+        }
+
         _cachedMoshiBattleCount = _battleCount;
         _cachedMoshiSuffix = value;
         return value;
@@ -199,6 +207,20 @@ public static class SeqChapterCountFarm
 
                 cur = Convert.ToInt64(GetMember(info, "Value") ?? 0);
                 limit = Convert.ToInt64(GetMember(info, "Time") ?? 0);
+
+                // 服务端可能不填 Value/Time（进度信息在 Str2/Str 文案里，如 "3500/5000"）：
+                // 数值无效时回退解析文案。
+                if (limit <= 0)
+                {
+                    var str2 = Convert.ToString(GetMember(info, "Str2") ?? "") ?? "";
+                    var str = Convert.ToString(GetMember(info, "Str") ?? "") ?? "";
+                    if (TryParseBuffFraction(str2, out cur, out limit)
+                        || TryParseBuffFraction(str, out cur, out limit))
+                    {
+                        // 文案解析成功
+                    }
+                }
+
                 return true;
             }
         }
@@ -208,6 +230,70 @@ public static class SeqChapterCountFarm
         }
 
         return false;
+    }
+
+    /// <summary>从魔石 buff 文案（如 "3500/5000"、"3500/5000/天"）解析 当前/上限；失败返回 false。</summary>
+    private static bool TryParseBuffFraction(string text, out long cur, out long limit)
+    {
+        cur = 0;
+        limit = 0;
+        if (string.IsNullOrEmpty(text))
+        {
+            return false;
+        }
+
+        try
+        {
+            var parts = text.Split(new[] { '/' }, StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length < 2)
+            {
+                return false;
+            }
+
+            var c = ExtractLeadingNumber(parts[0]);
+            var l = ExtractLeadingNumber(parts[1]);
+            if (c == null || l == null)
+            {
+                return false;
+            }
+
+            cur = c.Value;
+            limit = l.Value;
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>提取字符串开头的数字（容忍 "3500"、" 3500" 等）；无数字返回 null。</summary>
+    private static long? ExtractLeadingNumber(string text)
+    {
+        if (string.IsNullOrEmpty(text))
+        {
+            return null;
+        }
+
+        var i = 0;
+        while (i < text.Length && (text[i] == ' ' || text[i] == '\t'))
+        {
+            i++;
+        }
+
+        var start = i;
+        while (i < text.Length && text[i] >= '0' && text[i] <= '9')
+        {
+            i++;
+        }
+
+        if (i == start)
+        {
+            return null;
+        }
+
+        long v;
+        return long.TryParse(text.Substring(start, i - start), out v) ? v : (long?)null;
     }
 
     /// <summary>收集队伍/多开在线的队员 uid（队长优先，兜底主号）。</summary>
@@ -304,6 +390,11 @@ public static class SeqChapterCountFarm
         {
             _battleCount = 0;
             _stopSentForCurrentFull = false;
+        }
+        else
+        {
+            // 开启即请求一次魔石 BUFF 数据，标题尽快显示魔石进度（而非等第 1 场战斗）
+            TryRequestMoshiBuffAll();
         }
 
         RefreshWindowTitle();
