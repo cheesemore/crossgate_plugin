@@ -664,7 +664,7 @@ public static class SeqChapterTestUi
             _battleMode = mode;
             if (!IsSuperAiModeAllowed(mode) && _superAiActive)
             {
-                StopSuperAi("战斗模式非常规/九动，已关闭超级AI");
+                StopSuperAi("战斗模式非常规，已关闭超级AI");
             }
 
             _statusLine = "战斗模式: " + ModeLabel(mode);
@@ -685,7 +685,7 @@ public static class SeqChapterTestUi
 
     private static bool IsSuperAiModeAllowed(string mode)
     {
-        return mode == ModeNormal || mode == ModeNine || mode == ModeNopet2Act;
+        return mode == ModeNormal || mode == ModeNopet2Act;
     }
 
     private static void ApplyBattleMode(string mode)
@@ -718,10 +718,6 @@ public static class SeqChapterTestUi
         else if (mode == ModeLv1)
         {
             TrySetFeatureEnabled("SeqChapterLv1Auto", "hotfixdata/SeqChapterLv1Auto.dll.bytes", true);
-        }
-        else if (mode == ModeNine)
-        {
-            TrySetFeatureEnabled("SeqChapterNineAction", "hotfixdata/SeqChapterNineAction.dll.bytes", true);
         }
         else if (mode == ModeCountFarm)
         {
@@ -2293,10 +2289,10 @@ public static class SeqChapterTestUi
         _modeIds.Clear();
         AddModeRow(rtType, ModeNormal, "常规（什么都不开）", ref y, true);
 
-        // 九动：面板可开启（P2 P3 P4 P5 P2 P3 P4 P5 P1，P1 只动一次做工具人）
-        if (FeatureAvailable("SeqChapterNineAction", "hotfixdata/SeqChapterNineAction.dll.bytes"))
+        // 九动已停用：旧存档 ModeNine 状态重置为常规
+        if (_battleMode == ModeNine)
         {
-            AddModeRow(rtType, ModeNine, "九动（P2 P3 P4 P5 P2 P3 P4 P5 P1）", ref y, true);
+            _battleMode = ModeNormal;
         }
 
         // 抓宠（无宠二动）：不带宠时第二动防御（SeqChapterAutoCatchNoPet.dll）
@@ -2339,12 +2335,6 @@ public static class SeqChapterTestUi
         if (FeatureAvailable("SeqChapterAreaExtract", "hotfixdata/SeqChapterAreaExtract.dll.bytes"))
         {
             AddAreaExtractToggleRow(rtType, ref y);
-        }
-
-        // 计数挂机满魔石停止：默认开启，仅在计数挂机开启时生效
-        if (FeatureAvailable("SeqChapterCountFarm", "hotfixdata/SeqChapterCountFarm.dll.bytes"))
-        {
-            AddCountFarmStopRow(rtType, ref y);
         }
 
         WriteLog("BuildBattleBody done");
@@ -2415,161 +2405,6 @@ public static class SeqChapterTestUi
         {
             WriteLog("ToggleAreaExtractFromUi EX: " + RootMessage(ex));
             Tip("采集自动提取失败: " + RootMessage(ex));
-        }
-    }
-
-    /// <summary>战斗模式页：计数挂机满魔石停止独立勾选（默认开启，仅计数挂机时生效）。</summary>
-    private static void AddCountFarmStopRow(Type rtType, ref float y)
-    {
-        y -= 10f;
-        var on = IsCountFarmStopActive();
-
-        var row = CreateUiChild(_bodyRoot, "CountFarmStopRow", rtType);
-        SetAnchoredTop(RequireRect(row, "cfsr"), 0f, y, 500f, 32f);
-        var img = AddComp(row, "UnityEngine.UI.Image");
-        SetColor(img, 0.16f, 0.24f, 0.26f, 1f);
-        var lab = CreateUiChild(row, "L", rtType);
-        StretchFull(RequireRect(lab, "cfsl"));
-        var text = AddText(lab);
-        SetText(text, (on ? "● " : "○ ") + "计数挂机满魔石停止（计数挂机时，全员满魔石自动停遇敌）", 13);
-        BindButton(row, img, ToggleCountFarmStopFromUi);
-
-        y -= 34f;
-    }
-
-    private static bool IsCountFarmStopActive()
-    {
-        var saved = LoadCountFarmStopDefault();
-        try
-        {
-            var t = FindLoadedType("SeqChapterCountFarm");
-            if (t != null)
-            {
-                // 重启后 DLL 默认 true，按持久化值同步一次
-                var set = t.GetMethod("SetStopWhenMoshiFull", BindingFlags.Public | BindingFlags.Static, null, new[] { typeof(bool) }, null);
-                if (set != null)
-                {
-                    set.Invoke(null, new object[] { saved });
-                }
-
-                var m = t.GetMethod("IsStopWhenMoshiFull", BindingFlags.Public | BindingFlags.Static, null, Type.EmptyTypes, null);
-                if (m != null && m.Invoke(null, null) is bool b)
-                {
-                    return b;
-                }
-            }
-        }
-        catch
-        {
-            // ignore
-        }
-
-        return saved;
-    }
-
-    private static void ToggleCountFarmStopFromUi()
-    {
-        try
-        {
-            WriteLog("ToggleCountFarmStopFromUi");
-            var t = EnsureFeatureType("SeqChapterCountFarm", "hotfixdata/SeqChapterCountFarm.dll.bytes");
-            if (t == null)
-            {
-                Tip("计数挂机 DLL 加载失败（见日志）");
-                return;
-            }
-
-            var toggle = t.GetMethod("ToggleStopWhenMoshiFullFromUi", BindingFlags.Public | BindingFlags.Static, null, Type.EmptyTypes, null);
-            var r = toggle != null ? toggle.Invoke(null, null) : null;
-            var enable = r is bool b && b;
-            SaveCountFarmStop(enable);
-            Tip(enable ? "计数挂机满魔石停止已开启" : "计数挂机满魔石停止已关闭");
-
-            if (_tab == TabBattle)
-            {
-                ClearBody();
-                BuildBattleBody();
-                RefreshTabButtonLabels();
-            }
-        }
-        catch (Exception ex)
-        {
-            WriteLog("ToggleCountFarmStopFromUi EX: " + RootMessage(ex));
-            Tip("满魔石停止失败: " + RootMessage(ex));
-        }
-    }
-
-    /// <summary>满魔石停止开关持久化路径（~/.seqchapter_helper/count_farm.json）。</summary>
-    private static string CountFarmStopConfigPath()
-    {
-        try
-        {
-            return Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-                ".seqchapter_helper",
-                "count_farm.json");
-        }
-        catch
-        {
-            return Path.Combine(Environment.CurrentDirectory, "count_farm.json");
-        }
-    }
-
-    /// <summary>读取持久化的满魔石停止开关；无配置默认开启（true）。</summary>
-    private static bool LoadCountFarmStopDefault()
-    {
-        try
-        {
-            var path = CountFarmStopConfigPath();
-            if (!File.Exists(path))
-            {
-                return true;
-            }
-
-            var json = File.ReadAllText(path);
-            var key = "stop_when_moshi_full";
-            var idx = json.IndexOf(key, StringComparison.OrdinalIgnoreCase);
-            if (idx < 0)
-            {
-                return true;
-            }
-
-            idx = json.IndexOf(':', idx + key.Length);
-            if (idx < 0)
-            {
-                return true;
-            }
-
-            idx++;
-            while (idx < json.Length && char.IsWhiteSpace(json[idx]))
-            {
-                idx++;
-            }
-
-            return idx < json.Length && json[idx] != 'f' && json[idx] != 'F' && json[idx] != '0';
-        }
-        catch
-        {
-            return true;
-        }
-    }
-
-    private static void SaveCountFarmStop(bool enable)
-    {
-        try
-        {
-            var path = CountFarmStopConfigPath();
-            var dir = Path.GetDirectoryName(path);
-            if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
-            {
-                Directory.CreateDirectory(dir);
-            }
-
-            File.WriteAllText(path, "{\"stop_when_moshi_full\":" + (enable ? "true" : "false") + "}");
-        }
-        catch
-        {
-            // ignore
         }
     }
 
@@ -4086,8 +3921,6 @@ public static class SeqChapterTestUi
             var battleIndex = Convert.ToInt32(GetStaticMember("BattleDataHolder", "BattleIndex") ?? -1);
             var playerMp = Convert.ToInt32(GetStaticMember("BattleDataHolder", "PlayerMp") ?? 0);
             var playerIdx = Convert.ToInt32(GetStaticMember("BattleDataHolder", "battlePlayerIndex") ?? -1);
-            var nineOn = _battleMode == ModeNine
-                         && FeatureAvailable("SeqChapterNineAction", "hotfixdata/SeqChapterNineAction.dll.bytes");
             var acountN = 0;
             try
             {
@@ -4107,8 +3940,7 @@ public static class SeqChapterTestUi
             sb.AppendLine("uid=" + uid + " name=" + selfName + " job=" + selfJob
                           + " battleIndex=" + battleIndex + " playerIdx=" + playerIdx
                           + " PlayerMp=" + playerMp);
-            sb.AppendLine("actionQueue=" + (nineOn ? "九动" : "常规/五动系")
-                          + " nineMode=" + nineOn + " AcountList=" + acountN
+            sb.AppendLine("AcountList=" + acountN
                           + " weaponMelee=" + melee.Melee + " weapon=" + melee.WeaponDesc);
             sb.AppendLine("fieldPray=" + fieldPray + "  // VIP type11: 无地水火风场才可放属性祈祷类");
             AppendSuperAiBattleMeta(sb, uid);

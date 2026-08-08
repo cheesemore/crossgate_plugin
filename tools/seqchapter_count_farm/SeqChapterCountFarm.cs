@@ -17,9 +17,6 @@ public static class SeqChapterCountFarm
     /// <summary>计数挂机总开关。默认关闭；面板战斗模式页切换。</summary>
     public static volatile bool PipelineEnabled = false;
 
-    /// <summary>计数挂机满魔石停止。默认开启；面板战斗页独立勾选。</summary>
-    public static volatile bool StopWhenMoshiFull = true;
-
     private static bool _bootstrapped;
     private static bool _enterHooked;
     private static Action _onEnterBattle;
@@ -312,37 +309,6 @@ public static class SeqChapterCountFarm
         RefreshWindowTitle();
     }
 
-    /// <summary>面板战斗页：切换「满魔石停止」；返回是否开启。</summary>
-    public static bool ToggleStopWhenMoshiFullFromUi()
-    {
-        Bootstrap();
-        var enable = !IsStopWhenMoshiFull();
-        SetStopWhenMoshiFull(enable);
-        return enable;
-    }
-
-    /// <summary>面板读取当前「满魔石停止」开关（含多副本同步）。</summary>
-    public static bool IsStopWhenMoshiFull()
-    {
-        if (StopWhenMoshiFull)
-        {
-            return true;
-        }
-
-        return ReadStopWhenMoshiFullFromAnyCopy();
-    }
-
-    /// <summary>设置「满魔石停止」开关（同步多副本），重置停止发送标志。</summary>
-    public static void SetStopWhenMoshiFull(bool enable)
-    {
-        StopWhenMoshiFull = enable;
-        SetStopWhenMoshiFullAllCopies(enable);
-        if (!enable)
-        {
-            _stopSentForCurrentFull = false;
-        }
-    }
-
     /// <summary>侧栏百科切换（兼容旧入口）。</summary>
     public static bool OnWikiClick()
     {
@@ -372,12 +338,12 @@ public static class SeqChapterCountFarm
     }
 
     /// <summary>
-    /// 计数挂机满魔石停止：开关开且全员魔石满时，对队伍/多开所有号发
+    /// 计数挂机满魔石停止（固有行为）：全员魔石满时，对队伍/多开所有号发
     /// SendAutoBattle("停止挂机", uid)（协议 3015），并 Tip 提示。只发一次。
     /// </summary>
     private static void CheckStopWhenMoshiFull()
     {
-        if (!IsPipelineActive() || !IsStopWhenMoshiFull())
+        if (!IsPipelineActive())
         {
             _stopSentForCurrentFull = false;
             return;
@@ -774,82 +740,6 @@ public static class SeqChapterCountFarm
         {
             // ignore
         }
-    }
-
-    private static void SetStopWhenMoshiFullAllCopies(bool enabled)
-    {
-        StopWhenMoshiFull = enabled;
-        try
-        {
-            foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
-            {
-                Type t = null;
-                try
-                {
-                    t = asm.GetType(TypeName, false, false);
-                }
-                catch
-                {
-                    continue;
-                }
-
-                if (t == null || t == typeof(SeqChapterCountFarm))
-                {
-                    continue;
-                }
-
-                var f = t.GetField(
-                    "StopWhenMoshiFull",
-                    BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic);
-                if (f != null && f.FieldType == typeof(bool))
-                {
-                    f.SetValue(null, enabled);
-                }
-            }
-        }
-        catch
-        {
-            // ignore
-        }
-    }
-
-    private static bool ReadStopWhenMoshiFullFromAnyCopy()
-    {
-        try
-        {
-            foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
-            {
-                Type t = null;
-                try
-                {
-                    t = asm.GetType(TypeName, false, false);
-                }
-                catch
-                {
-                    continue;
-                }
-
-                if (t == null || t == typeof(SeqChapterCountFarm))
-                {
-                    continue;
-                }
-
-                var f = t.GetField(
-                    "StopWhenMoshiFull",
-                    BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic);
-                if (f != null && f.FieldType == typeof(bool) && Convert.ToBoolean(f.GetValue(null)))
-                {
-                    StopWhenMoshiFull = true;
-                    return true;
-                }
-            }
-        }
-        catch
-        {
-            // ignore
-        }
-
-        return false;
     }
 
     private static bool ReadPipelineEnabledFromAnyCopy()
