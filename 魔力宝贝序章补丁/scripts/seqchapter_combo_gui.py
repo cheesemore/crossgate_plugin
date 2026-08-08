@@ -467,7 +467,7 @@ class ComboPatchApp:
         ).pack(anchor=tk.W, padx=(18, 0), pady=(2, 0))
         ttk.Checkbutton(
             tab_battle,
-            text="注入桥接·DLL版（序章助手连接所需）",
+            text="注入精简桥接·DLL版（新序章多开器登录/拉多控/一键召唤所需）",
             variable=self.inject_bridge_var,
             command=lambda: self._on_battle_exclusive_toggle("bridge"),
         ).pack(anchor=tk.W, pady=(8, 0))

@@ -5,10 +5,17 @@ namespace CrossgateMod.Patcher;
 
 internal static class BridgeLoaderIlBuilder
 {
-    internal const string BridgeDllAssetPath = "hotfixdata/SeqChapterHelperBridge.dll.bytes";
-    internal const string BridgeTypeName = "SeqChapterHelperBridge";
+    internal static string BridgeDllAssetPath = "hotfixdata/SeqChapterHelperBridge.dll.bytes";
+    internal static string BridgeTypeName = "SeqChapterHelperBridge";
     internal const string BridgeBootstrapName = "Bootstrap";
     internal const string BridgeTempDllSuffix = "/seqchapter_bridge.dll";
+
+    /// <summary>切换桥接变体（完整助手 vs 精简多开）。需在构建 loader / 检测前调用。</summary>
+    public static void ConfigureBridge(string dllAssetPath, string typeName)
+    {
+        BridgeDllAssetPath = dllAssetPath;
+        BridgeTypeName = typeName;
+    }
     internal const uint FileUtilTempPathFieldToken = 0x0A00032B;
     internal const float BootstrapDelaySeconds = 3f;
 

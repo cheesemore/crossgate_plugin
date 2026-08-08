@@ -19,6 +19,7 @@ PATCHER_SUBDIR = "patcher"
 DATA_DIR = "cg37_Data"
 HOTFIX_REL = Path(DATA_DIR) / "assets" / "hotfixdata" / "hotfix.dll.bytes"
 BRIDGE_DLL_REL = Path(DATA_DIR) / "assets" / "hotfixdata" / "SeqChapterHelperBridge.dll.bytes"
+MINI_BRIDGE_DLL_REL = Path(DATA_DIR) / "assets" / "hotfixdata" / "SeqChapterMiniBridge.dll.bytes"
 PARTIALCONFIG_REL = Path(DATA_DIR) / "partialconfig.bin"
 PARTIALCONFIG_STREAMING_REL = Path(DATA_DIR) / "StreamingAssets" / "partialconfig.bin"
 KEEP_CHANNELS = frozenset({"1100", "1102"})
@@ -201,11 +202,12 @@ def hotfix_orig(game_root: Path | None = None) -> Path:
     return path.with_name(path.name + ".orig")
 
 
-def bridge_dll_path(game_root: Path | None = None) -> Path:
+def bridge_dll_path(game_root: Path | None = None, *, mini: bool = False) -> Path:
+    """精简多开桥接（mini=True 默认）或完整助手桥接的 DLL 路径。"""
     root = game_root or get_game_root()
     if root is None:
         raise FileNotFoundError(f"未设置游戏目录，请在 GUI 中选择包含 {DATA_DIR} 的文件夹")
-    return root / BRIDGE_DLL_REL
+    return root / (MINI_BRIDGE_DLL_REL if mini else BRIDGE_DLL_REL)
 
 
 BRIDGE_PATCHED_VARIANTS = frozenset(
@@ -1020,6 +1022,7 @@ def adopt_client_hotfix_update(game_root: Path | None = None) -> list[str]:
     hf_dir = hf.parent
     for name in (
         "SeqChapterHelperBridge.dll.bytes",
+        "SeqChapterMiniBridge.dll.bytes",
         "SeqChapterNineAction.dll.bytes",
         "SeqChapterAutoSeal.dll.bytes",
         "SeqChapterAutoCatch.dll.bytes",

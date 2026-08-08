@@ -1697,12 +1697,8 @@ public static class SeqChapterBattleAppear
             return;
         }
 
-        // 可选全局 enabled
-        if (text.IndexOf("\"enabled\"", StringComparison.OrdinalIgnoreCase) >= 0)
-        {
-            _enabled = ReadBool(text, "enabled", _enabled);
-        }
-
+        // 钩子开关以主配置 battle_appear.json 的 enabled 为准，
+        // 不读 Uid 档里的 enabled（否则历史开过钩子的号会在关掉钩子后仍被翻回开）。
         var profilesIdx = text.IndexOf("\"profiles\"", StringComparison.OrdinalIgnoreCase);
         if (profilesIdx < 0)
         {
@@ -1817,6 +1813,9 @@ public static class SeqChapterBattleAppear
 
     private static void WriteUidStoreAtomic(bool enabled)
     {
+        // Uid 档的 enabled 一律与主配置 _enabled 同步，避免历史 true 残留被其它路径读回。
+        _ = enabled;
+        var effective = _enabled;
         var path = ResolveUidStorePath();
         _uidStorePath = path;
         var dir = Path.GetDirectoryName(path);
@@ -1827,7 +1826,7 @@ public static class SeqChapterBattleAppear
 
         var sb = new StringBuilder();
         sb.AppendLine("{");
-        sb.Append("  \"enabled\": ").Append(enabled ? "true" : "false").AppendLine(",");
+        sb.Append("  \"enabled\": ").Append(effective ? "true" : "false").AppendLine(",");
         sb.AppendLine("  \"comment\": \"按玩家Uid存形象；多开同文件最后写入为准。\",");
         sb.AppendLine("  \"profiles\": {");
         var keys = new List<string>(UidProfiles.Keys);

@@ -39,6 +39,8 @@ BATTLE_APPEAR_SRC = GAME_ROOT / "tools" / "seqchapter_battle_appear"
 COUNT_FARM_SRC = GAME_ROOT / "tools" / "seqchapter_count_farm"
 AREA_EXTRACT_SRC = GAME_ROOT / "tools" / "seqchapter_area_extract"
 AUTO_POINT_SRC = GAME_ROOT / "tools" / "seqchapter_auto_point"
+HELPER_BRIDGE_SRC = GAME_ROOT / "tools" / "seqchapter_helper_bridge"
+MINI_BRIDGE_SRC = GAME_ROOT / "tools" / "seqchapter_mini_bridge"
 BATTLE_APPEAR_JSON = GAME_ROOT / "tools" / "battle_appear.json"
 PET_RANK_BIN = GAME_ROOT / "tools" / "pet_rank.bin"
 TOOLS_SRC = GAME_ROOT / "tools"
@@ -89,6 +91,12 @@ SERIES_CLEANUP_PREFIXES.extend(
 ENTRY = SCRIPTS_DIR / "foolproof_gui.py"
 BAT_NAME = "一键打补丁.bat"
 
+# 多开器（随包发布）：源码在「新序章多开器」，入口 multi_launcher_gui.py，
+# 依赖「序章助手共享/assistant_common」。PyInstaller 打成独立 exe。
+LAUNCHER_ENTRY = GAME_ROOT / "新序章多开器" / "scripts" / "multi_launcher_gui.py"
+LAUNCHER_SHARED = GAME_ROOT / "序章助手共享"
+LAUNCHER_NAME = "多开器"
+
 BAT_CONTENT = rf"""@echo off
 chcp 65001 >nul
 cd /d "%~dp0"
@@ -110,15 +118,19 @@ README = f"""魔力宝贝：序章 — {APP_NAME}
 · 战斗模式默认：抓宠（无宠二动）/ 抓宠 / 抓宠卖银币 / 烧卡 / 计数挂机（面板内互斥切换）
 · 采集自动提取：战斗页独立开关，与战斗模式共存；已采集5格单格满999自动提取到账号银行（每格最多重试1次）；脚本页「立刻提取采集物」可手动触发一次
 · 面板「脚本」页：做日常 / 礼包码 / 立刻提取采集物
-· 界面外层选项：「战斗加速」（默认关：开启→战斗倍速+心跳回传1.5x，会连带掐断倍速检测上报；关→原速+心跳回传1.0x）与「跳帧（切后台/老板键限帧 30FPS）」
+· 界面外层选项：「战斗加速」（默认关：开启→战斗倍速+心跳回传1.5x，会连带掐断倍速检测上报；关→原速+心跳回传1.0x）、「跳帧（切后台/老板键限帧 30FPS）」与「多开器适配功能」（默认不打：勾选=注入精简桥接，供包内「多开器」登录/拉多控/一键召唤；占 hotfixdata 容量）
 · 默认含：分享改日常、礼包码
+· 随包附「多开器」（多开器\多开器.exe，界面「启动多开器」按钮）：多开器需要打「多开器适配功能」才能连接游戏
 
 【用法】
 1. 关掉游戏，解压到游戏目录（与 cg37.exe 同级或子文件夹）
 2. 双击「一键打补丁.bat」
-3. 勾选/取消「战斗加速」「跳帧」后点「一键打补丁」
+3. 勾选/取消「战斗加速」「跳帧」「多开器适配功能」后点「一键打补丁」
 4. 进游戏用百科面板切换战斗模式
 5. 换皮预览：界面「启动动画预览」（依赖上方填写的游戏目录资源）
+6. 多开：界面「启动多开器」→ 勾选「多开器适配功能」打补丁后，多开器可登录/拉多控/一键召唤
+
+多开：多开器/序章助手需要勾选「注入桥接」后连接（桥接含多开、账号登录、一键召唤等）。
 
 客户端不干净时：界面「从干净目录恢复…」选手选干净客户端后再打。
 """
@@ -333,12 +345,14 @@ def build_exe() -> Path:
     if not exe.is_file():
         raise RuntimeError(f"未生成 {exe}")
 
+    _build_launcher_exe(out_dir)
+
     patcher_dst = out_dir / "patcher"
     patcher_dst.mkdir(parents=True, exist_ok=True)
     shutil.copy2(PATCHER_STAGING / "HotfixPatcher.exe", patcher_dst / "HotfixPatcher.exe")
     _copy_ref_stubs(patcher_dst / "ref_stubs")
 
-    # 融合版带烧卡+抓宠+日常+助手面板+进战形象源（九动已停发，不再打包九动 DLL 源）
+    # 融合版带烧卡+抓宠+日常+助手面板+进战形象源+桥接源（九动已停发，不再打包九动 DLL 源）
     bundle_srcs: list[tuple[Path, str]] = [
         (AUTO_SEAL_SRC, "seqchapter_auto_seal"),
         (AUTO_CATCH_SRC, "seqchapter_auto_catch"),
@@ -352,6 +366,8 @@ def build_exe() -> Path:
         (COUNT_FARM_SRC, "seqchapter_count_farm"),
         (AREA_EXTRACT_SRC, "seqchapter_area_extract"),
         (AUTO_POINT_SRC, "seqchapter_auto_point"),
+        (HELPER_BRIDGE_SRC, "seqchapter_helper_bridge"),
+        (MINI_BRIDGE_SRC, "seqchapter_mini_bridge"),
     ]
 
     for src, name in bundle_srcs:
@@ -405,6 +421,74 @@ def build_exe() -> Path:
     return out_dir
 
 
+def _build_launcher_exe(out_dir: Path) -> None:
+    """用 PyInstaller 把新序章多开器打成独立 exe，放入傻瓜补丁包目录。
+
+    多开器依赖「序章助手共享/assistant_common」，通过 --paths 带上；
+    打出的 exe 放包根（多开器.exe），供傻瓜补丁 GUI「启动多开器」按钮调用。
+    """
+    if not LAUNCHER_ENTRY.is_file():
+        raise FileNotFoundError(f"找不到多开器入口: {LAUNCHER_ENTRY}")
+    if not LAUNCHER_SHARED.is_dir():
+        raise FileNotFoundError(f"找不到多开器共享库: {LAUNCHER_SHARED}")
+
+    launcher_dist = DIST_DIR / "_launcher_dist"
+    if launcher_dist.is_dir():
+        shutil.rmtree(launcher_dist, ignore_errors=True)
+    launcher_dist.mkdir(parents=True, exist_ok=True)
+
+    cmd = [
+        sys.executable,
+        "-m",
+        "PyInstaller",
+        "--noconfirm",
+        "--clean",
+        "--onedir",
+        "--windowed",
+        "--name",
+        LAUNCHER_NAME,
+        "--paths",
+        str(LAUNCHER_ENTRY.parent),
+        "--paths",
+        str(LAUNCHER_SHARED),
+        "--distpath",
+        str(launcher_dist),
+        "--workpath",
+        str(STAGING_DIR / "launcher_work"),
+        "--specpath",
+        str(STAGING_DIR / "launcher_spec"),
+        "--hidden-import",
+        "assistant_common",
+        "--hidden-import",
+        "assistant_common.ipc",
+        "--hidden-import",
+        "assistant_common.accounts",
+        "--hidden-import",
+        "assistant_common.config",
+        "--hidden-import",
+        "assistant_common.game",
+        "--hidden-import",
+        "assistant_common.patch_bridge",
+        "--hidden-import",
+        "assistant_common.patch_kit",
+        "--hidden-import",
+        "assistant_common.single_instance",
+        "--hidden-import",
+        "assistant_common.subprocess_win",
+        str(LAUNCHER_ENTRY),
+    ]
+    _run(cmd)
+    built_dir = launcher_dist / LAUNCHER_NAME
+    built = built_dir / f"{LAUNCHER_NAME}.exe"
+    if not built.is_file():
+        raise RuntimeError(f"未生成多开器 exe: {built}")
+    dst = out_dir / LAUNCHER_NAME
+    if dst.is_dir():
+        shutil.rmtree(dst, ignore_errors=True)
+    shutil.copytree(built_dir, dst)
+    print(f"[OK] 多开器目录 -> {dst}")
+
+
 def zip_folder(folder: Path, zip_path: Path) -> None:
     if zip_path.is_file():
         zip_path.unlink()
@@ -442,6 +526,7 @@ def verify_pack(folder: Path, zip_path: Path) -> None:
         folder / "_internal" / "base_library.zip",
         folder / "patcher" / "HotfixPatcher.exe",
         folder / BAT_NAME,
+        folder / "多开器" / "多开器.exe",
     ]
     # 外置 DLL 源码（引擎编译外部 DLL 必需，随包旁路）
     dir_required = [
@@ -452,6 +537,9 @@ def verify_pack(folder: Path, zip_path: Path) -> None:
         folder / "patcher" / "seqchapter_daily_claim",
         folder / "patcher" / "seqchapter_battle_appear",
         folder / "patcher" / "seqchapter_test_ui",
+        folder / "patcher" / "seqchapter_helper_bridge",
+        folder / "patcher" / "seqchapter_mini_bridge",
+        folder / "多开器",
     ]
     missing = [str(p.relative_to(folder)) for p in file_required if not p.is_file()]
     missing += [
@@ -468,11 +556,15 @@ def verify_pack(folder: Path, zip_path: Path) -> None:
         f"{APP_NAME}/_internal/base_library.zip",
         f"{APP_NAME}/patcher/HotfixPatcher.exe",
         f"{APP_NAME}/{BAT_NAME}",
+        f"{APP_NAME}/多开器/多开器.exe",
     ]
     zip_dir_prefixes = [
         f"{APP_NAME}/patcher/ref_stubs/",
         f"{APP_NAME}/patcher/seqchapter_auto_seal/",
         f"{APP_NAME}/patcher/seqchapter_battle_appear/",
+        f"{APP_NAME}/patcher/seqchapter_helper_bridge/",
+        f"{APP_NAME}/patcher/seqchapter_mini_bridge/",
+        f"{APP_NAME}/多开器/_internal/",
     ]
     zip_missing = [n for n in zip_required if n not in names]
     zip_missing += [p for p in zip_dir_prefixes if not any(n.startswith(p) for n in names)]

@@ -4,13 +4,14 @@
 
 九动版已无限期停发，发布只产融合版（对历史九动版包仍兼容识别）。
 
-界面外层选项：「战斗加速」（开→战斗倍速+心跳回传1.5x；关→原速+心跳回传1.0x）
-与「跳帧」（切后台/老板键限帧 30FPS）。抓宠/烧卡等在游戏内百科助手面板切换。
+界面外层选项：「战斗加速」（开→战斗倍速+心跳回传1.5x；关→原速+心跳回传1.0x）、
+「跳帧」（切后台/老板键限帧 30FPS）与「注入桥接」（默认关，占容量；多开器/助手需连接时勾）。
+抓宠/烧卡等在游戏内百科助手面板切换。
 
 用法：
   傻瓜补丁_*.exe
   傻瓜补丁_*.exe --auto
-  傻瓜补丁_*.exe --auto --no-accel [--no-frameskip]
+  傻瓜补丁_*.exe --auto --no-accel [--no-frameskip] [--bridge]
 """
 from __future__ import annotations
 
@@ -91,10 +92,14 @@ def run_auto() -> int:
         apply_frameskip = not any(
             a in ("--no-frameskip", "--no-bossfps", "/no-frameskip") for a in sys.argv[1:]
         )
+        inject_bridge = any(
+            a in ("--bridge", "--inject-bridge", "/bridge") for a in sys.argv[1:]
+        )
         msgs = run_foolproof_patch(
             enable_nine=NINE_PACK,
             apply_accel=apply_accel,
             apply_frameskip=apply_frameskip,
+            inject_bridge=inject_bridge,
             on_log=lambda line: print(line, flush=True),
         )
         detail = "\n".join(msgs[-8:]) if msgs else "补丁已打好。"
@@ -135,7 +140,8 @@ class FoolproofApp(tk.Tk):
             f"本包：傻瓜补丁·{pack_name}\n"
             f"· 侧栏「百科」→ 助手面板，战斗模式：{_panel_modes_tip()}\n"
             "· 外层选项：「战斗加速」（开→战斗倍速+心跳回传1.5x；关→原速+心跳回传1.0x）\n"
-            "             与「跳帧」（切后台/老板键限帧 30FPS）\n"
+            "             「跳帧」（切后台/老板键限帧 30FPS）\n"
+            "             与「多开器适配功能」（默认不打，占容量；勾选=注入精简桥接，供包内「多开器.exe」登录/拉多控/一键召唤）\n"
             "· 采集自动提取：战斗页独立开关（满999格提入账号银行，每格最多重试1次）\n"
             "· 脚本页「立刻提取采集物」可手动触发一次\n"
             "· 分享改日常、礼包码默认带上\n"
@@ -158,6 +164,13 @@ class FoolproofApp(tk.Tk):
             variable=self.apply_frameskip_var,
         ).pack(anchor=tk.W, pady=(0, 6))
 
+        self.inject_bridge_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            body,
+            text="多开器适配功能（默认不打，占 hotfixdata 容量：勾选=注入精简桥接，供「多开器.exe」登录/拉多控/一键召唤）",
+            variable=self.inject_bridge_var,
+        ).pack(anchor=tk.W, pady=(0, 6))
+
         ttk.Label(body, text="礼包码（一行一个，可改）", foreground="#555555").pack(
             anchor=tk.W
         )
@@ -169,6 +182,12 @@ class FoolproofApp(tk.Tk):
         btns.pack(fill=tk.X, pady=(0, 8))
         self.apply_btn = ttk.Button(btns, text="一键打补丁", command=self.on_apply)
         self.apply_btn.pack(side=tk.LEFT)
+        self.launcher_btn = ttk.Button(
+            btns,
+            text="启动多开器",
+            command=self.on_launch_launcher,
+        )
+        self.launcher_btn.pack(side=tk.LEFT, padx=(8, 0))
         self.animator_btn = ttk.Button(
             btns, text="启动动画预览", command=self.on_launch_animator
         )
@@ -219,6 +238,7 @@ class FoolproofApp(tk.Tk):
         self.apply_btn.state(state)
         self.restore_btn.state(state)
         self.animator_btn.state(state)
+        self.launcher_btn.state(state)
 
     def _animator_candidates(self) -> list[Path]:
         cands: list[Path] = []
@@ -251,6 +271,52 @@ class FoolproofApp(tk.Tk):
             seen.add(key)
             out.append(p)
         return out
+
+    def on_launch_launcher(self) -> None:
+        if self._busy:
+            return
+        cands = self._launcher_candidates()
+        if not cands:
+            messagebox.showinfo(
+                f"{_profile_title()}",
+                "包内未找到「多开器.exe」。\n\n"
+                "多开器需在新版傻瓜补丁包中随附（发布时已内置）。\n"
+                "也可直接运行开发目录：新序章多开器\\scripts\\multi_launcher_gui.py",
+            )
+            return
+        try:
+            exe = cands[0]
+            if exe.suffix.lower() == ".py":
+                subprocess.Popen(
+                    [sys.executable, str(exe)],
+                    cwd=str(exe.parent),
+                )
+            else:
+                subprocess.Popen([str(exe)], cwd=str(exe.parent))
+            self._append(f"已启动多开器：{exe}")
+        except Exception as exc:
+            messagebox.showerror(f"{_profile_title()} — 失败", f"无法启动多开器：\n{exc}")
+
+    def _launcher_candidates(self) -> list[Path]:
+        cands: list[Path] = []
+        if getattr(sys, "frozen", False):
+            exe_dir = Path(sys.executable).resolve().parent
+            cands.extend(
+                [
+                    exe_dir / "多开器.exe",
+                    exe_dir / "multi_launcher_gui.exe",
+                    exe_dir / "多开器" / "多开器.exe",
+                ]
+            )
+        else:
+            scripts = Path(__file__).resolve().parent
+            cands.extend(
+                [
+                    scripts.parent.parent / "新序章多开器" / "scripts" / "multi_launcher_gui.py",
+                    scripts.parent.parent / "新序章多开器" / "multi_launcher_gui.py",
+                ]
+            )
+        return [p for p in cands if p.is_file()]
 
     def on_launch_animator(self) -> None:
         if self._busy:
@@ -405,6 +471,7 @@ class FoolproofApp(tk.Tk):
                     gift_codes=self.gift_codes_box.get("1.0", "end"),
                     apply_accel=bool(self.apply_accel_var.get()),
                     apply_frameskip=bool(self.apply_frameskip_var.get()),
+                    inject_bridge=bool(self.inject_bridge_var.get()),
                     on_log=lambda line: self.after(0, self._append, line),
                 )
                 self.after(

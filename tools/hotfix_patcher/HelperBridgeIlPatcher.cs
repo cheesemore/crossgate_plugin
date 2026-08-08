@@ -10,7 +10,25 @@ namespace CrossgateMod.Patcher;
 /// </summary>
 internal static class HelperBridgeIlPatcher
 {
-    internal const string BridgeAssetFileName = "SeqChapterHelperBridge.dll.bytes";
+    // 完整助手桥接 vs 精简多开桥接：进程级开关，Apply/检测前由 --mini 设置。
+    internal const string HelperBridgeAssetFileName = "SeqChapterHelperBridge.dll.bytes";
+    internal const string MiniBridgeAssetFileName = "SeqChapterMiniBridge.dll.bytes";
+
+    private static string _bridgeAssetFileName = HelperBridgeAssetFileName;
+    private static string _bridgeSourceDirName = "seqchapter_helper_bridge";
+    private static string _bridgeSourceFileName = "SeqChapterHelperBridge.cs";
+    private static string _bridgeAssemblyName = "SeqChapterHelperBridge";
+
+    private static void SetBridgeVariant(bool mini)
+    {
+        _bridgeAssetFileName = mini ? MiniBridgeAssetFileName : HelperBridgeAssetFileName;
+        _bridgeSourceDirName = mini ? "seqchapter_mini_bridge" : "seqchapter_helper_bridge";
+        _bridgeSourceFileName = mini ? "SeqChapterMiniBridge.cs" : "SeqChapterHelperBridge.cs";
+        _bridgeAssemblyName = mini ? "SeqChapterMiniBridge" : "SeqChapterHelperBridge";
+        BridgeLoaderIlBuilder.ConfigureBridge(
+            "hotfixdata/" + _bridgeAssetFileName,
+            mini ? "SeqChapterMiniBridge" : "SeqChapterHelperBridge");
+    }
 
     public static int Run(string[] args)
     {
@@ -19,6 +37,7 @@ internal static class HelperBridgeIlPatcher
         var detectOnly = false;
         var variantOnly = false;
         var bootstrapSiteOnly = false;
+        var mini = false;
 
         for (var i = 0; i < args.Length; i++)
         {
@@ -29,6 +48,9 @@ internal static class HelperBridgeIlPatcher
                     break;
                 case "--output" when i + 1 < args.Length:
                     output = Path.GetFullPath(args[++i]);
+                    break;
+                case "--mini":
+                    mini = true;
                     break;
                 case "--detect":
                     detectOnly = true;
@@ -42,12 +64,14 @@ internal static class HelperBridgeIlPatcher
             }
         }
 
+        SetBridgeVariant(mini);
+
         if (string.IsNullOrWhiteSpace(source))
         {
             Console.WriteLine(
-                "用法: HotfixPatcher helper-bridge-patch --hotfix <hotfix.dll.bytes> [--output <out>]\n" +
-                "      HotfixPatcher helper-bridge-patch --hotfix <hotfix> --detect\n" +
-                "      HotfixPatcher helper-bridge-patch --hotfix <hotfix> --detect-variant");
+                "用法: HotfixPatcher helper-bridge-patch --hotfix <hotfix.dll.bytes> [--output <out>] [--mini]\n" +
+                "      HotfixPatcher helper-bridge-patch --hotfix <hotfix> --detect [--mini]\n" +
+                "      HotfixPatcher helper-bridge-patch --hotfix <hotfix> --detect-variant [--mini]");
             return 1;
         }
 
@@ -88,28 +112,34 @@ internal static class HelperBridgeIlPatcher
             return "missing";
         }
 
-        if (!File.Exists(BridgeAssetPath(hotfixPath)))
+        var hotfixDir = Path.GetDirectoryName(hotfixPath)!;
+        var helperAsset = Path.Combine(hotfixDir, HelperBridgeAssetFileName);
+        var miniAsset = Path.Combine(hotfixDir, MiniBridgeAssetFileName);
+        if (!File.Exists(helperAsset) && !File.Exists(miniAsset))
         {
             return "not_patched";
         }
 
         var data = File.ReadAllBytes(hotfixPath);
-        if (!ContainsUserString(data, BridgeLoaderIlBuilder.BridgeDllAssetPath)
-            || !ContainsUserString(data, BridgeLoaderIlBuilder.BridgeBootstrapName))
+        var anyAssetString =
+            ContainsUserString(data, "hotfixdata/" + HelperBridgeAssetFileName)
+            || ContainsUserString(data, "hotfixdata/" + MiniBridgeAssetFileName);
+        if (!anyAssetString || !ContainsUserString(data, BridgeLoaderIlBuilder.BridgeBootstrapName))
         {
             return "not_patched";
         }
 
         try
         {
-            var resolver = new HotfixAssemblyResolver(Path.GetDirectoryName(hotfixPath)!);
+            var resolver = new HotfixAssemblyResolver(hotfixDir);
             using var asm = AssemblyDefinition.ReadAssembly(hotfixPath, new ReaderParameters
             {
                 AssemblyResolver = resolver,
                 InMemory = true,
             });
 
-            if (asm.MainModule.Types.Any(t => t.Name == BridgeLoaderIlBuilder.BridgeTypeName))
+            if (asm.MainModule.Types.Any(t =>
+                    t.Name is "SeqChapterHelperBridge" or "SeqChapterMiniBridge"))
             {
                 return "embedded";
             }
@@ -594,21 +624,21 @@ internal static class HelperBridgeIlPatcher
     }
 
     public static string BridgeAssetPath(string hotfixPath)
-        => Path.Combine(Path.GetDirectoryName(hotfixPath)!, BridgeAssetFileName);
+        => Path.Combine(Path.GetDirectoryName(hotfixPath)!, _bridgeAssetFileName);
 
     private static string BuildBridgeDll(string hotfixPath)
     {
         var bridgeDir = ResolveBridgeSourceDir(hotfixPath);
-        var csPath = Path.Combine(bridgeDir, "SeqChapterHelperBridge.cs");
+        var csPath = Path.Combine(bridgeDir, _bridgeSourceFileName);
         if (!File.Exists(csPath))
         {
-            throw new FileNotFoundException("找不到 SeqChapterHelperBridge.cs", csPath);
+            throw new FileNotFoundException($"找不到 {_bridgeSourceFileName}", csPath);
         }
 
         var hotfixDataDir = Path.GetDirectoryName(hotfixPath)!;
         var outDir = Path.Combine(Path.GetTempPath(), "seqchapter_bridge_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(outDir);
-        var dllPath = Path.Combine(outDir, "SeqChapterHelperBridge.dll");
+        var dllPath = Path.Combine(outDir, _bridgeAssemblyName + ".dll");
 
         var refs = ResolveGameCorlibReferences(hotfixDataDir);
         if (refs.Count == 0)
@@ -622,7 +652,7 @@ internal static class HelperBridgeIlPatcher
             path: csPath,
             encoding: System.Text.Encoding.UTF8);
         var compile = CSharpCompilation.Create(
-            "SeqChapterHelperBridge",
+            _bridgeAssemblyName,
             new[] { syntax },
             refs,
             new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary)
@@ -635,7 +665,7 @@ internal static class HelperBridgeIlPatcher
             var errors = string.Join(
                 Environment.NewLine,
                 result.Diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error).Select(d => d.ToString()));
-            throw new InvalidOperationException("Roslyn 编译 SeqChapterHelperBridge 失败:\n" + errors);
+            throw new InvalidOperationException($"Roslyn 编译 {_bridgeAssemblyName} 失败:\n" + errors);
         }
 
         File.WriteAllBytes(dllPath, ms.ToArray());
@@ -669,12 +699,11 @@ internal static class HelperBridgeIlPatcher
     private static string ResolveBridgeSourceDir(string hotfixPath)
     {
         var hotfixDir = Path.GetDirectoryName(hotfixPath)!;
-        var candidates = new List<string>
-        {
-            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "seqchapter_helper_bridge")),
-            Path.GetFullPath(Path.Combine(hotfixDir, "..", "..", "..", "tools", "seqchapter_helper_bridge")),
-        };
+        var exeDir = Path.GetDirectoryName(Environment.ProcessPath ?? "")
+            ?? AppContext.BaseDirectory;
 
+        // 优先：从 hotfixPath 所在目录向上探测游戏根目录（含 cg37_Data 的目录）下的 tools/seqchapter_*_bridge。
+        var candidates = new List<string>();
         for (var dir = hotfixDir; ; dir = Path.GetDirectoryName(dir)!)
         {
             if (string.IsNullOrEmpty(dir))
@@ -682,11 +711,8 @@ internal static class HelperBridgeIlPatcher
                 break;
             }
 
-            var probe = Path.Combine(dir, "tools", "seqchapter_helper_bridge");
-            if (!candidates.Contains(probe, StringComparer.OrdinalIgnoreCase))
-            {
-                candidates.Add(probe);
-            }
+            candidates.Add(Path.Combine(dir, "tools", "seqchapter_helper_bridge"));
+            candidates.Add(Path.Combine(dir, "tools", "seqchapter_mini_bridge"));
 
             if (Directory.Exists(Path.Combine(dir, "cg37_Data")))
             {
@@ -694,15 +720,39 @@ internal static class HelperBridgeIlPatcher
             }
         }
 
+        // 兜底：exeDir 相关路径（发布工具链场景，exe 与 tools 目录结构固定）。
+        candidates.Add(Path.GetFullPath(Path.Combine(exeDir, "seqchapter_helper_bridge")));
+        candidates.Add(Path.GetFullPath(Path.Combine(exeDir, "seqchapter_mini_bridge")));
+        candidates.Add(Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "seqchapter_helper_bridge")));
+        candidates.Add(Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "seqchapter_mini_bridge")));
+        candidates.Add(Path.GetFullPath(Path.Combine(exeDir, "..", "tools", "seqchapter_helper_bridge")));
+        candidates.Add(Path.GetFullPath(Path.Combine(exeDir, "..", "tools", "seqchapter_mini_bridge")));
+        candidates.Add(Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "tools", "seqchapter_helper_bridge")));
+        candidates.Add(Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "tools", "seqchapter_mini_bridge")));
+        candidates.Add(Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "seqchapter_helper_bridge")));
+        candidates.Add(Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "seqchapter_mini_bridge")));
+
+        // 优先匹配当前变体（mini / helper）的源码目录。
         foreach (var dir in candidates)
         {
-            if (File.Exists(Path.Combine(dir, "SeqChapterHelperBridge.cs")))
+            if (Path.GetFileName(dir) == _bridgeSourceDirName
+                && File.Exists(Path.Combine(dir, _bridgeSourceFileName)))
             {
                 return dir;
             }
         }
 
-        throw new DirectoryNotFoundException("找不到 tools/seqchapter_helper_bridge 目录");
+        // 兜底：任一桥接源码目录存在即用。
+        foreach (var dir in candidates)
+        {
+            if (File.Exists(Path.Combine(dir, "SeqChapterHelperBridge.cs"))
+                || File.Exists(Path.Combine(dir, "SeqChapterMiniBridge.cs")))
+            {
+                return dir;
+            }
+        }
+
+        throw new DirectoryNotFoundException($"找不到 tools/{_bridgeSourceDirName} 目录");
     }
 
     private static byte[] ReadMethodBodyFromPe(byte[] pe, int rva)

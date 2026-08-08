@@ -120,3 +120,7 @@ SeqChapterTestUi.log.bak
 tools/_tmp_*/
 tools/hotfix.dll.bytes*.bak*
 
+# 分析缓存（导出/动画缓存，可随时重建）
+tools/pet_anim_cache/
+tools/pet_anim_cache_seqchapter/
+

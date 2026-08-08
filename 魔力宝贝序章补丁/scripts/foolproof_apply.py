@@ -90,6 +90,7 @@ def run_foolproof_patch(
     gift_codes: list[str] | str | None = None,
     apply_accel: bool = False,
     apply_frameskip: bool = True,
+    inject_bridge: bool = False,
     on_log: LogFn | None = None,
     # 旧多档参数已废弃：一律走百科助手面板，忽略下列开关
     burn_seal: bool = False,
@@ -105,6 +106,8 @@ def run_foolproof_patch(
         注意：默认组合总是拦截倍速检测上报（CheckTimeScaleWarning /
         SendTimeScaleWarning 打成空方法，防检测），无论加速是否开启。
     apply_frameskip：跳帧开关（切后台/老板键限帧 30FPS），默认开。
+    inject_bridge：多开器适配功能开关，默认关（占容量，多开器需连接时才勾）。
+        开启后注入 SeqChapterMiniBridge 精简桥接外部 DLL + hook（多开/账号登录/一键召唤）。
     daily_claim / newbie_gift_code：分享切页（默认开）。
     gift_codes：可编辑礼包码；None 用默认。
     """
@@ -173,7 +176,7 @@ def run_foolproof_patch(
         extra_checks.append("level_one_include_all")
 
     kwargs["from_orig"] = True
-    kwargs["inject_bridge"] = False
+    kwargs["inject_bridge"] = bool(inject_bridge)
     kwargs["daily_claim"] = bool(daily_claim)
     kwargs["newbie_gift_code"] = bool(newbie_gift_code)
     kwargs["gift_codes"] = gift_codes
@@ -204,6 +207,14 @@ def run_foolproof_patch(
     )
 
     _emit(messages, on_log, "正在余量预检（启动补丁引擎，首次可能较慢）…")
+    if inject_bridge:
+        _emit(
+            messages,
+            on_log,
+            "多开器适配功能：开启（注入精简桥接，供多开器登录/拉多控/一键召唤；占 hotfixdata 容量）",
+        )
+    else:
+        _emit(messages, on_log, "多开器适配功能：关闭（需用多开器时请勾选「多开器适配功能」）")
     try:
         precheck = ["longpress"] if not apply_accel else ["vip", "sprint", "longpress", "skill_effect"]
         data = slack_report(
@@ -250,13 +261,14 @@ def run_foolproof_patch(
             bits.append("礼包码")
         daily_part = " · 分享切页(" + "+".join(bits) + ")"
     gm_part = " · 客服→高级自动战斗" if kwargs.get("customer_gm") else ""
+    bridge_part = " · 多开器适配(精简桥接)" if inject_bridge else ""
     nine_part = f" · 九动{nine_label}" if enable_nine else " · 无九动"
     if not apply_accel:
         _emit(
             messages,
             on_log,
             f"已应用：无战斗倍速 · 原速跑图 · 长按详情 · 无特效加速 · 心跳回传1.0x"
-            f"{panel_part}{gm_part}{daily_part}{nine_part}{frameskip_part}"
+            f"{panel_part}{gm_part}{daily_part}{nine_part}{frameskip_part}{bridge_part}"
             + (" · 一级含蝙蝠/哥布林" if kwargs.get("level_one_include_all") else ""),
         )
     else:
@@ -268,7 +280,7 @@ def run_foolproof_patch(
             messages,
             on_log,
             f"已应用：VIP{vip}x{sprint_part} · 长按详情 · 特效{fx}x · 心跳回传{echo:g}x"
-            f"{panel_part}{gm_part}{daily_part}{nine_part}{frameskip_part}"
+            f"{panel_part}{gm_part}{daily_part}{nine_part}{frameskip_part}{bridge_part}"
             + (" · 一级含蝙蝠/哥布林" if kwargs.get("level_one_include_all") else ""),
         )
     try:

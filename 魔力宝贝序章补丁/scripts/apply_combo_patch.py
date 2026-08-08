@@ -1418,13 +1418,13 @@ def apply_combo(
     if inject_bridge:
         from bridge_inject import apply_bridge_patch
 
-        _emit_combo(messages, on_log, "桥接：先在干净 .orig 上注入（玩法补丁随后叠加）…")
-        ok, msg = apply_bridge_patch(game_root, force_from_orig=True)
+        _emit_combo(messages, on_log, "桥接：先在干净 .orig 上注入精简多开桥接（玩法补丁随后叠加）…")
+        ok, msg = apply_bridge_patch(game_root, force_from_orig=True, mini=True)
         if not ok:
             raise RuntimeError(msg)
         variant = detect_bridge_variant(game_root)
         label = bridge_variant_label(variant)
-        summary = msg.splitlines()[0] if msg else "助手桥接注入成功"
+        summary = msg.splitlines()[0] if msg else "精简桥接注入成功"
         _emit_combo(messages, on_log, f"桥接：{summary}" + (f"（{label}）" if label else ""))
 
         if gameplay_flags:

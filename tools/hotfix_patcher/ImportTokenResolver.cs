@@ -173,18 +173,20 @@ internal static class ImportTokenResolver
         probeMethod.Body.InitLocals = false;
 
         var il = probeMethod.Body.GetILProcessor();
-        il.Append(il.Create(OpCodes.Ldstr, "hotfixdata/SeqChapterHelperBridge.dll.bytes"));
+        il.Append(il.Create(OpCodes.Ldstr, BridgeLoaderIlBuilder.BridgeDllAssetPath));
         il.Append(il.Create(OpCodes.Call, loadBytes));
         il.Append(il.Create(OpCodes.Call, assemblyLoad));
-        il.Append(il.Create(OpCodes.Ldstr, "SeqChapterHelperBridge"));
+        il.Append(il.Create(OpCodes.Ldstr, BridgeLoaderIlBuilder.BridgeTypeName));
         il.Append(il.Create(OpCodes.Callvirt, getType));
-        il.Append(il.Create(OpCodes.Ldstr, "Bootstrap"));
+        il.Append(il.Create(OpCodes.Ldstr, BridgeLoaderIlBuilder.BridgeBootstrapName));
         il.Append(il.Create(OpCodes.Callvirt, getMethod));
         il.Append(il.Create(OpCodes.Ldnull));
         il.Append(il.Create(OpCodes.Ldnull));
         il.Append(il.Create(OpCodes.Callvirt, invoke));
         il.Append(il.Create(OpCodes.Pop));
-        il.Append(il.Create(OpCodes.Ldstr, "SeqChapterHelperBridge, SeqChapterHelperBridge"));
+        il.Append(il.Create(
+            OpCodes.Ldstr,
+            BridgeLoaderIlBuilder.BridgeTypeName + ", " + BridgeLoaderIlBuilder.BridgeTypeName));
         il.Append(il.Create(OpCodes.Call, getTypeStatic));
         il.Append(il.Create(OpCodes.Pop));
         il.Append(il.Create(OpCodes.Ret));

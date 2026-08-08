@@ -306,12 +306,17 @@ def _ensure_clean_baseline(
     _emit(messages, on_log, f"底稿 SHA256: {digest[:16]}…")
 
     bridge = bridge_dll_path(root)
-    if bridge.is_file():
-        try:
-            bridge.unlink()
-            _emit(messages, on_log, "已移除残留助手桥接 DLL")
-        except OSError:
-            _emit(messages, on_log, "警告：无法删除桥接 DLL（请确认游戏已关闭）")
+    mini_bridge = bridge_dll_path(root, mini=True)
+    removed = []
+    for dll in (bridge, mini_bridge):
+        if dll.is_file():
+            try:
+                dll.unlink()
+                removed.append(dll.name)
+            except OSError:
+                _emit(messages, on_log, f"警告：无法删除 {dll.name}（请确认游戏已关闭）")
+    if removed:
+        _emit(messages, on_log, "已移除残留桥接 DLL: " + ", ".join(removed))
 
     clear_combo_patch_state()
     return orig

@@ -19,7 +19,6 @@ from patch_common import (
     is_bridge_patched,
     run_patcher_capture,
 )
-
 BRIDGE_INJECT_LOG = Path.home() / ".seqchapter_helper" / "bridge_inject.log"
 
 
@@ -127,10 +126,11 @@ def _hotfix_uses_add_time_invoke(game_root: Path) -> bool:
 
 
 def remove_bridge_patch(game_root: Path) -> tuple[bool, str]:
-    """用 .orig 覆盖 hotfix，并删除桥接 DLL。"""
+    """用 .orig 覆盖 hotfix，并删除桥接 DLL（精简 + 完整）。"""
     hotfix = hotfix_path(game_root)
     orig = hotfix_orig(game_root)
     bridge = bridge_dll_path(game_root)
+    mini_bridge = bridge_dll_path(game_root, mini=True)
     if not hotfix.is_file():
         return False, f"找不到 hotfix: {hotfix}"
     if not orig.is_file():
@@ -139,7 +139,7 @@ def remove_bridge_patch(game_root: Path) -> tuple[bool, str]:
             f"找不到备份 {orig.name}。\n"
             "请先在序章补丁 GUI 点「初始化」。",
         )
-    if not is_bridge_patched(game_root) and not bridge.is_file():
+    if not is_bridge_patched(game_root) and not bridge.is_file() and not mini_bridge.is_file():
         return True, "当前 hotfix 未检测到桥接，无需取消"
 
     try:
@@ -147,11 +147,14 @@ def remove_bridge_patch(game_root: Path) -> tuple[bool, str]:
     except OSError as exc:
         return False, f"无法写入 hotfix（请先关闭游戏）: {exc}"
 
-    if bridge.is_file():
-        try:
-            bridge.unlink()
-        except OSError as exc:
-            return False, f"hotfix 已恢复，但无法删除桥接 DLL: {exc}"
+    removed = []
+    for dll in (bridge, mini_bridge):
+        if dll.is_file():
+            try:
+                dll.unlink()
+                removed.append(dll.name)
+            except OSError as exc:
+                return False, f"hotfix 已恢复，但无法删除桥接 DLL: {exc}"
 
     if is_bridge_patched(game_root):
         return (
@@ -159,11 +162,21 @@ def remove_bridge_patch(game_root: Path) -> tuple[bool, str]:
             "已恢复 .orig，但仍检测到桥接 hook。\n"
             "请用序章补丁 GUI 重新「初始化」。",
         )
-    return True, f"已从 {orig.name} 恢复 hotfix，桥接已取消"
+    return True, f"已从 {orig.name} 恢复 hotfix，桥接已取消" + (
+        f"（删除 {', '.join(removed)}）" if removed else ""
+    )
 
 
-def apply_bridge_patch(game_root: Path, *, force_from_orig: bool = False) -> tuple[bool, str]:
-    """注入 SeqChapterHelperBridge（外部 DLL + hook，hotfix 体积不变）。
+def apply_bridge_patch(
+    game_root: Path,
+    *,
+    force_from_orig: bool = False,
+    mini: bool = True,
+) -> tuple[bool, str]:
+    """注入桥接（外部 DLL + hook，hotfix 体积不变）。
+
+    mini=True：精简多开桥接 SeqChapterMiniBridge（登录/拉多控/一键召唤，供新序章多开器直接驱动）。
+    mini=False：完整助手桥接 SeqChapterHelperBridge（含助手面板命令）。
 
     若 hook 已正确注入，仍会走 patcher 刷新外部 DLL（逻辑更新无需重打玩法补丁）。
     """
@@ -204,6 +217,8 @@ def apply_bridge_patch(game_root: Path, *, force_from_orig: bool = False) -> tup
     # 仅刷新 DLL 时必须以当前已打补丁的 hotfix 为输入，避免从 .orig 抹掉玩法补丁。
     source = hotfix if refresh_dll_only else (hotfix_orig(game_root) if force_from_orig else hotfix)
     args = ["helper-bridge-patch", "--hotfix", str(source), "--output", str(hotfix)]
+    if mini:
+        args.append("--mini")
     try:
         proc = run_patcher_capture(args)
     except FileNotFoundError as exc:
@@ -242,9 +257,9 @@ def apply_bridge_patch(game_root: Path, *, force_from_orig: bool = False) -> tup
             returncode=proc.returncode,
         )
 
-    detail = out.strip() or "助手桥接注入成功"
+    detail = out.strip() or ("精简桥接注入成功" if mini else "助手桥接注入成功")
     if refresh_dll_only and "刷新" not in detail:
-        detail = "助手桥接 DLL 已刷新（hook 未改）\n" + detail
+        detail = "桥接 DLL 已刷新（hook 未改）\n" + detail
 
     _append_bridge_inject_log(
         game_root,
