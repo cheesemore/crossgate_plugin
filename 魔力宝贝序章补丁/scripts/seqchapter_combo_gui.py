@@ -312,7 +312,7 @@ class ComboPatchApp:
         ).pack(anchor=tk.W, pady=(8, 0))
         ttk.Checkbutton(
             tab_common,
-            text="进战形象钩子（人物/光环/坐骑/宠形象/满档；百科→形象；按Uid存档）",
+            text="进战形象钩子（总是部署，默认不套形象；勾选=默认开启；游戏内百科→形象可随时开/关）",
             variable=self.battle_appear_var,
         ).pack(anchor=tk.W, pady=(8, 0))
 

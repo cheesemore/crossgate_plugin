@@ -113,6 +113,10 @@ public static class SeqChapterBattleAppear
             }
 
             EnsureConfig(force: false);
+            if (!_enabled)
+            {
+                return false;
+            }
             LoadUidStore(force: false);
             if (!_enabled)
             {
@@ -187,6 +191,11 @@ public static class SeqChapterBattleAppear
         try
         {
             EnsureConfig(force: false);
+            // 钩子未开：不进战读 Uid 档，避免每次进战读盘
+            if (!_enabled)
+            {
+                return;
+            }
             // 进战前再读一次 Uid 档（短读，不占用文件）
             LoadUidStore(force: true);
             if (!_enabled)

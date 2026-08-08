@@ -40,7 +40,7 @@ DEFAULT_COMBO_KWARGS = {
     "boss_key_fps": True,  # 切后台 / 老板键隐藏 → 30 FPS
     "wiki_fps": False,
     "wiki_test_ui": True,  # 百科 → 助手面板
-    "battle_appear": False,  # 进战形象钩子：默认关，需要时再勾
+    "battle_appear": False,  # 进战形象钩子：总是部署（游戏内可开），勾选=打补丁后默认开启形象
     "inject_bridge": False,
     "from_orig": True,
 }
@@ -63,7 +63,7 @@ FOOLPROOF_COMBO_KWARGS = {
     "wiki_test_ui": True,
     "boss_key_fps": True,
     "transition_speed": False,
-    "battle_appear": False,  # 皮肤挂钩（进战形象钩子）默认关
+    "battle_appear": False,  # 皮肤挂钩（进战形象钩子）总是部署，默认不套形象；游戏内可开
     "vip_scale": 3,  # 仅在勾选战斗加速时生效（vip=True，vip_echo 由 foolproof_apply 设置）
     "map_sprint": False,  # 移动加速默认关
 }

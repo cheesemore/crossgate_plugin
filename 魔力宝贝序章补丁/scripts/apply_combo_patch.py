@@ -425,8 +425,13 @@ def apply_daily_claim_external(
     return True, f"分享切页：侧栏「分享」→ {label}（2秒内再点开始）"
 
 
-def apply_battle_appear_external(hotfix: Path, source: Path) -> tuple[bool, str]:
-    """进战形象钩子：OnCommandCharCallback → SeqChapterBattleAppear + battle_appear.json。"""
+def apply_battle_appear_external(
+    hotfix: Path, source: Path, *, enable: bool | None = None
+) -> tuple[bool, str]:
+    """进战形象钩子：OnCommandCharCallback → SeqChapterBattleAppear + battle_appear.json。
+
+    enable=True → 写 json enabled=true（默认开启）；enable=False/None → 保持 false（默认关，游戏内形象页可开）。
+    """
     proc = run_patcher_capture(
         [
             "battle-appear-external-patch",
@@ -451,6 +456,16 @@ def apply_battle_appear_external(hotfix: Path, source: Path) -> tuple[bool, str]
         if tools_bin.is_file():
             # 形象表供预览工具；钩子本身只读 json
             pass
+        if enable is True:
+            # 勾选「进战形象钩子」= 打补丁后默认开启形象：同步 tools 与 hotfixdata 两份 json
+            for p in (cfg_src, cfg_dst):
+                if p.is_file():
+                    text = p.read_text(encoding="utf-8")
+                    if '"enabled": false' in text:
+                        p.write_text(
+                            text.replace('"enabled": false', '"enabled": true'),
+                            encoding="utf-8",
+                        )
     except OSError as exc:
         return False, f"形象钩子配置复制失败: {exc}"
     if "[APPEAR] OnCommandCharCallback 钩已存在" in out:
@@ -1101,13 +1116,14 @@ def _apply_gameplay_patches(
         _emit_combo(messages, on_log, msg)
         work = hotfix
 
-    if battle_appear:
-        _emit_combo(messages, on_log, "正在打：进战形象钩子…")
-        ok, msg = apply_battle_appear_external(hotfix, work)
-        if not ok:
-            raise RuntimeError(msg)
-        _emit_combo(messages, on_log, msg)
-        work = hotfix
+    # 进战形象钩子：总是部署 DLL+钩子+json（battle_appear=True 时默认启用形象；
+    # 默认 False 也部署，enabled=false 不套形象，游戏内形象页勾上即生效）
+    _emit_combo(messages, on_log, "正在打：进战形象钩子…")
+    ok, msg = apply_battle_appear_external(hotfix, work, enable=battle_appear or None)
+    if not ok:
+        raise RuntimeError(msg)
+    _emit_combo(messages, on_log, msg)
+    work = hotfix
 
     if pet_equip_unlock:
         raise RuntimeError("宠物四装备孔补丁已停用（会导致宠物界面崩溃）")

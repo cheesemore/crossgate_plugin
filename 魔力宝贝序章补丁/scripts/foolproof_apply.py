@@ -281,8 +281,7 @@ def run_foolproof_patch(
     if kwargs.get("wiki_test_ui"):
         _deploy_pet_rank_bin(root, messages, on_log=on_log)
 
-    if kwargs.get("battle_appear"):
-        _emit(messages, on_log, "进战形象：已打钩子（百科→形象 / 推荐方案 / 按Uid存档）")
+    _emit(messages, on_log, "进战形象：钩子已部署（默认不套形象；游戏内 百科→形象 可开/关）")
 
     _emit(messages, on_log, "完成。请启动游戏验证。")
     return messages
