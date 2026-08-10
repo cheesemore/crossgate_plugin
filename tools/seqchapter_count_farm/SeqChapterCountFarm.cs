@@ -5,8 +5,9 @@ using System.Reflection;
 /// <summary>
 /// 计数挂机 DLL。部署为 hotfixdata/SeqChapterCountFarm.dll.bytes
 /// 由助手面板战斗模式页「计数挂机」互斥切换（SetEnabled）。
-/// 开启后：监听 EventCenter.EnterBattle，每次进战斗 +1；
-/// 窗口标题追加「 ★挂机中★ 已战斗N次」。关闭时清零并恢复原标题。
+/// 开启后：监听 EventCenter.EnterBattle，每次进战斗计数（内部用），
+/// 窗口标题追加「 ★挂机中★ 魔石94.1%」（精确到 0.1%，满显示魔石满）。
+/// 关闭时清零并恢复原标题。
 /// 仅计数与标题，不拦截任何战斗动作，可与抓宠/烧卡等同开。
 /// </summary>
 public static class SeqChapterCountFarm
@@ -35,49 +36,22 @@ public static class SeqChapterCountFarm
         return ReadPipelineEnabledFromAnyCopy();
     }
 
-    /// <summary>缓存的魔石后缀（避免面板每 2s 兜底刷新时重复统计）。</summary>
-    private static int _cachedMoshiBattleCount = -1;
-    private static string _cachedMoshiSuffix = "";
-
     /// <summary>面板标题协调用：后缀，未开启返回空。</summary>
     public static string BuildTitleSuffix()
     {
         if (!IsPipelineActive())
         {
-            _cachedMoshiBattleCount = -1;
             return "";
         }
 
-        var suffix = "★挂机中★ 已战斗" + _battleCount + "次";
-        var moshi = BuildMoshiSuffixCached();
+        var suffix = "★挂机中★";
+        var moshi = BuildMoshiSuffix();
         if (!string.IsNullOrEmpty(moshi))
         {
             suffix += " " + moshi;
         }
 
         return suffix;
-    }
-
-    /// <summary>魔石后缀：只在战斗数变化时重算，否则用缓存。数据未就绪（空结果）时不缓存，便于数据到达后及时显示。</summary>
-    private static string BuildMoshiSuffixCached()
-    {
-        if (_cachedMoshiBattleCount == _battleCount)
-        {
-            return _cachedMoshiSuffix;
-        }
-
-        var value = BuildMoshiSuffix();
-        if (string.IsNullOrEmpty(value))
-        {
-            // 数据未就绪：不更新缓存，下个刷新周期（面板 Tick 2s / 战斗数变化）重试
-            _cachedMoshiBattleCount = -1;
-            _cachedMoshiSuffix = "";
-            return value;
-        }
-
-        _cachedMoshiBattleCount = _battleCount;
-        _cachedMoshiSuffix = value;
-        return value;
     }
 
     /// <summary>
@@ -91,20 +65,20 @@ public static class SeqChapterCountFarm
             var uids = CollectTeamOrMultiUids();
             if (uids.Count == 0)
             {
-                return "";
+                return "魔石--%";
             }
 
             var roleMgr = GetManagerInstance("RoleManager");
             if (roleMgr == null)
             {
-                return "";
+                return "魔石--%";
             }
 
             var dict = GetMember(roleMgr, "m_buffInfo") as IDictionary;
             if (dict == null || dict.Count == 0)
             {
-                // 缓存为空：不在此处请求（请求按战斗场次节奏由 OnBattleEntered 触发）
-                return "";
+                // 缓存为空（读不到数据也显示 --）：请求由 OnBattleEntered 按场次节奏触发
+                return "魔石--%";
             }
 
             // 有数据的人数、汇总当前值、汇总上限；全部达上限才算满
@@ -143,7 +117,7 @@ public static class SeqChapterCountFarm
 
             if (!hasAny)
             {
-                return "";
+                return "魔石--%";
             }
 
             if (allFull)
@@ -153,20 +127,23 @@ public static class SeqChapterCountFarm
 
             if (totalLimit <= 0)
             {
-                return "";
+                return "魔石--%";
             }
 
-            var pct = (int)(totalCur * 100 / totalLimit);
-            if (pct > 99)
+            // 一位小数：千分比取整（940 → 94.0%），未全员满时最多 99.9%
+            var perMille = (int)(totalCur * 1000 / totalLimit);
+            if (perMille > 999)
             {
-                pct = 99; // 未全员满时最多显示 99%
+                perMille = 999;
             }
 
-            return "魔石" + pct + "%";
+            var whole = perMille / 10;
+            var frac = perMille % 10;
+            return "魔石" + whole + "." + frac + "%";
         }
         catch
         {
-            return "";
+            return "魔石--%";
         }
     }
 

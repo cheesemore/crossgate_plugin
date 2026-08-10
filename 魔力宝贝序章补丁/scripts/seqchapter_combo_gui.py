@@ -144,6 +144,8 @@ class ComboPatchApp:
         self.count_farm_var = tk.BooleanVar(value=True)
         self.area_extract_var = tk.BooleanVar(value=True)
         self.auto_point_var = tk.BooleanVar(value=True)
+        self.auto_stall_external_var = tk.BooleanVar(value=True)
+        self.bear_slayer_external_var = tk.BooleanVar(value=True)
         self.lv1_auto_external_var = tk.BooleanVar(value=False)
         self.auto_sell_external_var = tk.BooleanVar(value=False)
         self.plugin_host_var = tk.BooleanVar(value=False)
@@ -390,13 +392,13 @@ class ComboPatchApp:
         ).pack(anchor=tk.W, padx=(18, 0), pady=(2, 0))
         ttk.Checkbutton(
             tab_battle,
-            text="计数挂机（默认；面板战斗页互斥切换；标题 ★挂机中★ 已战斗X次）",
+            text="计数挂机（默认；面板战斗页互斥切换；标题 ★挂机中★ 魔石进度）",
             variable=self.count_farm_var,
             command=lambda: self._on_battle_exclusive_toggle("count_farm"),
         ).pack(anchor=tk.W, pady=(8, 0))
         ttk.Label(
             tab_battle,
-            text="默认开启。仅计数+标题：每次进战斗 +1，标题「★挂机中★ 已战斗N次」；关闭清零恢复。不拦截战斗，可与抓宠/烧卡同开。",
+            text="默认开启。标题「★挂机中★ 魔石94.1%」（精确到 0.1%）实时显示魔石总进度，满时显示「魔石满」；关闭清零恢复。不拦截战斗，可与抓宠/烧卡同开。",
             wraplength=500,
             foreground="#666666",
             font=("Microsoft YaHei UI", 8),
@@ -422,6 +424,30 @@ class ComboPatchApp:
         ttk.Label(
             tab_battle,
             text="默认部署。在助手面板「脚本」页点「一键加点」：所有角色按职业推荐第一套方案加点（血/攻/强/速/魔按方案权重分配，可加点数有剩余时按权重继续分）；所有宠物优先加力量，加到爆点极限（单属性 BP 不超过总 BP 一半）即止，溢出点不再分配。",
+            wraplength=500,
+            foreground="#666666",
+            font=("Microsoft YaHei UI", 8),
+        ).pack(anchor=tk.W, padx=(18, 0), pady=(2, 0))
+        ttk.Checkbutton(
+            tab_battle,
+            text="自动上架（默认部署；面板脚本页「一键上架」，只上架默认定价表单内装备）",
+            variable=self.auto_stall_external_var,
+        ).pack(anchor=tk.W, pady=(8, 0))
+        ttk.Label(
+            tab_battle,
+            text="默认部署。在助手面板「脚本」页点「一键上架」：停止挂机→退队→回法兰城→处理摊位（到期/已出摊先收摊重摆免费重置时间）→按默认定价表单 D~S 品级价格分批上架（≤5/批）。每步 Tip；网络超时最多重试2次；无摊位/卡位置等不可执行步骤直接终止转人工。改价：编辑 tools/../可上架装备表单_默认定价.xlsx 后运行 tools/gen_auto_sell_price_cfg.py 再重打补丁。",
+            wraplength=500,
+            foreground="#666666",
+            font=("Microsoft YaHei UI", 8),
+        ).pack(anchor=tk.W, padx=(18, 0), pady=(2, 0))
+        ttk.Checkbutton(
+            tab_battle,
+            text="刷熊男（默认部署；面板脚本页「刷熊男」，等杀熊者→丢欧兹那克→穿身触发战斗）",
+            variable=self.bear_slayer_external_var,
+        ).pack(anchor=tk.W, pady=(8, 0))
+        ttk.Label(
+            tab_battle,
+            text="默认部署。在助手面板「脚本」页点「刷熊男」：非战斗时每10s扫缓存等「杀熊者」NPC刷新→丢弃队长背包含「欧兹那克」的道具→走到17,15→停2秒→走向NPC穿身→进战斗→战后冷却10秒循环。窗口标题实时显示刷熊男N次；每步 Tip。",
             wraplength=500,
             foreground="#666666",
             font=("Microsoft YaHei UI", 8),
@@ -926,6 +952,8 @@ class ComboPatchApp:
                 count_farm=self.count_farm_var.get(),
                 area_extract=self.area_extract_var.get(),
                 auto_point=self.auto_point_var.get(),
+                auto_stall_external=self.auto_stall_external_var.get(),
+                bear_slayer_external=self.bear_slayer_external_var.get(),
                 plugin_host=self.plugin_host_var.get(),
                 customer_gm=self.customer_gm_var.get(),
                 customer_gm_mode=self.customer_gm_mode_var.get(),

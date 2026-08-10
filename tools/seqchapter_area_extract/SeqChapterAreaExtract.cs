@@ -1,18 +1,20 @@
 using System;
 using System.Collections;
+using System.Collections.Generic;
 using System.Reflection;
-using System.Threading;
 
 /// <summary>
 /// 采集自动提取 DLL。部署为 hotfixdata/SeqChapterAreaExtract.dll.bytes
 /// 由助手面板「战斗」页开关（SetEnabled），与战斗模式共存（不互斥）；
-/// 「脚本」页有「立刻提取」按钮（ExtractNowFromUi，绕过冷却强制提取一次）。
-/// 不需要自动采集：只监控已采集物品，已采集物共 5 格，单格达到 999 时
-/// 对该格发 SendArea("取出物品到账号仓库", uid, index+1, pile) 提取到账号银行。
-/// 每次提取最多尝试 2 次（1 次 + 等待服务端回推后仍满则重试 1 次）。
-/// 触发：启动即检 + 每次 CollectionManager.OnEvent（服务端采集数据推送）即检
-///       + 每 10 分钟后台兜底。采集很慢（一格最快10分钟+），无需高频扫描。
-/// 标题由助手面板统一协调：BuildTitleSuffix 返回「 ★自动提取★X格已满」。
+/// 「脚本」页有「立刻提取」按钮（ExtractNowFromUi，绕过冷却强制提取一轮）。
+/// 不需要自动采集：对账号所有在线角色逐个请求采集数据，已采物品共 5 格，
+/// 单格达到 999 时对该格发 SendArea("取出物品到账号仓库", uid, index+1, pile) 提取到账号银行。
+/// 提取节奏与日常一致：状态机 + 主线程 Timer（StepSec=0.4s），
+/// 每个操作只发一条消息并等待服务端回推（最多约 5.2s，超时重试 2 次后跳过），
+/// 避免瞬间连发大量消息导致卡顿/封号风险。
+/// 角色覆盖：MultiInfo 在线角色（五开）→ 当前队伍 → 保底主角色，不再只提队长。
+/// 触发：开启即跑一轮 + 每次 CollectionManager.OnEvent（服务端采集数据推送）即检
+///       + 每 10 分钟后台兜底一轮。
 /// </summary>
 public static class SeqChapterAreaExtract
 {
@@ -22,32 +24,58 @@ public static class SeqChapterAreaExtract
     /// <summary>单格触发提取的堆叠数（满格）。</summary>
     public const int FullPile = 999;
 
+    /// <summary>节奏 tick 间隔（秒）：同日常。</summary>
+    private const float StepSec = 0.4f;
+
+    /// <summary>等待服务端回推的最大 tick 数（约 5.2s：服务器慢时多等一会，读到即继续）。</summary>
+    private const int WaitTicksMax = 13;
+
+    /// <summary>每个等待操作超时后再重发次数，之后跳过。</summary>
+    private const int MaxOpRetries = 2;
+
+    /// <summary>每格提取最多尝试次数（1 次 + 重试）。</summary>
+    private const int MaxAttemptsPerSlot = 2;
+
     /// <summary>后台兜底扫描周期（毫秒）：10 分钟。</summary>
-    public const int ScanIntervalMs = 10 * 60 * 1000;
+    private const long ScanIntervalMs = 10 * 60 * 1000;
 
-    /// <summary>提取冷却（毫秒）：距上次提取不足此值则不再次提取，防重复发。</summary>
-    public const int ExtractCooldownMs = 60_000;
-
-    /// <summary>每次提取最多尝试次数（1 次 + 1 次重试）。</summary>
-    public const int MaxAttemptsPerSlot = 2;
-
-    /// <summary>提取后等待服务端回推数据再校验的毫秒数。</summary>
-    public const int RetryCheckDelayMs = 3000;
+    /// <summary>提取冷却（毫秒）：距上次实际发送提取不足此值则不开始新扫描，防重复发。</summary>
+    private const long ExtractCooldownMs = 60_000;
 
     /// <summary>总开关。默认关闭；面板战斗页切换。</summary>
     public static volatile bool PipelineEnabled = false;
 
     private static bool _bootstrapped;
-    private static int _threadStarted;
-    private static Thread _worker;
-    private static volatile int _workerStop;
-
-    private static long _lastExtractMs;
+    private static bool _pipelineRunning;
+    private static object _timer;
+    private static int _state;
+    private static int _waitTicks;
+    private static int _opRetryCount;
+    private static List<string> _uids;
+    private static int _uidIndex;
+    private static List<object[]> _slots;
+    private static int _slotIndex;
+    private static int _attempt;
+    private static int _extractedCount;
+    private static long _lastSendMs;
+    private static long _lastScanMs;
+    private static bool _pendingEvent;
     private static int _fullSlotCount;
-    private static int _extractRunning;
 
     private static bool _areaHooked;
     private static Action<object> _onAreaEvent;
+
+    // states
+    private const int StIdle = 0;
+    private const int StCollect = 1;
+    private const int StRequestData = 2;
+    private const int StWaitData = 3;
+    private const int StScanSlots = 4;
+    private const int StExtract = 5;
+    private const int StWaitExtract = 6;
+    private const int StNextSlot = 7;
+    private const int StNextUid = 8;
+    private const int StDone = 9;
 
     public static bool IsPipelineActive()
     {
@@ -68,10 +96,10 @@ public static class SeqChapterAreaExtract
 
         _bootstrapped = true;
         TryHookAreaEvent();
-        EnsureWorker();
+        EnsureTimer();
     }
 
-    /// <summary>面板战斗页：显式开/关。开启时立即检查一次。</summary>
+    /// <summary>面板战斗页：显式开/关。开启时立即开始一轮。</summary>
     public static void SetEnabled(bool enable)
     {
         Bootstrap();
@@ -79,11 +107,17 @@ public static class SeqChapterAreaExtract
         if (enable)
         {
             TryHookAreaEvent();
-            EnsureWorker();
-            CheckAndExtractAll();
+            EnsureTimer();
+            _pendingEvent = true;
         }
-
-        NotifyTitleRefresh();
+        else
+        {
+            StopTimer();
+            _pipelineRunning = false;
+            _state = StIdle;
+            _uids = null;
+            _slots = null;
+        }
     }
 
     /// <summary>面板战斗页：切换；返回是否开启。</summary>
@@ -115,61 +149,644 @@ public static class SeqChapterAreaExtract
         return "★自动提取★" + _fullSlotCount + "格已满";
     }
 
-    /// <summary>进战斗标题协调用：留给面板/其他 DLL 合并（计数挂机用）。</summary>
+    /// <summary>标题/计数用：当前满格总数。</summary>
     public static int GetFullSlotCount()
     {
         return _fullSlotCount;
     }
 
-    private static void EnsureWorker()
+    /// <summary>立刻提取（脚本页按钮）：绕过冷却，强制开始一轮；返回当前已知满格数。</summary>
+    public static int ExtractNowFromUi()
     {
-        if (_threadStarted != 0)
+        Bootstrap();
+        if (!IsPipelineActive())
         {
-            return;
+            // 手动点按钮即使总开关未开也应执行一轮，但不改变开关状态
         }
 
-        if (Interlocked.Exchange(ref _threadStarted, 1) == 1)
-        {
-            return;
-        }
-
-        _worker = new Thread(WorkerLoop);
-        _worker.IsBackground = true;
-        _worker.Name = "SeqChapterAreaExtract.Worker";
-        _worker.Start();
+        EnsureTimer();
+        _pendingEvent = true;
+        _lastSendMs = 0; // 绕过冷却
+        return _fullSlotCount;
     }
 
-    private static void WorkerLoop()
+    // ---------------- Timer 驱动（同日常） ----------------
+
+    private static void EnsureTimer()
     {
-        while (Volatile.Read(ref _workerStop) == 0)
+        if (_timer != null)
+        {
+            return;
+        }
+
+        try
+        {
+            var timerType = FindType("Timer");
+            if (timerType == null)
+            {
+                return;
+            }
+
+            MethodInfo create = null;
+            foreach (var m in timerType.GetMethods(BindingFlags.Public | BindingFlags.Static))
+            {
+                if (m.Name != "Create")
+                {
+                    continue;
+                }
+
+                var ps = m.GetParameters();
+                if (ps.Length >= 3
+                    && ps[0].ParameterType.Name == "Action"
+                    && ps[1].ParameterType == typeof(float)
+                    && ps[2].ParameterType == typeof(int))
+                {
+                    create = m;
+                    break;
+                }
+            }
+
+            if (create == null)
+            {
+                return;
+            }
+
+            var tick = (Action)Tick;
+            var psAll = create.GetParameters();
+            object[] args;
+            if (psAll.Length >= 4)
+            {
+                args = new object[] { tick, StepSec, -1, true };
+                if (psAll.Length > 4)
+                {
+                    var more = new object[psAll.Length];
+                    Array.Copy(args, more, 4);
+                    for (var i = 4; i < psAll.Length; i++)
+                    {
+                        more[i] = psAll[i].HasDefaultValue ? psAll[i].DefaultValue : null;
+                    }
+
+                    args = more;
+                }
+            }
+            else
+            {
+                args = new object[] { tick, StepSec, -1 };
+            }
+
+            _timer = create.Invoke(null, args);
+            var start = _timer?.GetType().GetMethod(
+                "Start",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            start?.Invoke(_timer, null);
+        }
+        catch
+        {
+            // ignore
+        }
+    }
+
+    private static void StopTimer()
+    {
+        if (_timer == null)
+        {
+            return;
+        }
+
+        try
+        {
+            var stop = _timer.GetType().GetMethod(
+                "Stop",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            stop?.Invoke(_timer, null);
+        }
+        catch
+        {
+            // ignore
+        }
+
+        _timer = null;
+    }
+
+    private static void Tick()
+    {
+        if (!IsPipelineActive())
+        {
+            if (_pipelineRunning)
+            {
+                _pipelineRunning = false;
+                _state = StIdle;
+                _uids = null;
+                _slots = null;
+            }
+
+            return;
+        }
+
+        try
+        {
+            StepExtract();
+        }
+        catch
+        {
+            // ignore
+        }
+    }
+
+    // ---------------- 状态机（同日常节奏） ----------------
+
+    private static void StepExtract()
+    {
+        switch (_state)
+        {
+            case StIdle:
+            {
+                var now = NowMs();
+                var due = _pendingEvent
+                          || (_uids == null && now - _lastScanMs >= ScanIntervalMs);
+                if (!due)
+                {
+                    return;
+                }
+
+                if (now - _lastSendMs < ExtractCooldownMs && !_pendingEvent)
+                {
+                    return;
+                }
+
+                _pendingEvent = false;
+                _state = StCollect;
+                return;
+            }
+            case StCollect:
+            {
+                _uids = CollectUids();
+                _uidIndex = 0;
+                _extractedCount = 0;
+                _fullSlotCount = 0;
+                if (_uids == null || _uids.Count == 0)
+                {
+                    _lastScanMs = NowMs();
+                    _state = StIdle;
+                    return;
+                }
+
+                _state = StRequestData;
+                return;
+            }
+            case StRequestData:
+            {
+                if (_uidIndex >= _uids.Count)
+                {
+                    _state = StDone;
+                    return;
+                }
+
+                var uid = _uids[_uidIndex];
+                SendAreaData(uid);
+                _waitTicks = 0;
+                _opRetryCount = 0;
+                _state = StWaitData;
+                return;
+            }
+            case StWaitData:
+            {
+                _waitTicks++;
+                var uid = _uids[_uidIndex];
+                if (ReadAreaData(uid) != null)
+                {
+                    _state = StScanSlots;
+                    return;
+                }
+
+                if (_waitTicks >= WaitTicksMax)
+                {
+                    if (RetryOrSkip("等采集数据", StNextUid))
+                    {
+                        return;
+                    }
+
+                    _state = StRequestData; // 重发获取数据
+                }
+
+                return;
+            }
+            case StScanSlots:
+            {
+                var uid = _uids[_uidIndex];
+                _slots = CollectFullSlots(uid);
+                _fullSlotCount = CountFullSlots();
+                if (_slots.Count == 0)
+                {
+                    _state = StNextUid;
+                    return;
+                }
+
+                _slotIndex = 0;
+                _state = StExtract;
+                return;
+            }
+            case StExtract:
+            {
+                if (_slotIndex >= _slots.Count)
+                {
+                    _state = StNextUid;
+                    return;
+                }
+
+                var uid = _uids[_uidIndex];
+                var index = Convert.ToInt32(_slots[_slotIndex][0]);
+                var pile = Convert.ToInt32(_slots[_slotIndex][1]);
+                if (SendTakeOutToAccountBank(uid, index, pile))
+                {
+                    _lastSendMs = NowMs();
+                }
+
+                _attempt = 0;
+                _waitTicks = 0;
+                _state = StWaitExtract;
+                return;
+            }
+            case StWaitExtract:
+            {
+                _waitTicks++;
+                var uid = _uids[_uidIndex];
+                var index = Convert.ToInt32(_slots[_slotIndex][0]);
+                var cur = ReadSlotPile(uid, index);
+                if (cur < FullPile)
+                {
+                    _extractedCount++;
+                    _state = StNextSlot;
+                    return;
+                }
+
+                if (_waitTicks >= WaitTicksMax)
+                {
+                    _attempt++;
+                    if (_attempt < MaxAttemptsPerSlot)
+                    {
+                        _state = StExtract; // 重发一次
+                    }
+                    else
+                    {
+                        _state = StNextSlot; // 跳过该格
+                    }
+                }
+
+                return;
+            }
+            case StNextSlot:
+            {
+                _slotIndex++;
+                if (_slotIndex >= _slots.Count)
+                {
+                    _state = StNextUid;
+                }
+                else
+                {
+                    _state = StExtract;
+                }
+
+                return;
+            }
+            case StNextUid:
+            {
+                _uidIndex++;
+                if (_uidIndex >= _uids.Count)
+                {
+                    _state = StDone;
+                }
+                else
+                {
+                    _state = StRequestData;
+                }
+
+                return;
+            }
+            case StDone:
+            {
+                _lastScanMs = NowMs();
+                if (_extractedCount > 0)
+                {
+                    Tip("自动提取：本轮提取 " + _extractedCount + " 格到账号银行");
+                }
+
+                _state = StIdle;
+                return;
+            }
+        }
+    }
+
+    /// <summary>等待超时处理：未到重试上限返回 false（调用方回发送状态重发）；已到上限跳到 skipState。</summary>
+    private static bool RetryOrSkip(string opName, int skipState)
+    {
+        if (_opRetryCount < MaxOpRetries)
+        {
+            _opRetryCount++;
+            return false;
+        }
+
+        _opRetryCount = 0;
+        _state = skipState;
+        return true;
+    }
+
+    // ---------------- 数据读取 / 发送 ----------------
+
+    private static object ReadAreaData(string uid)
+    {
+        try
+        {
+            var cm = GetManagerInstance("CollectionManager");
+            if (cm == null)
+            {
+                return null;
+            }
+
+            var areaInfos = GetMember(cm, "AreaInfos") as IDictionary;
+            if (areaInfos == null)
+            {
+                return null;
+            }
+
+            object area = null;
+            try
+            {
+                area = areaInfos[uid];
+            }
+            catch
+            {
+                return null;
+            }
+
+            return area;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static List<object[]> CollectFullSlots(string uid)
+    {
+        var result = new List<object[]>();
+        try
+        {
+            var area = ReadAreaData(uid);
+            if (area == null)
+            {
+                return result;
+            }
+
+            var have = GetMember(area, "Itemhave") as IEnumerable;
+            if (have == null)
+            {
+                return result;
+            }
+
+            var idx = 0;
+            foreach (var item in have)
+            {
+                if (item == null)
+                {
+                    idx++;
+                    continue;
+                }
+
+                var pile = Convert.ToInt32(GetMember(item, "Pile") ?? 0);
+                if (pile >= FullPile)
+                {
+                    result.Add(new object[] { idx, pile });
+                }
+
+                idx++;
+            }
+        }
+        catch
+        {
+            // ignore
+        }
+
+        return result;
+    }
+
+    private static int CountFullSlots()
+    {
+        var count = 0;
+        if (_uids == null)
+        {
+            return 0;
+        }
+
+        foreach (var uid in _uids)
+        {
+            count += CollectFullSlots(uid).Count;
+        }
+
+        return count;
+    }
+
+    /// <summary>读某角色某格最新 Pile；读取失败返回 -1。</summary>
+    private static int ReadSlotPile(string uid, int slotIndex)
+    {
+        try
+        {
+            var area = ReadAreaData(uid);
+            if (area == null)
+            {
+                return -1;
+            }
+
+            var have = GetMember(area, "Itemhave") as IEnumerable;
+            if (have == null)
+            {
+                return -1;
+            }
+
+            var idx = 0;
+            foreach (var item in have)
+            {
+                if (item != null && idx == slotIndex)
+                {
+                    return Convert.ToInt32(GetMember(item, "Pile") ?? 0);
+                }
+
+                idx++;
+            }
+
+            return -1;
+        }
+        catch
+        {
+            return -1;
+        }
+    }
+
+    /// <summary>对齐面板：SendArea("获取数据", uid) 请求该角色采集数据，让 AreaInfos 覆盖所有角色。</summary>
+    private static void SendAreaData(string uid)
+    {
+        var cm = GetManagerInstance("CollectionManager");
+        if (cm == null)
+        {
+            return;
+        }
+
+        var send = FindMethod(cm.GetType(), "SendArea",
+            new[] { typeof(string), typeof(string), typeof(int), typeof(int), typeof(int), typeof(int) });
+        if (send == null)
+        {
+            send = FindMethodByParams(cm.GetType(), "SendArea", 6);
+        }
+
+        if (send == null)
+        {
+            return;
+        }
+
+        send.Invoke(cm, new object[] { "获取数据", uid, 0, 0, -1, 0 });
+    }
+
+    /// <summary>对齐面板：SendArea("取出物品到账号仓库", uid, index+1, num) 提取到账号银行。</summary>
+    private static bool SendTakeOutToAccountBank(string uid, int index, int pile)
+    {
+        var cm = GetManagerInstance("CollectionManager");
+        if (cm == null)
+        {
+            return false;
+        }
+
+        var send = FindMethod(cm.GetType(), "SendArea",
+            new[] { typeof(string), typeof(string), typeof(int), typeof(int), typeof(int), typeof(int) });
+        if (send == null)
+        {
+            send = FindMethodByParams(cm.GetType(), "SendArea", 6);
+        }
+
+        if (send == null)
+        {
+            return false;
+        }
+
+        // 与 CollectionPanel.OnTakeItemCallback 一致：SendArea(type, uid, index+1, num, -1, 0)
+        send.Invoke(cm, new object[] { "取出物品到账号仓库", uid, index + 1, pile, -1, 0 });
+        return true;
+    }
+
+    // ---------------- 角色收集（同日常 CollectUids） ----------------
+
+    private static List<string> CollectUids()
+    {
+        var result = new List<string>();
+
+        // 1) 五开 MultiInfo：Online>=1 的本账号角色
+        try
+        {
+            var teamMgr = GetManagerInstance("TeamManager");
+            var multi = GetMember(teamMgr, "MultiInfo");
+            var players = multi != null ? GetMember(multi, "Players") as IList : null;
+            if (players != null)
+            {
+                foreach (var p in players)
+                {
+                    if (p == null)
+                    {
+                        continue;
+                    }
+
+                    var uid = Convert.ToString(GetMember(p, "Uid") ?? "");
+                    var online = Convert.ToInt32(GetMember(p, "Online") ?? 0);
+                    if (!string.IsNullOrEmpty(uid) && online >= 1)
+                    {
+                        AddUidUnique(result, uid);
+                    }
+                }
+
+                if (result.Count > 0)
+                {
+                    // 五开命中
+                }
+            }
+        }
+        catch
+        {
+            // ignore
+        }
+
+        // 2) 当前队伍 teamData（UseFlag==1）
+        if (result.Count == 0)
         {
             try
             {
-                if (IsPipelineActive())
+                var teamData = GetStaticMember("PlayerDataHolder", "teamData") as Array;
+                if (teamData != null)
                 {
-                    CheckAndExtractAll();
+                    foreach (var slot in teamData)
+                    {
+                        if (slot == null)
+                        {
+                            continue;
+                        }
+
+                        if (Convert.ToInt32(GetMember(slot, "UseFlag") ?? 0) != 1)
+                        {
+                            continue;
+                        }
+
+                        var player = GetMember(slot, "Player");
+                        var uid = Convert.ToString(GetMember(player, "Uid") ?? "");
+                        AddUidUnique(result, uid);
+                    }
+
+                    if (result.Count > 0)
+                    {
+                        // 队伍命中
+                    }
                 }
             }
             catch
             {
                 // ignore
             }
-
-            try
-            {
-                Thread.Sleep(ScanIntervalMs);
-            }
-            catch
-            {
-                // ignore
-            }
         }
+
+        // 3) 保底：主角色 / 当前选中
+        if (result.Count == 0)
+        {
+            var main = Convert.ToString(GetStaticMember("PlayerDataHolder", "MainPlayerUid") ?? "");
+            if (string.IsNullOrEmpty(main))
+            {
+                var pd = GetStaticMember("PlayerDataHolder", "playerData");
+                main = Convert.ToString(GetMember(pd, "Uid") ?? GetMember(pd, "uid") ?? "");
+            }
+
+            AddUidUnique(result, main);
+            var select = Convert.ToString(GetStaticMember("PlayerDataHolder", "SelectPlayerUid") ?? "");
+            AddUidUnique(result, select);
+        }
+
+        return result;
     }
 
-    /// <summary>
-    /// 钩 CollectionManager.OnEvent（MEvent&lt;object&gt;）：服务端采集数据推送时
-    /// 派发 Proto_SC_AREA，这里收到即检查一次。
-    /// </summary>
+    private static void AddUidUnique(List<string> list, string uid)
+    {
+        if (string.IsNullOrEmpty(uid))
+        {
+            return;
+        }
+
+        for (var i = 0; i < list.Count; i++)
+        {
+            if (list[i] == uid)
+            {
+                return;
+            }
+        }
+
+        list.Add(uid);
+    }
+
+    // ---------------- 事件钩子 ----------------
+
     private static void TryHookAreaEvent()
     {
         if (_areaHooked)
@@ -214,428 +831,11 @@ public static class SeqChapterAreaExtract
             return;
         }
 
-        CheckAndExtractAll();
+        // 服务端推送采集数据：标记待处理，状态机在冷却允许时立即开始一轮
+        _pendingEvent = true;
     }
 
-    /// <summary>读所有角色 AreaInfos，对单格 Pile>=999 的格子逐个提取；返回满格总数。</summary>
-    private static int CheckAndExtractAll()
-    {
-        return CheckAndExtractAllInternal(false);
-    }
-
-    /// <summary>立刻提取（脚本页按钮）：绕过冷却，强制扫描提取一次；返回满格总数。</summary>
-    public static int ExtractNowFromUi()
-    {
-        Bootstrap();
-        try
-        {
-            var cm = GetManagerInstance("CollectionManager");
-            if (cm == null)
-            {
-                return 0;
-            }
-        }
-        catch
-        {
-            // ignore
-        }
-
-        var full = CheckAndExtractAllInternal(true);
-        Tip(full > 0 ? "立即提取：发现 " + full + " 个满格，已提取到账号银行" : "立即提取：当前没有满格采集物");
-        return full;
-    }
-
-    private static int CheckAndExtractAllInternal(bool force)
-    {
-        var cm = GetManagerInstance("CollectionManager");
-        if (cm == null)
-        {
-            return 0;
-        }
-
-        var areaInfos = GetMember(cm, "AreaInfos") as IDictionary;
-        if (areaInfos == null)
-        {
-            return 0;
-        }
-
-        // 收集所有满格 (uid, index, pile)
-        var fullSlots = new System.Collections.Generic.List<object[]>();
-        var full = 0;
-        foreach (var key in areaInfos.Keys)
-        {
-            var uid = Convert.ToString(key) ?? "";
-            if (string.IsNullOrEmpty(uid))
-            {
-                continue;
-            }
-
-            object area = null;
-            try
-            {
-                area = areaInfos[key];
-            }
-            catch
-            {
-                continue;
-            }
-
-            if (area == null)
-            {
-                continue;
-            }
-
-            var have = GetMember(area, "Itemhave") as IEnumerable;
-            if (have == null)
-            {
-                continue;
-            }
-
-            var idx = 0;
-            foreach (var item in have)
-            {
-                var pile = Convert.ToInt32(GetMember(item, "Pile") ?? 0);
-                if (pile >= FullPile)
-                {
-                    fullSlots.Add(new object[] { uid, idx, pile });
-                    full++;
-                }
-
-                idx++;
-            }
-        }
-
-        _fullSlotCount = full;
-        if (fullSlots.Count > 0)
-        {
-            ExtractFullSlots(fullSlots, force);
-        }
-
-        NotifyTitleRefresh();
-        return full;
-    }
-
-    private static void ExtractFullSlots(System.Collections.Generic.List<object[]> fullSlots, bool force)
-    {
-        if (Interlocked.CompareExchange(ref _extractRunning, 1, 0) != 0)
-        {
-            return;
-        }
-
-        try
-        {
-            var now = NowMs();
-            if (!force && now - _lastExtractMs < ExtractCooldownMs)
-            {
-                return;
-            }
-
-            var sent = 0;
-            foreach (var slot in fullSlots)
-            {
-                var uid = Convert.ToString(slot[0]) ?? "";
-                var index = Convert.ToInt32(slot[1]);
-                var pile = Convert.ToInt32(slot[2]);
-                if (SendTakeOutToAccountBank(uid, index, pile))
-                {
-                    sent++;
-                }
-
-                try
-                {
-                    Thread.Sleep(150);
-                }
-                catch
-                {
-                    // ignore
-                }
-            }
-
-            if (sent > 0)
-            {
-                Interlocked.Exchange(ref _lastExtractMs, NowMs());
-                // 等待服务端回推采集数据，对仍满的格子重试一次
-                TrySleep(RetryCheckDelayMs);
-                var retried = RetryStillFullSlots(fullSlots);
-                if (retried > 0)
-                {
-                    Tip("自动提取：已提取 " + sent + " 格到账号银行（重试 " + retried + " 格）");
-                }
-                else
-                {
-                    Tip("自动提取：已提取 " + sent + " 格采集物到账号银行");
-                }
-            }
-        }
-        catch
-        {
-            // ignore
-        }
-        finally
-        {
-            Interlocked.Exchange(ref _extractRunning, 0);
-        }
-    }
-
-    /// <summary>提取后服务端已回推，仍满（≥999）的格子重试一次。</summary>
-    private static int RetryStillFullSlots(System.Collections.Generic.List<object[]> attemptedSlots)
-    {
-        var retried = 0;
-        foreach (var slot in attemptedSlots)
-        {
-            var uid = Convert.ToString(slot[0]) ?? "";
-            var index = Convert.ToInt32(slot[1]);
-            var pile = Convert.ToInt32(slot[2]);
-
-            // 读取最新 Pile，仍满则再发一次
-            var cur = ReadSlotPile(uid, index);
-            if (cur < FullPile)
-            {
-                continue;
-            }
-
-            if (SendTakeOutToAccountBank(uid, index, cur))
-            {
-                retried++;
-            }
-
-            try
-            {
-                Thread.Sleep(150);
-            }
-            catch
-            {
-                // ignore
-            }
-        }
-
-        return retried;
-    }
-
-    /// <summary>读某角色某格最新 Pile；读取失败返回 -1。</summary>
-    private static int ReadSlotPile(string uid, int slotIndex)
-    {
-        try
-        {
-            var cm = GetManagerInstance("CollectionManager");
-            if (cm == null)
-            {
-                return -1;
-            }
-
-            var areaInfos = GetMember(cm, "AreaInfos") as IDictionary;
-            if (areaInfos == null)
-            {
-                return -1;
-            }
-
-            object area = null;
-            try
-            {
-                area = areaInfos[uid];
-            }
-            catch
-            {
-                return -1;
-            }
-
-            if (area == null)
-            {
-                return -1;
-            }
-
-            var have = GetMember(area, "Itemhave") as IEnumerable;
-            if (have == null)
-            {
-                return -1;
-            }
-
-            var idx = 0;
-            foreach (var item in have)
-            {
-                if (idx == slotIndex)
-                {
-                    return Convert.ToInt32(GetMember(item, "Pile") ?? 0);
-                }
-
-                idx++;
-            }
-
-            return -1;
-        }
-        catch
-        {
-            return -1;
-        }
-    }
-
-    private static void TrySleep(int ms)
-    {
-        try
-        {
-            Thread.Sleep(ms);
-        }
-        catch
-        {
-            // ignore
-        }
-    }
-
-    /// <summary>对齐面板：SendArea("取出物品到账号仓库", uid, index+1, num) 提取到账号银行。</summary>
-    private static bool SendTakeOutToAccountBank(string uid, int index, int pile)
-    {
-        var cm = GetManagerInstance("CollectionManager");
-        if (cm == null)
-        {
-            return false;
-        }
-
-        var send = FindMethod(cm.GetType(), "SendArea",
-            new[] { typeof(string), typeof(string), typeof(int), typeof(int), typeof(int), typeof(int) });
-        if (send == null)
-        {
-            send = FindMethodByParams(cm.GetType(), "SendArea", 6);
-        }
-
-        if (send == null)
-        {
-            return false;
-        }
-
-        send.Invoke(cm, new object[] { "取出物品到账号仓库", uid, index + 1, pile, -1, 0 });
-        return true;
-    }
-
-    /// <summary>窗口标题只保留计数挂机；自动提取不再刷新标题。</summary>
-    private static void NotifyTitleRefresh()
-    {
-        // 标题不再受自动提取影响（需求变更：只保留自动挂机标题）
-    }
-
-    /// <summary>无面板时的自刷新（仅本 DLL 后缀）。</summary>
-    private static void RefreshWindowTitleSelf()
-    {
-        try
-        {
-            var baseTitle = BuildBaseTitle();
-            if (string.IsNullOrEmpty(baseTitle))
-            {
-                return;
-            }
-
-            var suffix = BuildTitleSuffix();
-            SetTitle(baseTitle + (string.IsNullOrEmpty(suffix) ? "" : " " + suffix));
-        }
-        catch
-        {
-            // ignore
-        }
-    }
-
-    private static string BuildBaseTitle()
-    {
-        var product = GetUnityProductName();
-        if (string.IsNullOrEmpty(product))
-        {
-            return "";
-        }
-
-        var server = "";
-        var serverInfo = GetStaticMember("PlayerDataHolder", "currentServerInfo");
-        if (serverInfo != null)
-        {
-            server = Convert.ToString(GetMember(serverInfo, "name") ?? "") ?? "";
-        }
-
-        var player = GetStaticMember("PlayerDataHolder", "playerData");
-        var roleName = "";
-        var level = 0;
-        if (player != null)
-        {
-            roleName = Convert.ToString(GetMember(player, "name") ?? "") ?? "";
-            level = Convert.ToInt32(GetMember(player, "level") ?? 0);
-        }
-
-        return string.IsNullOrEmpty(roleName)
-            ? product
-            : string.Format("{0} {1} {2} Lv.{3}", product, server, roleName, level);
-    }
-
-    private static void SetTitle(string title)
-    {
-        try
-        {
-            var appMgr = FindType("AppManager");
-            var setTitle = appMgr?.GetMethod(
-                "SetWindowTitle",
-                BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic,
-                null,
-                new[] { typeof(string) },
-                null);
-            if (setTitle == null && appMgr != null)
-            {
-                foreach (var m in appMgr.GetMethods(
-                    BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic))
-                {
-                    if (m.Name != "SetWindowTitle")
-                    {
-                        continue;
-                    }
-
-                    var ps = m.GetParameters();
-                    if (ps.Length == 1 && ps[0].ParameterType.FullName == "System.String")
-                    {
-                        setTitle = m;
-                        break;
-                    }
-                }
-            }
-
-            setTitle?.Invoke(null, new object[] { title });
-        }
-        catch
-        {
-            // ignore
-        }
-    }
-
-    private static string GetUnityProductName()
-    {
-        try
-        {
-            foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
-            {
-                Type t = null;
-                try
-                {
-                    t = asm.GetType("UnityEngine.Application", false, false);
-                }
-                catch
-                {
-                    continue;
-                }
-
-                if (t == null)
-                {
-                    continue;
-                }
-
-                var p = t.GetProperty(
-                    "productName",
-                    BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic);
-                if (p != null)
-                {
-                    return Convert.ToString(p.GetValue(null, null) ?? "") ?? "";
-                }
-            }
-        }
-        catch
-        {
-            // ignore
-        }
-
-        return "";
-    }
+    // ---------------- 反射辅助 ----------------
 
     private static long NowMs()
     {
@@ -665,8 +865,9 @@ public static class SeqChapterAreaExtract
             }
 
             MethodInfo tip = null;
+            MethodInfo oneArg = null;
             foreach (var m in notify.GetType().GetMethods(
-                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+                         BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
             {
                 if (m.Name != "Tip")
                 {
@@ -674,23 +875,27 @@ public static class SeqChapterAreaExtract
                 }
 
                 var ps = m.GetParameters();
-                if (ps.Length >= 1 && ps[0].ParameterType == typeof(string))
+                if (ps.Length == 2
+                    && ps[0].ParameterType.FullName == "System.String"
+                    && ps[1].ParameterType.FullName == "System.Boolean")
                 {
                     tip = m;
-                    if (ps.Length == 2)
-                    {
-                        break;
-                    }
+                    break;
+                }
+
+                if (ps.Length == 1 && ps[0].ParameterType.FullName == "System.String")
+                {
+                    oneArg = m;
                 }
             }
 
+            tip ??= oneArg;
             if (tip == null)
             {
                 return;
             }
 
-            var ps2 = tip.GetParameters();
-            if (ps2.Length >= 2)
+            if (tip.GetParameters().Length == 2)
             {
                 tip.Invoke(notify, new object[] { msg, false });
             }

@@ -39,6 +39,8 @@ BATTLE_APPEAR_SRC = GAME_ROOT / "tools" / "seqchapter_battle_appear"
 COUNT_FARM_SRC = GAME_ROOT / "tools" / "seqchapter_count_farm"
 AREA_EXTRACT_SRC = GAME_ROOT / "tools" / "seqchapter_area_extract"
 AUTO_POINT_SRC = GAME_ROOT / "tools" / "seqchapter_auto_point"
+AUTO_STALL_SRC = GAME_ROOT / "tools" / "seqchapter_auto_stall"
+BEAR_SLAYER_SRC = GAME_ROOT / "tools" / "seqchapter_bear_slayer"
 HELPER_BRIDGE_SRC = GAME_ROOT / "tools" / "seqchapter_helper_bridge"
 MINI_BRIDGE_SRC = GAME_ROOT / "tools" / "seqchapter_mini_bridge"
 BATTLE_APPEAR_JSON = GAME_ROOT / "tools" / "battle_appear.json"
@@ -116,7 +118,7 @@ README = f"""魔力宝贝：序章 — {APP_NAME}
 【本包做什么】
 · 侧栏「百科」→ 助手面板，战斗模式：{PANEL_MODES}
 · 战斗模式默认：抓宠（无宠二动）/ 抓宠 / 抓宠卖银币 / 烧卡 / 计数挂机（面板内互斥切换）
-· 采集自动提取：战斗页独立开关，与战斗模式共存；已采集5格单格满999自动提取到账号银行（每格最多重试1次）；脚本页「立刻提取采集物」可手动触发一次
+· 采集自动提取：战斗页独立开关，与战斗模式共存；对账号所有在线角色（五开/队伍）已采集5格单格满999，逐格节奏式提取到账号银行（0.4s 状态机节奏，不瞬间刷屏）；脚本页「立刻提取采集物」可手动触发一轮
 · 面板「脚本」页：做日常 / 礼包码 / 立刻提取采集物
 · 界面外层选项：「战斗加速」（默认关：开启→战斗倍速+心跳回传1.5x，会连带掐断倍速检测上报；关→原速+心跳回传1.0x）、「跳帧（切后台/老板键限帧 30FPS）」与「多开器适配功能」（默认不打：勾选=注入精简桥接，供包内「多开器」登录/拉多控/一键召唤；占 hotfixdata 容量）
 · 默认含：分享改日常、礼包码
@@ -366,6 +368,8 @@ def build_exe() -> Path:
         (COUNT_FARM_SRC, "seqchapter_count_farm"),
         (AREA_EXTRACT_SRC, "seqchapter_area_extract"),
         (AUTO_POINT_SRC, "seqchapter_auto_point"),
+        (AUTO_STALL_SRC, "seqchapter_auto_stall"),
+        (BEAR_SLAYER_SRC, "seqchapter_bear_slayer"),
         (HELPER_BRIDGE_SRC, "seqchapter_helper_bridge"),
         (MINI_BRIDGE_SRC, "seqchapter_mini_bridge"),
     ]

@@ -750,6 +750,60 @@ def apply_auto_point_external(hotfix: Path, source: Path) -> tuple[bool, str]:
     return True, "一键加点·DLL版：已部署 DLL（面板脚本页按钮）"
 
 
+def apply_auto_stall_external(hotfix: Path, source: Path) -> tuple[bool, str]:
+    """自动上架·DLL版：编译部署 SeqChapterAutoStall.dll.bytes + 定价配置（面板脚本页按钮）。
+
+    定价文件：优先用补丁引擎旁的 tools 源码目录（同 ResolveSourceDir），否则用游戏根 tools/ 下；
+    找不到时给出提示（DLL 无定价会直接终止，不会误上架）。
+    """
+    proc = run_patcher_capture(
+        [
+            "auto-stall-external-patch",
+            "--hotfix",
+            str(source),
+            "--output",
+            str(hotfix),
+        ]
+    )
+    out = (proc.stdout or "") + (proc.stderr or "")
+    if proc.returncode != 0:
+        return False, out.strip() or "自动上架·DLL版补丁失败"
+
+    # 部署定价配置到 hotfixdata（DLL 运行时读取）
+    hotfix_dir = hotfix.parent
+    price_txt = "seqchapter_auto_sell_prices.txt"
+    candidates = [
+        GAME_ROOT / "tools" / "seqchapter_auto_stall" / price_txt,
+        toolkit_root() / "seqchapter_auto_stall" / price_txt,
+        hotfix_dir / price_txt,
+    ]
+    src_price = next((p for p in candidates if p.is_file()), None)
+    if src_price is not None:
+        shutil.copy2(src_price, hotfix_dir / price_txt)
+        msg = "已部署 DLL + 定价配置（面板脚本页「一键上架」）"
+    else:
+        msg = "已部署 DLL，但未找到定价配置（请运行 tools/gen_auto_sell_price_cfg.py）"
+    return True, "自动上架·DLL版：" + msg
+
+
+
+def apply_bear_slayer_external(hotfix: Path, source: Path) -> tuple[bool, str]:
+    """刷熊男·DLL版：编译部署 SeqChapterBearSlayer.dll.bytes（面板脚本页「刷熊男」按钮）。"""
+    proc = run_patcher_capture(
+        [
+            "bear-slayer-external-patch",
+            "--hotfix",
+            str(source),
+            "--output",
+            str(hotfix),
+        ]
+    )
+    out = (proc.stdout or "") + (proc.stderr or "")
+    if proc.returncode != 0:
+        return False, out.strip() or "刷熊男·DLL版补丁失败"
+    return True, "刷熊男·DLL版：已部署 DLL（面板脚本页「刷熊男」）"
+
+
 
 def apply_lv1_auto_external(hotfix: Path, source: Path) -> tuple[bool, str]:
     """遇1级自动·DLL版：SeqChapterLv1Auto.dll.bytes + Player/Pet/VIP 钩 + 百科开关。"""
@@ -834,6 +888,8 @@ def _apply_gameplay_patches(
     count_farm: bool = False,
     area_extract: bool = False,
     auto_point: bool = False,
+    auto_stall_external: bool = False,
+    bear_slayer_external: bool = False,
     lv1_auto_external: bool = False,
     auto_sell_external: bool,
     plugin_host: bool,
@@ -1151,6 +1207,24 @@ def _apply_gameplay_patches(
         _emit_combo(messages, on_log, msg)
         work = hotfix
 
+    # 自动上架：仅部署 DLL + 定价配置，由面板脚本页「一键上架」按钮触发（或批量模块经 IPC 调用）
+    if auto_stall_external:
+        _emit_combo(messages, on_log, "正在部署：自动上架…")
+        ok, msg = apply_auto_stall_external(hotfix, work)
+        if not ok:
+            raise RuntimeError(msg)
+        _emit_combo(messages, on_log, msg)
+        work = hotfix
+
+    # 刷熊男：仅部署 DLL，由面板脚本页「刷熊男」按钮触发
+    if bear_slayer_external:
+        _emit_combo(messages, on_log, "正在部署：刷熊男…")
+        ok, msg = apply_bear_slayer_external(hotfix, work)
+        if not ok:
+            raise RuntimeError(msg)
+        _emit_combo(messages, on_log, msg)
+        work = hotfix
+
     # 进战形象钩子：总是部署 DLL+钩子+json（battle_appear=True 时默认启用形象；
     # 默认 False 也部署，enabled=false 不套形象，游戏内形象页勾上即生效）
     _emit_combo(messages, on_log, "正在打：进战形象钩子…")
@@ -1185,6 +1259,8 @@ def apply_combo(
     count_farm: bool = False,
     area_extract: bool = False,
     auto_point: bool = False,
+    auto_stall_external: bool = False,
+    bear_slayer_external: bool = False,
     plugin_host: bool = False,
     customer_gm: bool = False,
     customer_gm_mode: str = "autoskill",
@@ -1350,6 +1426,8 @@ def apply_combo(
         or count_farm
         or area_extract
         or auto_point
+        or auto_stall_external
+        or bear_slayer_external
         or lv1_auto_external
         or auto_sell_external
         or plugin_host
@@ -1387,6 +1465,8 @@ def apply_combo(
         count_farm=count_farm,
         area_extract=area_extract,
         auto_point=auto_point,
+        auto_stall_external=auto_stall_external,
+        bear_slayer_external=bear_slayer_external,
         lv1_auto_external=lv1_auto_external,
         auto_sell_external=auto_sell_external,
         plugin_host=plugin_host,
@@ -1449,6 +1529,8 @@ def apply_combo(
         "count_farm": count_farm,
         "area_extract": area_extract,
         "auto_point": auto_point,
+        "auto_stall_external": auto_stall_external,
+        "bear_slayer_external": bear_slayer_external,
         "lv1_auto_external": lv1_auto_external,
         "auto_sell_external": auto_sell_external,
         "plugin_host": plugin_host,

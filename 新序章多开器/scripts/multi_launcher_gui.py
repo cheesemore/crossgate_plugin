@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import sys
 import threading
+import time
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, simpledialog, ttk
@@ -20,9 +21,9 @@ sys.path.insert(0, str(SHARED))
 
 from assistant_common import ipc  # noqa: E402
 from assistant_common.accounts import AccountProfile, delete_account, load_accounts, upsert_account  # noqa: E402
-from assistant_common.config import get_game_root, set_game_root  # noqa: E402
+from assistant_common.config import get_game_root, load_settings, set_game_root  # noqa: E402
 from assistant_common.game import GameInstance, launch_game  # noqa: E402
-from assistant_common.patch_bridge import is_bridge_patched  # noqa: E402
+from assistant_common.patch_bridge import is_mini_bridge_ready  # noqa: E402
 from assistant_common.single_instance import ensure_single_instance  # noqa: E402
 
 APP_TITLE = "新序章多开器"
@@ -36,7 +37,16 @@ class MultiLauncherApp:
         self.root.minsize(780, 680)
 
         self.instances: list[GameInstance] = []
-        self.game_root_var = tk.StringVar(value=str(get_game_root()))
+        initial_root = get_game_root()
+        # 若 settings 尚未持久化有效目录，把探测到的目录存下来，
+        # 与傻瓜补丁 GUI 的默认目录保持一致，避免检测错目录。
+        raw = load_settings().get("game_root", "").strip()
+        if not raw or not (Path(raw) / "cg37_Data").is_dir():
+            try:
+                set_game_root(initial_root)
+            except OSError:
+                pass
+        self.game_root_var = tk.StringVar(value=str(initial_root))
 
         outer = ttk.Frame(self.root, padding=14)
         outer.pack(fill=tk.BOTH, expand=True)
@@ -156,10 +166,10 @@ class MultiLauncherApp:
         return Path(self.game_root_var.get().strip())
 
     def _bridge_is_ready(self) -> bool:
-        try:
-            return is_bridge_patched(self._game_root())
-        except Exception:
+        root = self._game_root()
+        if not root.is_dir():
             return False
+        return is_mini_bridge_ready(root)
 
     def _warn_if_bridge_missing(self) -> bool:
         if self._bridge_is_ready():
@@ -234,27 +244,7 @@ class MultiLauncherApp:
         chosen = [by_id[i] for i in sel if i in by_id]
         if not chosen:
             return
-        ok = 0
-        errors: list[str] = []
-        for acc in chosen:
-            name = acc.label or acc.phone
-            try:
-                inst = launch_game(self._game_root())
-                self.instances.append(inst)
-                threading.Thread(
-                    target=self._auto_workflow,
-                    args=(inst.instance_id, acc.phone, acc.password, name),
-                    daemon=True,
-                ).start()
-                ok += 1
-            except Exception as exc:
-                errors.append(f"{name}: {exc}")
-        summary = f"启动选中完成：成功 {ok}/{len(chosen)}（已自动进入登录→拉多控→召唤流程）"
-        if errors:
-            summary += "\n" + "\n".join(errors[:10])
-        self._set_status(summary)
-        if errors:
-            messagebox.showwarning("启动选中", summary, parent=self.root)
+        self._launch_staggered(chosen, "启动选中")
 
     def launch_all_accounts(self) -> None:
         accounts = load_accounts()
@@ -263,9 +253,25 @@ class MultiLauncherApp:
             return
         if not self._warn_if_bridge_missing():
             return
+        self._launch_staggered(accounts, "一键启动所有")
+
+    # --- 逐个启动（间隔 10 秒，避免同时初始化黑屏） ---
+
+    LAUNCH_GAP_SEC = 10
+
+    def _launch_staggered(self, accounts: list[AccountProfile], label: str) -> None:
+        """按账号库顺序逐个启动，每个间隔 LAUNCH_GAP_SEC 秒，避免多开同时初始化黑屏。"""
+        threading.Thread(
+            target=self._launch_staggered_worker,
+            args=(list(accounts), label),
+            daemon=True,
+        ).start()
+
+    def _launch_staggered_worker(self, accounts: list[AccountProfile], label: str) -> None:
         ok = 0
         errors: list[str] = []
-        for acc in accounts:
+        total = len(accounts)
+        for idx, acc in enumerate(accounts, start=1):
             name = acc.label or acc.phone
             try:
                 inst = launch_game(self._game_root())
@@ -276,13 +282,20 @@ class MultiLauncherApp:
                     daemon=True,
                 ).start()
                 ok += 1
+                self._set_status(f"{label}进行中：{name}（{idx}/{total}）已启动")
             except Exception as exc:
                 errors.append(f"{name}: {exc}")
-        summary = f"一键启动所有完成：成功 {ok}/{len(accounts)}（已自动进入登录→拉多控→召唤流程）"
+
+            if idx < total:
+                self._set_status(f"{label}进行中：{idx}/{total} 已启动，{self.LAUNCH_GAP_SEC}秒后启动下一个…")
+                time.sleep(self.LAUNCH_GAP_SEC)
+
+        summary = f"{label}完成：成功 {ok}/{total}（已自动进入登录→拉多控→召唤流程，逐个间隔{self.LAUNCH_GAP_SEC}秒）"
         if errors:
             summary += "\n" + "\n".join(errors[:10])
         self._set_status(summary)
-        messagebox.showinfo("一键启动所有", summary, parent=self.root)
+        if errors or label == "一键启动所有":
+            self.root.after(0, lambda: messagebox.showwarning(label, summary, parent=self.root))
 
     def _auto_workflow(self, instance_id: str, phone: str, password: str, label: str) -> None:
         """启动后后台自动走精简桥接 workflow_step1：等桥接→登录→进游戏→拉多控→一键召唤。"""

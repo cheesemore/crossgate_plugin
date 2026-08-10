@@ -16,10 +16,11 @@ public static class SeqChapterDailyClaim
     public const string AssetPath = "hotfixdata/SeqChapterDailyClaim.dll.bytes";
 
     private const float StepSec = 0.4f;
-    private const int WaitTicksMax = 12; // 约 4.8s
+    private const int WaitTicksMax = 13; // 约 5.2s：服务器慢时操作要 5s+ 才返回，多等一会；读到即继续
+    private const int MaxOpRetries = 2; // 每个等待操作超时后再重发 2 次，才跳过
     private const int MaxUsePerSlot = 20;
-    /// <summary>整条流水线最长 tick，超时强制结束（约 3 分钟）。</summary>
-    private const int MaxPipelineTicks = 450;
+    /// <summary>整条流水线最长 tick，超时强制结束（约 6 分钟）。</summary>
+    private const int MaxPipelineTicks = 900;
     /// <summary>同格堆积数不变时最多连用次数，防止用不掉死循环。</summary>
     private const int MaxStaleUsesPerSlot = 3;
     /// <summary>礼包码最多尝试角色数（与五开一致）。</summary>
@@ -43,6 +44,8 @@ public static class SeqChapterDailyClaim
     private static object _timer;
     private static int _state;
     private static int _waitTicks;
+    /// <summary>当前操作已重试次数（超时后重发请求）。</summary>
+    private static int _opRetryCount;
     private static List<string> _uids;
     private static string _uidSource = "";
     private static int _uidIndex;
@@ -553,6 +556,25 @@ public static class SeqChapterDailyClaim
         TraceTip(string.Format("心跳 等待{0}/{1}", _waitTicks, WaitTicksMax));
     }
 
+    /// <summary>
+    /// 等待超时处理：未到重试上限则返回 false（调用方回发送状态重发请求）；
+    /// 已重试 MaxOpRetries 次则跳到 skipState 并返回 true。读到即继续的机制不变。
+    /// </summary>
+    private static bool RetryOrSkip(string opName, int skipState)
+    {
+        if (_opRetryCount < MaxOpRetries)
+        {
+            _opRetryCount++;
+            TraceTip(opName + "超时→重试" + _opRetryCount + "/" + MaxOpRetries);
+            return false;
+        }
+
+        _opRetryCount = 0;
+        TraceTip(opName + "超时→跳过");
+        _state = skipState;
+        return true;
+    }
+
 
     private static void StartDailyTimer()
     {
@@ -701,7 +723,6 @@ public static class SeqChapterDailyClaim
             {
                 _waitTicks++;
                 var list = GetActiveListInfo();
-                var uid = _uids[_uidIndex];
                 if (list != null && TitlesOf(list).Count > 0)
                 {
                     var titles = TitlesOf(list);
@@ -713,14 +734,19 @@ public static class SeqChapterDailyClaim
                         _signTitleId,
                         _monthTitleId,
                         _onlineTitleId));
+                    _opRetryCount = 0;
                     _state = StSendSignInfo;
                     return;
                 }
 
                 if (_waitTicks >= WaitTicksMax)
                 {
-                    TraceTip("等列表超时→下一角色");
-                    _state = StNextUid;
+                    if (RetryOrSkip("等列表", StNextUid))
+                    {
+                        return;
+                    }
+
+                    _state = StSendList; // 重发活动列表
                 }
 
                 return;
@@ -750,6 +776,7 @@ public static class SeqChapterDailyClaim
                 if (info != null)
                 {
                     _pendingInfo = info;
+                    _opRetryCount = 0;
                     TraceTip("签到信息到→领取");
                     _state = StClaimSign;
                     return;
@@ -757,8 +784,12 @@ public static class SeqChapterDailyClaim
 
                 if (_waitTicks >= WaitTicksMax)
                 {
-                    TraceTip("等签到信息超时→月卡");
-                    _state = StSendMonthInfo;
+                    if (RetryOrSkip("等签到信息", StSendMonthInfo))
+                    {
+                        return;
+                    }
+
+                    _state = StSendSignInfo; // 重发签到信息
                 }
 
                 return;

@@ -135,6 +135,16 @@ internal static class Program
             return AreaExtractExternalIlPatcher.Run(args.Skip(1).ToArray());
         }
 
+        if (args.Length > 0 && args[0] == "auto-stall-external-patch")
+        {
+            return AutoStallExternalIlPatcher.Run(args.Skip(1).ToArray());
+        }
+
+        if (args.Length > 0 && args[0] == "bear-slayer-external-patch")
+        {
+            return BearSlayerExternalIlPatcher.Run(args.Skip(1).ToArray());
+        }
+
         if (args.Length > 0 && args[0] == "auto-point-external-patch")
         {
             return AutoPointExternalIlPatcher.Run(args.Skip(1).ToArray());

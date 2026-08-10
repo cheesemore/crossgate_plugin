@@ -485,6 +485,7 @@ public static class SeqChapterTestUi
         var parts = new System.Collections.Generic.List<string>();
         // 只保留计数挂机标题（挂机）；采集/抓宠等不再影响窗口标题
         AppendFeatureSuffix("SeqChapterCountFarm", parts);
+        AppendFeatureSuffix("SeqChapterBearSlayer", parts);
         return string.Join(" ", parts);
     }
 
@@ -897,6 +898,80 @@ public static class SeqChapterTestUi
         {
             WriteLog("RunAutoPoint EX: " + RootMessage(ex));
             Tip("一键加点失败: " + RootMessage(ex));
+        }
+    }
+
+    private static void RunAutoStall()
+    {
+        try
+        {
+            WriteLog("RunAutoStall");
+            var t = EnsureFeatureType("SeqChapterAutoStall", "hotfixdata/SeqChapterAutoStall.dll.bytes");
+            if (t == null)
+            {
+                Tip("自动上架 DLL 加载失败（见日志）");
+                return;
+            }
+
+            if (Convert.ToBoolean(t.GetMethod("IsRunning", BindingFlags.Public | BindingFlags.Static, null, Type.EmptyTypes, null)?.Invoke(null, null) ?? false))
+            {
+                var stop = t.GetMethod("StopFromUi", BindingFlags.Public | BindingFlags.Static, null, Type.EmptyTypes, null);
+                stop?.Invoke(null, null);
+                Tip("自动上架已停止");
+                return;
+            }
+
+            var run = t.GetMethod("RunAutoStallFromUi", BindingFlags.Public | BindingFlags.Static, null, Type.EmptyTypes, null);
+            if (run == null)
+            {
+                Tip("自动上架入口缺失（请更新 AutoStall DLL）");
+                return;
+            }
+
+            var r = Convert.ToBoolean(run.Invoke(null, null) ?? false);
+            Tip(r ? "自动上架已启动" : "自动上架未能启动（见飘字）");
+        }
+        catch (Exception ex)
+        {
+            WriteLog("RunAutoStall EX: " + RootMessage(ex));
+            Tip("自动上架失败: " + RootMessage(ex));
+        }
+    }
+
+    private static void RunBearSlayer()
+    {
+        try
+        {
+            WriteLog("RunBearSlayer");
+            var t = EnsureFeatureType("SeqChapterBearSlayer", "hotfixdata/SeqChapterBearSlayer.dll.bytes");
+            if (t == null)
+            {
+                Tip("刷熊男 DLL 加载失败（见日志）");
+                return;
+            }
+
+            if (Convert.ToBoolean(t.GetMethod("IsRunning", BindingFlags.Public | BindingFlags.Static, null, Type.EmptyTypes, null)?.Invoke(null, null) ?? false))
+            {
+                var stop = t.GetMethod("StopFromUi", BindingFlags.Public | BindingFlags.Static, null, Type.EmptyTypes, null);
+                stop?.Invoke(null, null);
+                Tip("刷熊男已停止");
+                return;
+            }
+
+            var run = t.GetMethod("RunBearSlayerFromUi", BindingFlags.Public | BindingFlags.Static, null, Type.EmptyTypes, null);
+            if (run == null)
+            {
+                Tip("刷熊男入口缺失（请更新 BearSlayer DLL）");
+                return;
+            }
+
+            var r = Convert.ToBoolean(run.Invoke(null, null) ?? false);
+            Tip(r ? "刷熊男已启动" : "刷熊男未能启动（见飘字）");
+        }
+        catch (Exception ex)
+        {
+            WriteLog("RunBearSlayer EX: " + RootMessage(ex));
+            Tip("刷熊男失败: " + RootMessage(ex));
         }
     }
 
@@ -2313,7 +2388,7 @@ public static class SeqChapterTestUi
 
         if (FeatureAvailable("SeqChapterCountFarm", "hotfixdata/SeqChapterCountFarm.dll.bytes"))
         {
-            AddModeRow(rtType, ModeCountFarm, "计数挂机（标题 ★挂机中★ 已战斗X次）", ref y, true);
+            AddModeRow(rtType, ModeCountFarm, "计数挂机（标题 ★挂机中★ 魔石进度）", ref y, true);
         }
 
         if (FeatureAvailable("SeqChapterAutoSeal", "hotfixdata/SeqChapterAutoSeal.dll.bytes"))
@@ -4814,7 +4889,7 @@ public static class SeqChapterTestUi
         SetAnchoredTop(RequireRect(hint, "hs"), 0f, -4f, 500f, 56f);
         SetText(
             AddText(hint),
-            "简单脚本：点按钮运行。\n礼包码读 hotfixdata/seqchapter_gift_codes.txt（最多5角色）。\n采集物满格（999）才提，默认提入账号银行。\n一键加点：人物按推荐第一方案，宠物先加力量到极限。",
+            "简单脚本：点按钮运行。\n礼包码读 hotfixdata/seqchapter_gift_codes.txt（最多5角色）。\n采集物满格（999）才提，默认提入账号银行。\n一键加点：人物按推荐第一方案，宠物先加力量到极限。\n一键上架：只上架默认定价表单内装备（读 seqchapter_auto_sell_prices.txt）。\n刷熊男：等杀熊者→丢欧兹那克→走17,15→穿身触发战斗→循环。",
             12);
         var btn = CreateUiChild(_bodyRoot, "Daily", rtType);
         SetAnchoredTop(RequireRect(btn, "db"), 0f, -68f, 200f, 40f);
@@ -4851,6 +4926,24 @@ public static class SeqChapterTestUi
         StretchFull(RequireRect(apLab, "apl"));
         SetText(AddText(apLab), "一键加点（人物方案+宠物力量）", 13);
         BindButton(autoPoint, apImg, RunAutoPoint);
+
+        var autoStall = CreateUiChild(_bodyRoot, "AutoStall", rtType);
+        SetAnchoredTop(RequireRect(autoStall, "asb"), 0f, -268f, 240f, 40f);
+        var asImg = AddComp(autoStall, "UnityEngine.UI.Image");
+        SetColor(asImg, 0.35f, 0.55f, 0.35f, 1f);
+        var asLab = CreateUiChild(autoStall, "L", rtType);
+        StretchFull(RequireRect(asLab, "asl"));
+        SetText(AddText(asLab), "一键上架（开/停）", 15);
+        BindButton(autoStall, asImg, RunAutoStall);
+
+        var bearSlayer = CreateUiChild(_bodyRoot, "BearSlayer", rtType);
+        SetAnchoredTop(RequireRect(bearSlayer, "bsb"), 0f, -318f, 240f, 40f);
+        var bsImg = AddComp(bearSlayer, "UnityEngine.UI.Image");
+        SetColor(bsImg, 0.55f, 0.35f, 0.25f, 1f);
+        var bsLab = CreateUiChild(bearSlayer, "L", rtType);
+        StretchFull(RequireRect(bsLab, "bsl"));
+        SetText(AddText(bsLab), "刷熊男（开/停）", 15);
+        BindButton(bearSlayer, bsImg, RunBearSlayer);
 
         // 「测试铃声」「刷灵堂」入口隐藏（逻辑保留，不在此页展示）
         _lingTangStatusText = null;
