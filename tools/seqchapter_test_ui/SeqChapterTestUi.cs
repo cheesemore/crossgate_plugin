@@ -136,6 +136,8 @@ public static class SeqChapterTestUi
     private static long _escortAwaitingReadyMs;
     /// <summary>当前步骤卡楼梯恢复累计次数；换步骤才清零（有位移不清零）。</summary>
     private static int _escortRecoverAttempts;
+    /// <summary>记录上次观测到的任务子步骤 missionStepNum；-1=未知。</summary>
+    private static int _escortLastStepNum = -1;
     private static int _prevRunTaskId = -999;
     private static int _lastPosX = int.MinValue;
     private static int _lastPosY = int.MinValue;
@@ -6250,12 +6252,71 @@ public static class SeqChapterTestUi
         return sb.ToString();
     }
 
+    /// <summary>读当前护航任务 MissionData.missionStepNum；-1=读不到。</summary>
+    private static int GetEscortMissionStepNum()
+    {
+        try
+        {
+            if (_escortMissionId <= 0)
+            {
+                return -1;
+            }
+
+            var mission = GetMissionDataById(_escortMissionId);
+            if (mission == null)
+            {
+                return -1;
+            }
+
+            var v = GetMember(mission, "missionStepNum");
+            return Convert.ToInt32(v ?? -1);
+        }
+        catch
+        {
+            return -1;
+        }
+    }
+
+    /// <summary>取当前护航任务标题（带子步骤进度，如「任务名 2/5」）；失败回退纯标题。</summary>
+    private static string GetEscortMissionTitleWithStep()
+    {
+        var fallback = _escortMissionTitle ?? "";
+        try
+        {
+            if (_escortMissionId <= 0)
+            {
+                return fallback;
+            }
+
+            var mission = GetMissionDataById(_escortMissionId);
+            if (mission == null)
+            {
+                return fallback;
+            }
+
+            var m = mission.GetType().GetMethod(
+                "GetTitleWithStepProgress",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            if (m == null)
+            {
+                return fallback;
+            }
+
+            var s = Convert.ToString(m.Invoke(mission, null) ?? "") ?? "";
+            return string.IsNullOrEmpty(s) ? fallback : s;
+        }
+        catch
+        {
+            return fallback;
+        }
+    }
+
     private static string FormatEscortStatus()
     {
         string state;
         if (_escortActive && _escortPaused)
         {
-            state = "已暂停（手动接管）#" + _escortMissionId + " " + (_escortMissionTitle ?? "");
+            state = "已暂停（手动接管）#" + _escortMissionId + " " + GetEscortMissionTitleWithStep();
             if (_escortQueue.Count > 0 && _escortQueueIndex >= 0)
             {
                 state += "｜" + (_escortQueueIndex + 1) + "/" + _escortQueue.Count;
@@ -6289,11 +6350,11 @@ public static class SeqChapterTestUi
             }
             else if (_escortAwaitingReadyMs > 0)
             {
-                state = "等待可接 #" + _escortMissionId + " " + (_escortMissionTitle ?? "") + "（重试中）";
+                state = "等待可接 #" + _escortMissionId + " " + GetEscortMissionTitleWithStep() + "（重试中）";
             }
             else
             {
-                state = "护航中 #" + _escortMissionId + " " + (_escortMissionTitle ?? "");
+                state = "护航中 #" + _escortMissionId + " " + GetEscortMissionTitleWithStep();
                 if (_escortFinishWaitMs > 0)
                 {
                     state += IsDialoguePanelOpen() ? "（收尾点弹窗…）" : "（收尾确认中…）";
@@ -6694,7 +6755,8 @@ public static class SeqChapterTestUi
         _escortPauseReason = "";
         _escortLastDiag = "";
         StopEscortAlertRing();
-        // 继续同一任务：不重置本步骤恢复计数
+        // 用户点「继续」：清零本步骤恢复计数，重新开始卡楼梯检测
+        _escortRecoverAttempts = 0;
         _stuckResumePending = false;
         _escortFinishWaitMs = 0;
         _escortAwaitingReadyMs = 0;
@@ -6750,6 +6812,7 @@ public static class SeqChapterTestUi
         _escortFinishWaitMs = 0;
         _escortBetweenTasksWaitMs = 0;
         _escortRecoverAttempts = 0;
+        _escortLastStepNum = -1;
         _lastActivityMs = NowMs();
         if (TryGetPlayerXY(out var x, out var y))
         {
@@ -7105,6 +7168,23 @@ public static class SeqChapterTestUi
                 _lastActivityMs = now;
                 // 有位移只刷新静止计时；本步骤恢复次数不因位移清零，换步骤才重置
             }
+        }
+
+        // 子任务步骤变化（missionStepNum 改变）→ 本步骤恢复计数清零，重新开始卡楼梯检测
+        var stepNum = GetEscortMissionStepNum();
+        if (stepNum >= 0 && stepNum != _escortLastStepNum)
+        {
+            if (_escortLastStepNum >= 0 && _escortRecoverAttempts > 0)
+            {
+                WriteLog("escort step changed id=" + _escortMissionId
+                         + " step=" + stepNum + " (was " + _escortLastStepNum + ")"
+                         + " recover reset");
+            }
+
+            _escortLastStepNum = stepNum;
+            _escortRecoverAttempts = 0;
+            _lastActivityMs = now;
+            _stuckResumePending = false;
         }
 
         if (inBattle)
