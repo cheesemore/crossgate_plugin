@@ -44,7 +44,7 @@ DEFAULT_COMBO_KWARGS = {
     "wiki_test_ui": True,  # 百科 → 助手面板
     "battle_appear": False,  # 进战形象钩子：总是部署（游戏内可开），勾选=打补丁后默认开启形象
     "kill_timescale_report": True,  # 默认拦截倍速检测上报（即使加速关也掐断 Check/SendTimeScaleWarning）
-    "inject_bridge": False,  # 注入精简多开桥接（登录/拉多控/一键召唤，供新序章多开器直接驱动）
+    "inject_bridge": True,  # 注入精简多开桥接（登录/拉多控/一键召唤，供新序章多开器直接驱动；默认开启）
     "from_orig": True,
 }
 

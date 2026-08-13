@@ -60,7 +60,7 @@ public static class SeqChapterTestUi
     private const long StuckIdleMs = 5000;
     private const long StuckResumeDelayMs = 1500;
     /// <summary>单一步骤内卡楼梯恢复累计达此次数 → 自动暂停（换步骤才重置）。</summary>
-    private const int EscortMaxRecoverFails = 10;
+    private const int EscortMaxRecoverFails = 20;
     /// <summary>遇敌 1 级提示铃（BattleProcesser LevelOneFlag → AudioUtil.PlaySE）。</summary>
     private const int LevelOneAlertSeId = 476;
     /// <summary>自动暂停时循环播铃间隔（未知 SE 时长时按 2s 重播）。</summary>
@@ -156,6 +156,33 @@ public static class SeqChapterTestUi
     /// <summary>任务护航列表搜索关键字（标题 / ID / 状态）。</summary>
     private static string _escortSearch = "";
     private static object _escortSearchInput;
+
+    // ----- 龙族纷争循环 -----
+    /// <summary>龙族循环是否激活。</summary>
+    private static bool _dragonLoopActive;
+    /// <summary>已完成循环次数。</summary>
+    private static int _dragonLoopCount;
+    /// <summary>龙族循环阶段：0=未运行 1=重置龙4 2=判断可接 3=执行中 4=存包腾位。</summary>
+    private static int _dragonPhase;
+    /// <summary>阶段开始时间戳。</summary>
+    private static long _dragonPhaseAtMs;
+    /// <summary>龙3/4 使用记忆后等待服务器处理，再点任务的标志。</summary>
+    private static bool _dragonUseMemoryPending;
+    private static long _dragonUseMemoryAtMs;
+    private const long DragonResetDelayMs = 2500;
+    private const long DragonUseMemoryDelayMs = 1500;
+    private static readonly int[] DragonMissionIds = { 110, 111, 112, 113 };
+    private const string DragonTitleKeyword = "龙族纷争";
+    /// <summary>存包腾位阶段已重试次数（每轮最多 2 次存包）。</summary>
+    private static int _dragonStoreRetries;
+    private const int DragonStoreMaxRetries = 2;
+    private const long DragonStoreWaitMs = 3000;
+    /// <summary>phase2 判断可接时，因重置回包可能滞后，允许重试等待的次数与间隔。</summary>
+    private static int _dragonCheckRetries;
+    private const int DragonCheckMaxRetries = 5;
+    private const long DragonCheckRetryMs = 1500;
+    private const int StorePetLevel = 1;
+    private const int PetStatusRest = 0;
 
     // ----- 刷灵堂脚本 -----
     private static bool _lingTangActive;
@@ -5665,8 +5692,9 @@ public static class SeqChapterTestUi
         SetText(
             hintText,
             "队列护航：可塞未接；完成一项后等 5 秒再下一项。\n"
-            + "手动暂停不清铃；自动暂停约每2秒响铃，点「我知道了」或停止才停。静止5秒尝试恢复，连续10次失败自动暂停。",
-            12);
+            + "手动暂停不清铃；自动暂停约每2秒响铃，点「我知道了」或停止才停。静止5秒尝试恢复，连续20次失败自动暂停。\n"
+            + "龙族循环：自动重置龙4→按序执行龙族纷争1-4→宠物位满停止。",
+            11);
 
         var y = -96f;
         var running = _escortActive;
@@ -5729,6 +5757,29 @@ public static class SeqChapterTestUi
         }
 
         y -= 50f;
+        // 龙族循环按钮（始终显示）
+        var dragonBtn = CreateUiChild(_bodyRoot, "DragonLoopBtn", rtType);
+        SetAnchoredTop(RequireRect(dragonBtn, "dlb"), 0f, y, 420f, 40f);
+        var dragonImg = AddComp(dragonBtn, "UnityEngine.UI.Image");
+        SetColor(dragonImg, _dragonLoopActive ? 0.55f : 0.3f, _dragonLoopActive ? 0.24f : 0.3f, _dragonLoopActive ? 0.22f : 0.42f, 1f);
+        var dragonLab = CreateUiChild(dragonBtn, "L", rtType);
+        StretchFull(RequireRect(dragonLab, "dll"));
+        SetText(AddText(dragonLab), _dragonLoopActive
+            ? ("停止龙族循环(第" + (_dragonLoopCount + 1) + "轮)")
+            : "龙族循环(110-113)", 14);
+        BindButton(dragonBtn, dragonImg, () =>
+        {
+            if (_dragonLoopActive)
+            {
+                StopDragonLoop();
+            }
+            else
+            {
+                StartDragonLoop();
+            }
+        });
+        y -= 48f;
+
         if (_escortAlertRinging)
         {
             var ack = CreateUiChild(_bodyRoot, "AckBell", rtType);
@@ -6190,6 +6241,21 @@ public static class SeqChapterTestUi
         return input;
     }
 
+    private static void TryRebuildEscortTab()
+    {
+        if (_visible && _tab == TabEscort && _canvasGo != null && !IsUnityNull(_canvasGo))
+        {
+            try
+            {
+                RebuildEscortTab();
+            }
+            catch
+            {
+                // ignore
+            }
+        }
+    }
+
     private static void RebuildEscortTab()
     {
         if (_tab != TabEscort || _bodyRoot == null || IsUnityNull(_bodyRoot))
@@ -6311,10 +6377,704 @@ public static class SeqChapterTestUi
         }
     }
 
+    // ---------------- 龙族纷争循环 ----------------
+
+    /// <summary>判断任务 ID 是否属于龙族纷争（硬编码 + 标题关键字双校验）。</summary>
+    private static bool IsDragonMission(int missionId)
+    {
+        foreach (var id in DragonMissionIds)
+        {
+            if (id == missionId)
+            {
+                return true;
+            }
+        }
+
+        try
+        {
+            var mission = GetMissionDataById(missionId);
+            var title = Convert.ToString(GetMember(mission, "title") ?? "") ?? "";
+            if (!string.IsNullOrEmpty(title) && title.IndexOf(DragonTitleKeyword, StringComparison.Ordinal) >= 0)
+            {
+                return true;
+            }
+        }
+        catch
+        {
+            // ignore
+        }
+
+        return false;
+    }
+
+    /// <summary>读取任务当前状态字符串（Started/NotStart/Ended）。</summary>
+    private static string GetMissionStatusStr(object mission)
+    {
+        try
+        {
+            return Convert.ToString(GetMember(mission, "taskstatus") ?? "") ?? "";
+        }
+        catch
+        {
+            return "";
+        }
+    }
+
+    /// <summary>
+    /// 判断龙族纷争 1-4 是否均非「已完成」状态。
+    /// 已接(Started) 或 可接(NotStart) 都算就绪；入队后由护航自身的 ClickEscortTaskNav
+    /// 负责把「可接」任务实际接取（含等级绕过与 20 次恢复重试），此处不做预接取。
+    /// </summary>
+    private static bool CheckDragonMissionsReady(out string failReason)
+    {
+        failReason = "";
+        for (var i = 0; i < DragonMissionIds.Length; i++)
+        {
+            var id = DragonMissionIds[i];
+            var mission = GetMissionDataById(id);
+            if (mission == null)
+            {
+                failReason = "找不到龙族纷争" + (i + 1) + "任务数据";
+                return false;
+            }
+
+            var st = GetMissionStatusStr(mission);
+            if (st.EndsWith("Ended", StringComparison.Ordinal) || st == "2")
+            {
+                failReason = "龙族纷争" + (i + 1) + "已完成（未重置）";
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>对所有队员发送重置龙族纷争4（resetId 有效才发）。</summary>
+    private static void ResetDragon4ForAll()
+    {
+        var uids = CollectTeamOrMultiUids();
+        if (uids.Count == 0)
+        {
+            var cap = GetCaptainUid();
+            if (!string.IsNullOrEmpty(cap))
+            {
+                uids.Add(cap);
+            }
+        }
+
+        var resetType = FindType("Proto_CS_ResetTask");
+        var lss = FindType("LSSPROTO");
+        var opcodeField = lss?.GetField("LSSPROTO_RESET_TASK_FUNC", BindingFlags.Public | BindingFlags.Static);
+        var net = GetManagerInstance("NetManager");
+        var send = net?.GetType().GetMethod("SendMessage", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        if (resetType == null || opcodeField == null || net == null || send == null)
+        {
+            WriteLog("dragon reset: 反射缺失 resetType=" + (resetType != null)
+                     + " opcode=" + (opcodeField != null) + " net=" + (net != null) + " send=" + (send != null));
+            return;
+        }
+
+        foreach (var uid in uids)
+        {
+            var mission = GetMissionDataById(113); // 龙族纷争4
+            var resetId = mission != null ? Convert.ToInt32(GetMember(mission, "resetId") ?? -1) : -1;
+            if (resetId <= 0)
+            {
+                WriteLog("dragon reset: uid=" + uid + " resetId 无效，跳过");
+                continue;
+            }
+
+            try
+            {
+                var msg = Activator.CreateInstance(resetType);
+                SetMember(msg, "Type", "重置任务");
+                SetMember(msg, "Id", resetId.ToString());
+                SetMember(msg, "KUid", uid);
+                send.Invoke(net, new object[] { opcodeField.GetValue(null), msg });
+                WriteLog("dragon reset: uid=" + uid + " resetId=" + resetId);
+            }
+            catch (Exception ex)
+            {
+                WriteLog("dragon reset EX uid=" + uid + " " + RootMessage(ex));
+            }
+        }
+    }
+
+    /// <summary>丢弃某个队员背包中含指定关键字的所有道具。返回丢弃件数。</summary>
+    private static int DropItemsByKeyword(string uid, string keyword)
+    {
+        var dropped = 0;
+        try
+        {
+            var items = FindType("PlayerDataHolder")?.GetMethod(
+                "GetItemDatasFromUid", BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic)
+                ?.Invoke(null, new object[] { uid }) as System.Collections.IList;
+            if (items == null)
+            {
+                return 0;
+            }
+
+            var itemMgr = GetManagerInstance("ItemManager");
+            if (itemMgr == null)
+            {
+                return 0;
+            }
+
+            // 找 SendBackPackMessage(string, int, int, string)
+            MethodInfo send = null;
+            foreach (var m in itemMgr.GetType().GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+            {
+                if (m.Name != "SendBackPackMessage")
+                {
+                    continue;
+                }
+
+                var ps = m.GetParameters();
+                if (ps.Length == 4
+                    && ps[0].ParameterType.FullName == "System.String"
+                    && ps[1].ParameterType.FullName == "System.Int32"
+                    && ps[2].ParameterType.FullName == "System.Int32"
+                    && ps[3].ParameterType.FullName == "System.String")
+                {
+                    send = m;
+                    break;
+                }
+            }
+
+            if (send == null)
+            {
+                return 0;
+            }
+
+            for (var i = 0; i < items.Count; i++)
+            {
+                var item = items[i];
+                if (item == null)
+                {
+                    continue;
+                }
+
+                var useFlag = Convert.ToInt32(GetMember(item, "useFlag") ?? 0);
+                if (useFlag != 1)
+                {
+                    continue;
+                }
+
+                var data = GetMember(item, "data");
+                var name = Convert.ToString(GetMember(data, "Name") ?? "") ?? "";
+                if (name.IndexOf(keyword, StringComparison.Ordinal) < 0)
+                {
+                    continue;
+                }
+
+                send.Invoke(itemMgr, new object[] { "丢弃物品", i, 1, uid });
+                dropped++;
+                Tip("已丢弃[" + name + "]");
+            }
+        }
+        catch (Exception ex)
+        {
+            WriteLog("DropItemsByKeyword EX uid=" + uid + " kw=" + keyword + " " + RootMessage(ex));
+        }
+
+        return dropped;
+    }
+
+    /// <summary>龙1/2 特例：丢弃所有队员背包中的黑之记忆/白之记忆。</summary>
+    private static void DropTeamMemoryItems()
+    {
+        var uids = CollectTeamOrMultiUids();
+        if (uids.Count == 0)
+        {
+            var cap = GetCaptainUid();
+            if (!string.IsNullOrEmpty(cap))
+            {
+                uids.Add(cap);
+            }
+        }
+
+        var total = 0;
+        foreach (var uid in uids)
+        {
+            total += DropItemsByKeyword(uid, "黑之记忆");
+            total += DropItemsByKeyword(uid, "白之记忆");
+        }
+
+        WriteLog("dragon drop memory total=" + total + " uids=" + uids.Count);
+        if (total > 0)
+        {
+            Tip("已丢弃全员黑/白之记忆 " + total + " 件");
+        }
+    }
+
+    /// <summary>龙3/4 特例：使用队长的记忆/意志道具（按关键字顺序优先），只用 1 件。返回是否已发包。</summary>
+    private static bool UseCaptainMemoryItem(string[] keywords)
+    {
+        var cap = GetCaptainUid();
+        if (string.IsNullOrEmpty(cap))
+        {
+            return false;
+        }
+
+        foreach (var keyword in keywords)
+        {
+            if (TryUseMemoryItem(cap, keyword))
+            {
+                Tip("已使用队长的" + keyword);
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool TryUseMemoryItem(string uid, string keyword)
+    {
+        try
+        {
+            var items = FindType("PlayerDataHolder")?.GetMethod(
+                "GetItemDatasFromUid", BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic)
+                ?.Invoke(null, new object[] { uid }) as System.Collections.IList;
+            if (items == null)
+            {
+                return false;
+            }
+
+            var itemMgr = GetManagerInstance("ItemManager");
+            if (itemMgr == null)
+            {
+                return false;
+            }
+
+            // SendUseItem(int x, int y, int haveitemindex, string uid, int toindex, int selectIndex, int useNum)
+            MethodInfo use = null;
+            foreach (var m in itemMgr.GetType().GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+            {
+                if (m.Name != "SendUseItem")
+                {
+                    continue;
+                }
+
+                var ps = m.GetParameters();
+                if (ps.Length >= 4 && ps[0].ParameterType == typeof(int) && ps[3].ParameterType == typeof(string))
+                {
+                    use = m;
+                    break;
+                }
+            }
+
+            if (use == null)
+            {
+                return false;
+            }
+
+            for (var i = 0; i < items.Count; i++)
+            {
+                var item = items[i];
+                if (item == null)
+                {
+                    continue;
+                }
+
+                var useFlag = Convert.ToInt32(GetMember(item, "useFlag") ?? 0);
+                if (useFlag != 1)
+                {
+                    continue;
+                }
+
+                var data = GetMember(item, "data");
+                var name = Convert.ToString(GetMember(data, "Name") ?? "") ?? "";
+                if (name.IndexOf(keyword, StringComparison.Ordinal) < 0)
+                {
+                    continue;
+                }
+
+                // 取当前坐标
+                var x = 0;
+                var y = 0;
+                TryGetPlayerXY(out x, out y);
+
+                // 兼容不同参数个数（4/5/6/7 参）
+                var ps = use.GetParameters();
+                if (ps.Length >= 7)
+                {
+                    use.Invoke(itemMgr, new object[] { x, y, i, uid, 0, -1, 1 });
+                }
+                else if (ps.Length >= 4)
+                {
+                    use.Invoke(itemMgr, new object[] { x, y, i, uid });
+                }
+
+                WriteLog("dragon use memory uid=" + uid + " kw=" + keyword + " idx=" + i + " name=" + name);
+                return true;
+            }
+
+            return false;
+        }
+        catch (Exception ex)
+        {
+            WriteLog("TryUseMemoryItem EX uid=" + uid + " kw=" + keyword + " " + RootMessage(ex));
+            return false;
+        }
+    }
+
+    /// <summary>检查每个队员是否都至少有 1 个宠物空位（宠物栏固定 5 槽）。</summary>
+    private static bool CheckAllPetSlotFree(out string failName)
+    {
+        failName = "";
+        var uids = CollectTeamOrMultiUids();
+        if (uids.Count == 0)
+        {
+            var cap = GetCaptainUid();
+            if (!string.IsNullOrEmpty(cap))
+            {
+                uids.Add(cap);
+            }
+        }
+
+        var getPets = FindType("PlayerDataHolder")?.GetMethod(
+            "GetPetDatasFromUid", BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic);
+        if (getPets == null)
+        {
+            failName = "(反射缺失)";
+            return false;
+        }
+
+        foreach (var uid in uids)
+        {
+            var pets = getPets.Invoke(null, new object[] { uid }) as System.Collections.IList;
+            if (pets == null)
+            {
+                failName = uid;
+                return false;
+            }
+
+            var used = 0;
+            for (var i = 0; i < pets.Count; i++)
+            {
+                var p = pets[i];
+                if (p == null)
+                {
+                    continue;
+                }
+
+                var useFlag = Convert.ToInt32(GetMember(p, "useFlag") ?? 0);
+                if (useFlag == 1)
+                {
+                    used++;
+                }
+            }
+
+            if (used >= pets.Count)
+            {
+                failName = uid;
+                WriteLog("dragon pet full uid=" + uid + " used=" + used + "/" + pets.Count);
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>收集指定账号的宠物列表。</summary>
+    private static System.Collections.IList GetPetListByUid(string uid)
+    {
+        try
+        {
+            var getPets = FindType("PlayerDataHolder")?.GetMethod(
+                "GetPetDatasFromUid", BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic);
+            return getPets?.Invoke(null, new object[] { uid }) as System.Collections.IList;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>解析个人宠物仓库枚举值（BANK_TYPE.PERSONAL_BANK）。</summary>
+    private static object ResolvePersonalBankType()
+    {
+        try
+        {
+            var t = FindType("BANK_TYPE");
+            if (t == null || !t.IsEnum)
+            {
+                return null;
+            }
+
+            try
+            {
+                return Enum.Parse(t, "PERSONAL_BANK", ignoreCase: true);
+            }
+            catch
+            {
+                // fall through
+            }
+
+            foreach (var name in Enum.GetNames(t))
+            {
+                if (name.IndexOf("PERSONAL", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    return Enum.Parse(t, name);
+                }
+            }
+
+            var values = Enum.GetValues(t);
+            return values.Length > 0 ? values.GetValue(0) : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>打开远程个人宠物仓库（存仓前置，打不开不阻断后续存宠尝试）。</summary>
+    private static void TryOpenRemotePersonalPetBank(string uid)
+    {
+        try
+        {
+            var roleMgr = GetManagerInstance("RoleManager");
+            if (roleMgr != null)
+            {
+                SetMember(roleMgr, "OpenBankFromPet", true);
+            }
+
+            var actMgr = GetManagerInstance("ActivityManager");
+            if (actMgr == null)
+            {
+                return;
+            }
+
+            MethodInfo send = null;
+            foreach (var m in actMgr.GetType().GetMethods(
+                         BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+            {
+                if (m.Name != "SendActivity")
+                {
+                    continue;
+                }
+
+                var ps = m.GetParameters();
+                if (ps.Length == 4
+                    && ps[0].ParameterType == typeof(string)
+                    && ps[1].ParameterType == typeof(string))
+                {
+                    send = m;
+                    break;
+                }
+
+                if (send == null && ps.Length >= 2 && ps[0].ParameterType == typeof(string))
+                {
+                    send = m;
+                }
+            }
+
+            if (send == null)
+            {
+                return;
+            }
+
+            var ps2 = send.GetParameters();
+            if (ps2.Length >= 4)
+            {
+                send.Invoke(actMgr, new object[] { "远程个人宠物仓库", uid, 0, 19 });
+            }
+            else if (ps2.Length == 3)
+            {
+                send.Invoke(actMgr, new object[] { "远程个人宠物仓库", uid, 0 });
+            }
+            else if (ps2.Length == 2)
+            {
+                send.Invoke(actMgr, new object[] { "远程个人宠物仓库", uid });
+            }
+        }
+        catch
+        {
+            // 打不开远程仓也不阻断后续「存宠物」尝试
+        }
+    }
+
+    /// <summary>
+    /// 对所有宠物栏满的队员，把 1 级休息宠存到银行。返回是否有成功发包（存在可存的 1 级宠）。
+    /// </summary>
+    private static bool StoreLevelOnePetsForFull()
+    {
+        var uids = CollectTeamOrMultiUids();
+        if (uids.Count == 0)
+        {
+            var cap = GetCaptainUid();
+            if (!string.IsNullOrEmpty(cap))
+            {
+                uids.Add(cap);
+            }
+        }
+
+        var getPets = FindType("PlayerDataHolder")?.GetMethod(
+            "GetPetDatasFromUid", BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic);
+        if (getPets == null)
+        {
+            return false;
+        }
+
+        var roleMgr = GetManagerInstance("RoleManager");
+        if (roleMgr == null)
+        {
+            return false;
+        }
+
+        var bankType = ResolvePersonalBankType();
+        if (bankType == null)
+        {
+            return false;
+        }
+
+        MethodInfo sendBank = null;
+        foreach (var m in roleMgr.GetType().GetMethods(
+                     BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+        {
+            if (m.Name != "SendBankMessage")
+            {
+                continue;
+            }
+
+            var ps = m.GetParameters();
+            if (ps.Length >= 4 && ps.Length <= 6)
+            {
+                sendBank = m;
+                break;
+            }
+        }
+
+        if (sendBank == null)
+        {
+            return false;
+        }
+
+        var anyStored = false;
+        foreach (var uid in uids)
+        {
+            var pets = getPets.Invoke(null, new object[] { uid }) as System.Collections.IList;
+            if (pets == null)
+            {
+                continue;
+            }
+
+            // 只处理宠物栏满的账号
+            var used = 0;
+            for (var i = 0; i < pets.Count; i++)
+            {
+                var p = pets[i];
+                if (p == null)
+                {
+                    continue;
+                }
+
+                if (Convert.ToInt32(GetMember(p, "useFlag") ?? 0) == 1)
+                {
+                    used++;
+                }
+            }
+
+            if (used < pets.Count)
+            {
+                continue; // 没满，跳过
+            }
+
+            // 收集 1 级休息宠（记录宠物对象，存后本地置 useFlag=0，贴合抓宠存包逻辑）
+            var storePets = new List<object>();
+            for (var i = 0; i < pets.Count && i < 5; i++)
+            {
+                var pet = pets[i];
+                if (pet == null)
+                {
+                    continue;
+                }
+
+                if (Convert.ToInt32(GetMember(pet, "useFlag") ?? 0) != 1)
+                {
+                    continue;
+                }
+
+                var data = GetMember(pet, "data");
+                if (data == null)
+                {
+                    continue;
+                }
+
+                var status = Convert.ToInt32(GetMember(data, "DepartureBattleStatus") ?? -1);
+                if (status != PetStatusRest)
+                {
+                    continue;
+                }
+
+                var level = Convert.ToInt32(GetMember(data, "Level") ?? 0);
+                if (level != StorePetLevel)
+                {
+                    continue;
+                }
+
+                storePets.Add(pet);
+            }
+
+            if (storePets.Count == 0)
+            {
+                continue; // 该账号无可存 1 级宠
+            }
+
+            TryOpenRemotePersonalPetBank(uid);
+
+            foreach (var pet in storePets)
+            {
+                try
+                {
+                    var data = GetMember(pet, "data");
+                    var index = Convert.ToInt32(GetMember(data, "Index") ?? 0);
+                    var ps = sendBank.GetParameters();
+                    object[] args;
+                    if (ps.Length >= 6)
+                    {
+                        args = new object[] { bankType, uid, "存宠物", index, 0, null };
+                    }
+                    else if (ps.Length == 5)
+                    {
+                        args = new object[] { bankType, uid, "存宠物", index, 0 };
+                    }
+                    else
+                    {
+                        args = new object[] { bankType, uid, "存宠物", index };
+                    }
+
+                    sendBank.Invoke(roleMgr, args);
+                    SetMember(pet, "useFlag", 0);
+                    anyStored = true;
+                    WriteLog("dragon store pet uid=" + uid + " idx=" + index);
+                }
+                catch (Exception ex)
+                {
+                    WriteLog("dragon store pet EX uid=" + uid + " " + RootMessage(ex));
+                }
+            }
+        }
+
+        return anyStored;
+    }
+
     private static string FormatEscortStatus()
     {
         string state;
-        if (_escortActive && _escortPaused)
+        if (_dragonLoopActive && _dragonPhase == 1)
+        {
+            state = "龙族循环：重置龙族纷争4中…（等待服务器）";
+        }
+        else if (_dragonLoopActive && _dragonPhase == 2)
+        {
+            state = "龙族循环：检查龙族纷争1-4是否可接…";
+        }
+        else if (_dragonLoopActive && _dragonPhase == 4)
+        {
+            state = "龙族循环：宠物位满，存1级宠物到银行中…";
+        }
+        else if (_escortActive && _escortPaused)
         {
             state = "已暂停（手动接管）#" + _escortMissionId + " " + GetEscortMissionTitleWithStep();
             if (_escortQueue.Count > 0 && _escortQueueIndex >= 0)
@@ -6387,7 +7147,44 @@ public static class SeqChapterTestUi
                + "\n静止计时: " + idleSec + "s / 5s"
                + "\n本步骤恢复: " + _escortRecoverAttempts + " / " + EscortMaxRecoverFails
                + "（换步骤重置）"
+               + "\n" + GetEscortSpecialNote()
+               + (_dragonLoopActive ? "\n龙族循环: 已循环 " + _dragonLoopCount + " 轮" : "")
                + (_stuckResumePending ? "\n卡楼梯：已随机移动，续航中…" : "");
+    }
+
+    /// <summary>
+    /// 生成「特殊处理」标注：同时暴露识别结果与分流结果，便于排查。
+    /// 丢/用道具只由任务本身决定（IsDragonMission），不再依赖龙族循环模式；分流按硬编码 ID。
+    /// </summary>
+    private static string GetEscortSpecialNote()
+    {
+        var id = _escortMissionId;
+        if (id <= 0)
+        {
+            return "特殊处理: 无（无当前任务）";
+        }
+
+        if (!IsDragonMission(id))
+        {
+            return "特殊处理: 无（未识别为龙族任务） #" + id;
+        }
+
+        if (id == 110 || id == 111)
+        {
+            return "特殊处理: 开始丢道具（全员黑/白之记忆） #" + id;
+        }
+
+        if (id == 112)
+        {
+            return "特殊处理: 开始用道具（队长白/黑之记忆） #" + id;
+        }
+
+        if (id == 113)
+        {
+            return "特殊处理: 开始用道具（队长白色/黑色意志） #" + id;
+        }
+
+        return "特殊处理: 已识别龙族但ID不匹配（未丢未用） #" + id;
     }
 
     private static bool EscortQueueContains(int missionId)
@@ -6820,6 +7617,30 @@ public static class SeqChapterTestUi
             _lastPosY = y;
         }
 
+        // 龙族任务特例：龙1/2 丢弃全员记忆；龙3 使用队长记忆；龙4 使用队长意志
+        if (IsDragonMission(_escortMissionId))
+        {
+            if (_escortMissionId == 110 || _escortMissionId == 111)
+            {
+                DropTeamMemoryItems();
+            }
+            else if (_escortMissionId == 112 || _escortMissionId == 113)
+            {
+                var useKeywords = _escortMissionId == 112
+                    ? new[] { "白之记忆", "黑之记忆" }
+                    : new[] { "白色意志", "黑色意志" };
+                if (UseCaptainMemoryItem(useKeywords))
+                {
+                    _dragonUseMemoryPending = true;
+                    _dragonUseMemoryAtMs = NowMs();
+                    WriteLog("dragon use memory pending id=" + _escortMissionId);
+                    return true; // 已受理，TickEscort 等待后继续
+                }
+
+                WriteLog("dragon use memory none id=" + _escortMissionId + "（无可使用道具，继续点任务）");
+            }
+        }
+
         if (!ClickEscortTaskNav(reason))
         {
             PauseEscortOnConditionFail(reason);
@@ -6924,8 +7745,85 @@ public static class SeqChapterTestUi
         }
     }
 
+    /// <summary>清理护航运行状态（清空队列、重置状态、可选停导航），不改变龙族循环标志。</summary>
+    private static void CleanupEscortRuntime(bool stopNav)
+    {
+        var wasActive = _escortActive;
+        _escortPicking = false;
+        _escortActive = false;
+        _escortPaused = false;
+        _escortPauseReason = "";
+        _escortLastDiag = "";
+        StopEscortAlertRing();
+        _escortMissionId = -1;
+        _escortMissionTitle = "";
+        _escortQueueIndex = -1;
+        _escortBetweenTasksWaitMs = 0;
+        _escortAwaitingReadyMs = 0;
+        _escortRecoverAttempts = 0;
+        _stuckResumePending = false;
+        _escortFinishWaitMs = 0;
+        _escortQueue.Clear();
+        _prevRunTaskId = GetRunTaskId();
+        if (stopNav && wasActive)
+        {
+            StopTaskNavigation();
+        }
+    }
+
     private static void FinishEscortQueue(string tipMsg)
     {
+        // 龙族循环：队列完成后不停止，检查宠物空位；满则存 1 级宠到银行腾位，仍满才停
+        if (_dragonLoopActive)
+        {
+            _dragonLoopCount++;
+            CleanupEscortRuntime(true);
+
+            if (CheckAllPetSlotFree(out var petFailUid))
+            {
+                WriteLog("dragon loop next round: count=" + _dragonLoopCount);
+                Tip("龙族循环第 " + _dragonLoopCount + " 轮完成，准备下一轮…");
+                _dragonPhase = 1;
+                _dragonPhaseAtMs = NowMs();
+                _dragonCheckRetries = 0;
+                ResetDragon4ForAll();
+            }
+            else
+            {
+                // 宠物位满：尝试存 1 级宠到银行腾位
+                _dragonStoreRetries = 0;
+                var stored = StoreLevelOnePetsForFull();
+                if (stored)
+                {
+                    WriteLog("dragon loop store pets: count=" + _dragonLoopCount);
+                    Tip("龙族循环：宠物位满，正在存1级宠物到银行…");
+                    _dragonPhase = 4;
+                    _dragonPhaseAtMs = NowMs();
+                }
+                else
+                {
+                    WriteLog("dragon loop stop: 宠物位满且无可存1级宠 uid=" + petFailUid + " count=" + _dragonLoopCount);
+                    Tip("龙族循环停止：队员宠物位满且无1级宠可存包，共循环 " + _dragonLoopCount + " 轮");
+                    _dragonLoopActive = false;
+                    _dragonPhase = 0;
+                }
+            }
+
+            if (_visible && _tab == TabEscort && _canvasGo != null && !IsUnityNull(_canvasGo))
+            {
+                try
+                {
+                    RebuildEscortTab();
+                }
+                catch
+                {
+                    // ignore
+                }
+            }
+
+            return;
+        }
+
         var was = _escortActive || _escortPicking;
         var wasActive = _escortActive;
         _escortPicking = false;
@@ -6970,6 +7868,17 @@ public static class SeqChapterTestUi
     /// <summary>停止护航并清空队列（停止按钮 / ESC）。</summary>
     private static void CancelEscort(bool stopNav, string tipMsg = null)
     {
+        // 若龙族循环激活，一并停止循环标志
+        if (_dragonLoopActive)
+        {
+            _dragonLoopActive = false;
+            _dragonPhase = 0;
+            WriteLog("dragon loop stop via cancel count=" + _dragonLoopCount);
+        }
+
+        // 用记忆等待标志无条件清理（普通护航龙3/4 也可能置位）
+        _dragonUseMemoryPending = false;
+
         var was = _escortActive || _escortPicking || _escortQueue.Count > 0;
         var id = _escortMissionId;
         var wasActive = _escortActive;
@@ -7013,10 +7922,237 @@ public static class SeqChapterTestUi
         }
     }
 
+    // ---------------- 龙族纷争循环状态机 ----------------
+
+    /// <summary>启动龙族循环（重置龙4 → 判断可接 → 顺序执行 110-113，循环直到宠物位满/手动停）。</summary>
+    private static void StartDragonLoop()
+    {
+        try
+        {
+            if (_dragonLoopActive)
+            {
+                Tip("龙族循环：已在运行中（第 " + (_dragonLoopCount + 1) + " 轮）");
+                return;
+            }
+
+            // 若普通护航在跑，先停
+            if (_escortActive)
+            {
+                CancelEscort(true, "已切换到龙族循环");
+            }
+
+            _dragonLoopActive = true;
+            _dragonLoopCount = 0;
+            _dragonPhase = 1;
+            _dragonPhaseAtMs = NowMs();
+            _dragonUseMemoryPending = false;
+            _dragonCheckRetries = 0;
+            WriteLog("dragon loop start");
+            Tip("龙族循环：开始，先重置龙族纷争4…");
+            ResetDragon4ForAll();
+            if (_visible && _tab == TabEscort)
+            {
+                try
+                {
+                    RebuildEscortTab();
+                }
+                catch
+                {
+                    // ignore
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            WriteLog("StartDragonLoop EX: " + RootMessage(ex));
+            Tip("龙族循环：启动失败");
+            _dragonLoopActive = false;
+            _dragonPhase = 0;
+        }
+    }
+
+    /// <summary>停止龙族循环。</summary>
+    private static void StopDragonLoop()
+    {
+        if (!_dragonLoopActive)
+        {
+            return;
+        }
+
+        _dragonLoopActive = false;
+        _dragonPhase = 0;
+        _dragonUseMemoryPending = false;
+        WriteLog("dragon loop manual stop count=" + _dragonLoopCount);
+        Tip("龙族循环已停止（共 " + _dragonLoopCount + " 轮）");
+        if (_escortActive)
+        {
+            CancelEscort(true, "龙族循环已停止");
+        }
+    }
+
+    /// <summary>龙族循环 phase 1/2：重置等待 → 判断可接 → 入队执行。</summary>
+    private static void TickDragonLoopPrepare()
+    {
+        var now = NowMs();
+        if (_dragonPhase == 1)
+        {
+            if (now - _dragonPhaseAtMs < DragonResetDelayMs)
+            {
+                return;
+            }
+
+            _dragonPhase = 2;
+            _dragonPhaseAtMs = now;
+            return;
+        }
+
+        if (_dragonPhase == 2)
+        {
+            if (!CheckDragonMissionsReady(out var failReason))
+            {
+                // 重置回包可能滞后，重试等待若干次再终止（避免「已完成」误判）
+                if (_dragonCheckRetries < DragonCheckMaxRetries)
+                {
+                    if (now - _dragonPhaseAtMs < DragonCheckRetryMs)
+                    {
+                        return;
+                    }
+
+                    _dragonCheckRetries++;
+                    _dragonPhaseAtMs = now;
+                    WriteLog("dragon loop check retry=" + _dragonCheckRetries + " fail=" + failReason);
+                    return;
+                }
+
+                WriteLog("dragon loop check fail: " + failReason);
+                Tip("龙族循环终止：" + failReason);
+                _dragonLoopActive = false;
+                _dragonPhase = 0;
+                _dragonCheckRetries = 0;
+                if (_visible && _tab == TabEscort)
+                {
+                    try
+                    {
+                        RebuildEscortTab();
+                    }
+                    catch
+                    {
+                        // ignore
+                    }
+                }
+
+                return;
+            }
+
+            _dragonCheckRetries = 0;
+
+            // 构建队列 [110,111,112,113]
+            _escortQueue.Clear();
+            foreach (var id in DragonMissionIds)
+            {
+                var mission = GetMissionDataById(id);
+                var title = mission != null
+                    ? (Convert.ToString(GetMember(mission, "title") ?? "") ?? "")
+                    : "";
+                _escortQueue.Add(new EscortCandidate
+                {
+                    Id = id,
+                    Title = string.IsNullOrEmpty(title) ? ("#" + id) : title,
+                    Status = "排队"
+                });
+            }
+
+            _dragonPhase = 3;
+            _escortPicking = false;
+            _escortActive = true;
+            _escortPaused = false;
+            _escortPauseReason = "";
+            _escortLastDiag = "";
+            StopEscortAlertRing();
+            _escortQueueIndex = 0;
+            _escortBetweenTasksWaitMs = 0;
+            _escortAwaitingReadyMs = 0;
+            _escortRecoverAttempts = 0;
+            _stuckResumePending = false;
+            _escortFinishWaitMs = 0;
+            _escortLastStepNum = -1;
+            _lastActivityMs = now;
+            _prevRunTaskId = GetRunTaskId();
+            WriteLog("dragon loop run round=" + (_dragonLoopCount + 1) + " queue=" + _escortQueue.Count);
+            Tip("龙族循环：开始第 " + (_dragonLoopCount + 1) + " 轮（" + _escortQueue.Count + " 项）");
+            BeginEscortAtIndex(0, "dragon-start");
+            if (_visible && _tab == TabEscort)
+            {
+                try
+                {
+                    RebuildEscortTab();
+                }
+                catch
+                {
+                    // ignore
+                }
+            }
+        }
+
+        if (_dragonPhase == 4)
+        {
+            // 存包腾位等待：等服务器处理完，重新检查空位
+            if (now - _dragonPhaseAtMs < DragonStoreWaitMs)
+            {
+                return;
+            }
+
+            if (CheckAllPetSlotFree(out var failUid2))
+            {
+                WriteLog("dragon loop store ok, next round count=" + _dragonLoopCount);
+                Tip("龙族循环：存包完成，准备下一轮…");
+                _dragonPhase = 1;
+                _dragonPhaseAtMs = now;
+                ResetDragon4ForAll();
+            }
+            else
+            {
+                _dragonStoreRetries++;
+                if (_dragonStoreRetries < DragonStoreMaxRetries)
+                {
+                    var stored = StoreLevelOnePetsForFull();
+                    if (stored)
+                    {
+                        Tip("龙族循环：宠物仍满，再次存1级宠物到银行…");
+                        _dragonPhaseAtMs = now;
+                    }
+                    else
+                    {
+                        WriteLog("dragon loop stop: 存包后仍满且无可存1级宠 uid=" + failUid2 + " count=" + _dragonLoopCount);
+                        Tip("龙族循环停止：队员宠物位满且无1级宠可存包，共循环 " + _dragonLoopCount + " 轮");
+                        _dragonLoopActive = false;
+                        _dragonPhase = 0;
+                        TryRebuildEscortTab();
+                    }
+                }
+                else
+                {
+                    WriteLog("dragon loop stop: 存包重试后仍满 uid=" + failUid2 + " count=" + _dragonLoopCount);
+                    Tip("龙族循环停止：宠物位满且存包失败（银行可能已满），共循环 " + _dragonLoopCount + " 轮");
+                    _dragonLoopActive = false;
+                    _dragonPhase = 0;
+                    TryRebuildEscortTab();
+                }
+            }
+        }
+    }
+
     private static void TickEscort()
     {
-        if (IsEscapeDown() && (_escortPicking || _escortActive || _escortPaused))
+        if (IsEscapeDown() && (_escortPicking || _escortActive || _escortPaused || _dragonLoopActive))
         {
+            // 龙族循环激活时 ESC 直接停止循环
+            if (_dragonLoopActive)
+            {
+                StopDragonLoop();
+                return;
+            }
+
             // 护航中（含暂停）编辑队列时：ESC 只关编辑，不清队列
             if (_escortPicking && _escortActive)
             {
@@ -7037,6 +8173,12 @@ public static class SeqChapterTestUi
             return;
         }
 
+        if (_dragonLoopActive && (_dragonPhase == 1 || _dragonPhase == 2 || _dragonPhase == 4))
+        {
+            TickDragonLoopPrepare();
+            return;
+        }
+
         if (!_escortActive)
         {
             return;
@@ -7050,6 +8192,23 @@ public static class SeqChapterTestUi
 
         var now = NowMs();
         TryAutoPickDialogue();
+
+        // 龙3/4 使用记忆后等待服务器处理，再点任务
+        if (_dragonUseMemoryPending)
+        {
+            if (now - _dragonUseMemoryAtMs < DragonUseMemoryDelayMs)
+            {
+                return;
+            }
+
+            _dragonUseMemoryPending = false;
+            if (!ClickEscortTaskNav("dragon-use-memory"))
+            {
+                PauseEscortOnConditionFail("dragon-use-memory");
+            }
+
+            return;
+        }
 
         // 任务间 5 秒间隔
         if (_escortBetweenTasksWaitMs > 0)

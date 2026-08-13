@@ -92,8 +92,8 @@ def run_auto() -> int:
         apply_frameskip = not any(
             a in ("--no-frameskip", "--no-bossfps", "/no-frameskip") for a in sys.argv[1:]
         )
-        inject_bridge = any(
-            a in ("--bridge", "--inject-bridge", "/bridge") for a in sys.argv[1:]
+        inject_bridge = not any(
+            a in ("--no-bridge", "--no-inject-bridge", "/no-bridge") for a in sys.argv[1:]
         )
         msgs = run_foolproof_patch(
             enable_nine=NINE_PACK,
@@ -164,10 +164,10 @@ class FoolproofApp(tk.Tk):
             variable=self.apply_frameskip_var,
         ).pack(anchor=tk.W, pady=(0, 6))
 
-        self.inject_bridge_var = tk.BooleanVar(value=False)
+        self.inject_bridge_var = tk.BooleanVar(value=True)
         ttk.Checkbutton(
             body,
-            text="多开器适配功能（默认不打，占 hotfixdata 容量：勾选=注入精简桥接，供「多开器.exe」登录/拉多控/一键召唤）",
+            text="多开器适配功能（默认开：注入精简桥接，供「多开器.exe」登录/拉多控/一键召唤）",
             variable=self.inject_bridge_var,
         ).pack(anchor=tk.W, pady=(0, 6))
 

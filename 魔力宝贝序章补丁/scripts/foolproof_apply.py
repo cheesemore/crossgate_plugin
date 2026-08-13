@@ -90,7 +90,7 @@ def run_foolproof_patch(
     gift_codes: list[str] | str | None = None,
     apply_accel: bool = False,
     apply_frameskip: bool = True,
-    inject_bridge: bool = False,
+    inject_bridge: bool = True,
     on_log: LogFn | None = None,
     # 旧多档参数已废弃：一律走百科助手面板，忽略下列开关
     burn_seal: bool = False,
@@ -106,7 +106,7 @@ def run_foolproof_patch(
         注意：默认组合总是拦截倍速检测上报（CheckTimeScaleWarning /
         SendTimeScaleWarning 打成空方法，防检测），无论加速是否开启。
     apply_frameskip：跳帧开关（切后台/老板键限帧 30FPS），默认开。
-    inject_bridge：多开器适配功能开关，默认关（占容量，多开器需连接时才勾）。
+    inject_bridge：多开器适配功能开关，默认开（注入精简桥接，多开器登录/拉多控/一键召唤）。
         开启后注入 SeqChapterMiniBridge 精简桥接外部 DLL + hook（多开/账号登录/一键召唤）。
     daily_claim / newbie_gift_code：分享切页（默认开）。
     gift_codes：可编辑礼包码；None 用默认。
