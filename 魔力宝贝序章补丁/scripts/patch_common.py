@@ -25,8 +25,9 @@ PARTIALCONFIG_STREAMING_REL = Path(DATA_DIR) / "StreamingAssets" / "partialconfi
 KEEP_CHANNELS = frozenset({"1100", "1102"})
 DEFAULT_CHANNEL = "1101"
 OLD_HOTFIX_SIZE = 6_879_744
-EXPECTED_SIZE = 7_138_816
+EXPECTED_SIZE = 7_173_632
 KNOWN_OLD_SIZES: dict[int, str] = {
+    7_138_816: "自动标记：更新前旧版",
     7_132_672: "自动标记：更新前旧版",
     7_124_992: "自动标记：更新前旧版",
     7_124_480: "自动标记：更新前旧版",
@@ -1211,7 +1212,10 @@ def sync_client_baseline(game_root: Path | None = None, *, force: bool = False) 
 
     orig = hotfix_orig(root)
     if orig.is_file() and orig.stat().st_size != size:
-        messages.append("警告：现有 .orig 与新版体积不一致，初始化将自动重建 .orig")
+        if _safe_copy2(candidate, orig):
+            messages.append("已从 neworig 自动重建 hotfix.dll.bytes.orig（新版体积不一致）")
+        elif _same_path(candidate, orig):
+            messages.append("hotfix.dll.bytes.orig 已与 neworig 一致（跳过自复制）")
     elif orig.is_file() and sha256_file(orig) != digest:
         if _safe_copy2(candidate, orig):
             messages.append("已从 neworig 自动对齐 hotfix.dll.bytes.orig（内容与底稿一致）")

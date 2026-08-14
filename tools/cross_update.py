@@ -733,9 +733,12 @@ def cmd_auto_update(cross: Path, copy: Path, args) -> int:
         return 0
 
     if ac is not None and ac["verdict"] == "yes":
-        _log("\n[停止] 检测到反外挂/上报相关变化，需人工核对后再同步补丁。")
-        _log("确认无风险后请重新执行（不加 --require-clear 且为 no/uncertain 时会继续）。")
-        return 3
+        if getattr(args, "confirm_anticheat", False):
+            _log("\n[确认] 已人工核对反外挂变化（--confirm-anticheat），判定无风险，继续同步补丁。")
+        else:
+            _log("\n[停止] 检测到反外挂/上报相关变化，需人工核对后再同步补丁。")
+            _log("确认无风险后请加 --confirm-anticheat 重新执行。")
+            return 3
     if getattr(args, "require_clear", False) and ac is not None and ac["verdict"] != "no":
         _log("\n[停止] --require-clear：反外挂结论非 no，暂停同步。")
         return 3
@@ -814,6 +817,7 @@ def main(argv: list[str] | None = None) -> int:
     p_au.add_argument("--dry-run", action="store_true", help="只探测反外挂，不写任何文件")
     p_au.add_argument("--force", action="store_true", help="基线一致时也强制重打补丁")
     p_au.add_argument("--require-clear", action="store_true", help="反外挂结论非 no 即停止（默认仅 yes 停止）")
+    p_au.add_argument("--confirm-anticheat", action="store_true", help="人工已核对反外挂变化无风险，跳过拦截继续同步补丁")
     p_au.add_argument("--full-hash", action="store_true", help="sync 阶段同大小文件也逐一比对 hash")
     p_au.set_defaults(fn=cmd_auto_update)
 

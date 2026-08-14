@@ -171,7 +171,12 @@ public static class SeqChapterTestUi
     private static long _dragonUseMemoryAtMs;
     private const long DragonResetDelayMs = 2500;
     private const long DragonUseMemoryDelayMs = 1500;
+    /// <summary>A 线：龙族纷争 1-4 全量。</summary>
     private static readonly int[] DragonMissionIds = { 110, 111, 112, 113 };
+    /// <summary>B 线：跳过龙族纷争2（111），仅 110/112/113。</summary>
+    private static readonly int[] DragonMissionIdsB = { 110, 112, 113 };
+    /// <summary>当前循环实际执行的任务集（A/B 线）。</summary>
+    private static int[] _dragonMissionIds;
     private const string DragonTitleKeyword = "龙族纷争";
     /// <summary>存包腾位阶段已重试次数（每轮最多 2 次存包）。</summary>
     private static int _dragonStoreRetries;
@@ -5693,7 +5698,8 @@ public static class SeqChapterTestUi
             hintText,
             "队列护航：可塞未接；完成一项后等 5 秒再下一项。\n"
             + "手动暂停不清铃；自动暂停约每2秒响铃，点「我知道了」或停止才停。静止5秒尝试恢复，连续20次失败自动暂停。\n"
-            + "龙族循环：自动重置龙4→按序执行龙族纷争1-4→宠物位满停止。",
+            + "龙族循环A：自动重置龙4→按序执行龙族纷争1-4→宠物位满停止。\n"
+            + "龙族循环B：跳过龙族纷争2，执行 1/3/4。",
             11);
 
         var y = -96f;
@@ -5757,7 +5763,7 @@ public static class SeqChapterTestUi
         }
 
         y -= 50f;
-        // 龙族循环按钮（始终显示）
+        // 龙族循环 A 线按钮（始终显示）
         var dragonBtn = CreateUiChild(_bodyRoot, "DragonLoopBtn", rtType);
         SetAnchoredTop(RequireRect(dragonBtn, "dlb"), 0f, y, 420f, 40f);
         var dragonImg = AddComp(dragonBtn, "UnityEngine.UI.Image");
@@ -5766,7 +5772,7 @@ public static class SeqChapterTestUi
         StretchFull(RequireRect(dragonLab, "dll"));
         SetText(AddText(dragonLab), _dragonLoopActive
             ? ("停止龙族循环(第" + (_dragonLoopCount + 1) + "轮)")
-            : "龙族循环(110-113)", 14);
+            : "龙族循环A(110-113)", 14);
         BindButton(dragonBtn, dragonImg, () =>
         {
             if (_dragonLoopActive)
@@ -5776,6 +5782,29 @@ public static class SeqChapterTestUi
             else
             {
                 StartDragonLoop();
+            }
+        });
+        y -= 48f;
+
+        // 龙族循环 B 线按钮（跳过龙族纷争2）
+        var dragonBtnB = CreateUiChild(_bodyRoot, "DragonLoopBtnB", rtType);
+        SetAnchoredTop(RequireRect(dragonBtnB, "dlbb"), 0f, y, 420f, 40f);
+        var dragonImgB = AddComp(dragonBtnB, "UnityEngine.UI.Image");
+        SetColor(dragonImgB, _dragonLoopActive ? 0.55f : 0.3f, _dragonLoopActive ? 0.24f : 0.3f, _dragonLoopActive ? 0.22f : 0.42f, 1f);
+        var dragonLabB = CreateUiChild(dragonBtnB, "L", rtType);
+        StretchFull(RequireRect(dragonLabB, "dllb"));
+        SetText(AddText(dragonLabB), _dragonLoopActive
+            ? ("停止龙族循环(第" + (_dragonLoopCount + 1) + "轮)")
+            : "龙族循环B(110/112/113)", 14);
+        BindButton(dragonBtnB, dragonImgB, () =>
+        {
+            if (_dragonLoopActive)
+            {
+                StopDragonLoop();
+            }
+            else
+            {
+                StartDragonLoopB();
             }
         });
         y -= 48f;
@@ -6421,27 +6450,28 @@ public static class SeqChapterTestUi
     }
 
     /// <summary>
-    /// 判断龙族纷争 1-4 是否均非「已完成」状态。
+    /// 判断当前循环任务集（A/B 线）是否均非「已完成」状态。
     /// 已接(Started) 或 可接(NotStart) 都算就绪；入队后由护航自身的 ClickEscortTaskNav
     /// 负责把「可接」任务实际接取（含等级绕过与 20 次恢复重试），此处不做预接取。
     /// </summary>
     private static bool CheckDragonMissionsReady(out string failReason)
     {
         failReason = "";
-        for (var i = 0; i < DragonMissionIds.Length; i++)
+        var ids = _dragonMissionIds ?? DragonMissionIds;
+        for (var i = 0; i < ids.Length; i++)
         {
-            var id = DragonMissionIds[i];
+            var id = ids[i];
             var mission = GetMissionDataById(id);
             if (mission == null)
             {
-                failReason = "找不到龙族纷争" + (i + 1) + "任务数据";
+                failReason = "找不到龙族纷争" + (i + 1) + "任务数据(#" + id + ")";
                 return false;
             }
 
             var st = GetMissionStatusStr(mission);
             if (st.EndsWith("Ended", StringComparison.Ordinal) || st == "2")
             {
-                failReason = "龙族纷争" + (i + 1) + "已完成（未重置）";
+                failReason = "龙族纷争" + (i + 1) + "(#" + id + ")已完成（未重置）";
                 return false;
             }
         }
@@ -7924,8 +7954,20 @@ public static class SeqChapterTestUi
 
     // ---------------- 龙族纷争循环状态机 ----------------
 
-    /// <summary>启动龙族循环（重置龙4 → 判断可接 → 顺序执行 110-113，循环直到宠物位满/手动停）。</summary>
+    /// <summary>启动龙族循环 A 线（110-113）。</summary>
     private static void StartDragonLoop()
+    {
+        StartDragonLoopCore(DragonMissionIds, "A");
+    }
+
+    /// <summary>启动龙族循环 B 线（110/112/113）。</summary>
+    private static void StartDragonLoopB()
+    {
+        StartDragonLoopCore(DragonMissionIdsB, "B");
+    }
+
+    /// <summary>启动龙族循环（重置龙4 → 判断可接 → 顺序执行任务集，循环直到宠物位满/手动停）。</summary>
+    private static void StartDragonLoopCore(int[] missionIds, string line)
     {
         try
         {
@@ -7942,13 +7984,14 @@ public static class SeqChapterTestUi
             }
 
             _dragonLoopActive = true;
+            _dragonMissionIds = missionIds;
             _dragonLoopCount = 0;
             _dragonPhase = 1;
             _dragonPhaseAtMs = NowMs();
             _dragonUseMemoryPending = false;
             _dragonCheckRetries = 0;
-            WriteLog("dragon loop start");
-            Tip("龙族循环：开始，先重置龙族纷争4…");
+            WriteLog("dragon loop start line=" + line);
+            Tip("龙族循环" + line + "线：开始，先重置龙族纷争4…");
             ResetDragon4ForAll();
             if (_visible && _tab == TabEscort)
             {
@@ -8046,9 +8089,10 @@ public static class SeqChapterTestUi
 
             _dragonCheckRetries = 0;
 
-            // 构建队列 [110,111,112,113]
+            // 构建队列（当前 A/B 线任务集）
             _escortQueue.Clear();
-            foreach (var id in DragonMissionIds)
+            var ids = _dragonMissionIds ?? DragonMissionIds;
+            foreach (var id in ids)
             {
                 var mission = GetMissionDataById(id);
                 var title = mission != null
