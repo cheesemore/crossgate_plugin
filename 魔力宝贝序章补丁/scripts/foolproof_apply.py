@@ -89,6 +89,8 @@ def run_foolproof_patch(
     newbie_gift_code: bool = True,
     gift_codes: list[str] | str | None = None,
     apply_accel: bool = False,
+    apply_accel2: bool = False,
+    dragon_loop_ui: bool = True,
     apply_frameskip: bool = True,
     inject_bridge: bool = True,
     on_log: LogFn | None = None,
@@ -105,6 +107,10 @@ def run_foolproof_patch(
     apply_accel：战斗加速开关，默认关。开→战斗倍速+心跳回传1.5x；关→原速+心跳回传1.0x。
         注意：默认组合总是拦截倍速检测上报（CheckTimeScaleWarning /
         SendTimeScaleWarning 打成空方法，防检测），无论加速是否开启。
+    apply_accel2：战斗加速方案2开关，默认关。开→只加速战斗表现（跑位/箭矢/气功弹/击飞/去慢放），
+        不改 BattleTimeScale，与 apply_accel（VIP 倍速）可共存；方案2 同样强制携带 kill-report。
+    dragon_loop_ui：护航面板「龙族循环A/B」按钮开关，默认开。傻瓜补丁分「带龙族」（True）/
+        「原版」（False）两版，唯一差别就是这个按钮标记。
     apply_frameskip：跳帧开关（切后台/老板键限帧 30FPS），默认开。
     inject_bridge：多开器适配功能开关，默认开（注入精简桥接，多开器登录/拉多控/一键召唤）。
         开启后注入 SeqChapterMiniBridge 精简桥接外部 DLL + hook（多开/账号登录/一键召唤）。
@@ -158,7 +164,7 @@ def run_foolproof_patch(
         _emit(
             messages,
             on_log,
-            "预设：百科助手面板（常规/抓宠（无宠二动）/抓宠/抓宠卖银币/烧卡 · 无九动）",
+            "预设：百科助手面板（常规/抓宠（无宠二动）/抓宠/抓宠卖银币/烧卡）",
         )
         kwargs = dict(FOOLPROOF_NO_NINE_COMBO_KWARGS)
         kwargs["battle_nine_action"] = False
@@ -198,6 +204,21 @@ def run_foolproof_patch(
         kwargs["vip_non_vip"] = True
         kwargs["vip_echo"] = 1.5
         _emit(messages, on_log, "加速补丁：开（战斗倍速 + 心跳回传固定 1.5x，强制携带 kill-report）")
+
+    if apply_accel2:
+        kwargs["combat_accel"] = True
+        _emit(
+            messages,
+            on_log,
+            "加速2补丁：开（战斗加速方案2：跑位/箭矢/气功弹/击飞/去慢放，不改 BattleTimeScale，可共存）",
+        )
+
+    kwargs["dragon_loop_ui"] = bool(dragon_loop_ui)
+    _emit(
+        messages,
+        on_log,
+        "护航面板：龙族循环按钮" + ("显示（带龙族版）" if dragon_loop_ui else "不显示（原版）"),
+    )
 
     kwargs["boss_key_fps"] = bool(apply_frameskip)
     _emit(
@@ -262,13 +283,15 @@ def run_foolproof_patch(
         daily_part = " · 分享切页(" + "+".join(bits) + ")"
     gm_part = " · 客服→高级自动战斗" if kwargs.get("customer_gm") else ""
     bridge_part = " · 多开器适配(精简桥接)" if inject_bridge else ""
-    nine_part = f" · 九动{nine_label}" if enable_nine else " · 无九动"
+    # 九动已永久封存：新发布包一律不带，且不再特意说明「无九动」。
+    nine_part = f" · 九动{nine_label}" if enable_nine else ""
+    accel2_part = " · 加速2(表现加速)" if apply_accel2 else ""
     if not apply_accel:
         _emit(
             messages,
             on_log,
             f"已应用：无战斗倍速 · 原速跑图 · 长按详情 · 无特效加速 · 心跳回传1.0x"
-            f"{panel_part}{gm_part}{daily_part}{nine_part}{frameskip_part}{bridge_part}"
+            f"{accel2_part}{panel_part}{gm_part}{daily_part}{nine_part}{frameskip_part}{bridge_part}"
             + (" · 一级含蝙蝠/哥布林" if kwargs.get("level_one_include_all") else ""),
         )
     else:
@@ -280,7 +303,7 @@ def run_foolproof_patch(
             messages,
             on_log,
             f"已应用：VIP{vip}x{sprint_part} · 长按详情 · 特效{fx}x · 心跳回传{echo:g}x"
-            f"{panel_part}{gm_part}{daily_part}{nine_part}{frameskip_part}{bridge_part}"
+            f"{accel2_part}{panel_part}{gm_part}{daily_part}{nine_part}{frameskip_part}{bridge_part}"
             + (" · 一级含蝙蝠/哥布林" if kwargs.get("level_one_include_all") else ""),
         )
     try:

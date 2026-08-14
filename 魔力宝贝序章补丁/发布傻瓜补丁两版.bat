@@ -1,8 +1,8 @@
 @echo off
 chcp 65001 >nul
 cd /d "%~dp0.."
-echo [BUILD] 按 publish_packs.json 默认清单发布…
-python tools\workflow.py publish-all
+echo [BUILD] 傻瓜补丁两版（融合版 + 带龙族）…
+python tools\workflow.py publish-foolproof
 if errorlevel 1 (
   echo [FAIL]
   pause

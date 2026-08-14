@@ -41,12 +41,8 @@ DEFAULT_GIFT_CODES = [
     "VIP777",
     "VIP888",
     "VIP999",
-    "MLBB666",
-    "MLBB777",
-    "mlbb521",
-    "mlbb24",
-    "mlbb0803",
-    "mlbb0805",
+    "mlbb0813",
+    "mlbb0814",
 ]
 
 
@@ -74,6 +70,27 @@ def write_gift_codes_file(hotfix_dir: Path, codes: list[str] | str | None) -> Pa
     body = "# 新手礼包码（一行一个；# 开头为注释）\n" + "\n".join(rows) + "\n"
     path.write_text(body, encoding="utf-8")
     return path
+
+
+DRAGON_LOOP_FLAG_NAME = "seqchapter_dragon_loop.flag"
+
+
+def sync_dragon_loop_flag(hotfix_dir: Path, enabled: bool) -> Path | None:
+    """写/删「带龙族」护航面板标记：hotfixdata/seqchapter_dragon_loop.flag。
+
+    DLL（SeqChapterTestUi）据此决定护航面板是否显示「龙族循环A/B」按钮。
+    傻瓜补丁「带龙族」版写标记；「原版」不写。
+    """
+    path = hotfix_dir / DRAGON_LOOP_FLAG_NAME
+    if enabled:
+        path.write_text("1\n", encoding="utf-8")
+        return path
+    if path.is_file():
+        try:
+            path.unlink()
+        except OSError:
+            pass
+    return None
 
 
 def apply_vip(
@@ -1276,6 +1293,7 @@ def apply_combo(
     pet_equip_unlock: bool = False,
     wiki_download_res: bool = False,
     wiki_label: bool = False,
+    dragon_loop_ui: bool = True,
     daily_claim: bool = True,
     newbie_gift_code: bool = True,
     gift_codes: list[str] | str | None = None,
@@ -1514,6 +1532,14 @@ def apply_combo(
         patch_msgs, work = _apply_gameplay_patches(hotfix, orig, **patch_kwargs)
         messages.extend(patch_msgs)
 
+    # 护航面板「龙族循环A/B」按钮标记：带龙族版写，原版删
+    flag_path = sync_dragon_loop_flag(hotfix.parent, dragon_loop_ui)
+    _emit_combo(
+        messages,
+        on_log,
+        "护航面板：龙族循环按钮" + ("已显示（带龙族版）" if flag_path else "不显示（原版）"),
+    )
+
     state = {
         "vip": vip,
         "vip_non_vip": vip_non_vip,
@@ -1548,6 +1574,7 @@ def apply_combo(
         "pet_equip_unlock": pet_equip_unlock,
         "wiki_download_res": wiki_download_res,
         "wiki_label": wiki_label,
+        "dragon_loop_ui": dragon_loop_ui,
         "daily_claim": daily_claim,
         "newbie_gift_code": newbie_gift_code,
         "gift_codes": normalize_gift_codes(gift_codes) if newbie_gift_code else [],

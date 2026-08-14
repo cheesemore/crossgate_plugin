@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""构建「傻瓜补丁·融合版」独立包 → E:\\cross\\发布plugin\\*.zip。
+"""构建「傻瓜补丁」独立包 → E:\\cross\\发布plugin\\*.zip。
 
-九动版已无限期停发，本脚本只产出融合版。
-用法：
-  python publish_foolproof.py                  # 融合版（百科面板无九动）
+一次产出两版（说明文件不提差异）：
+  - 傻瓜补丁_融合版_*   （护航面板无龙族按钮）
+  - 傻瓜补丁_带龙族_*   （包内带龙族.flag → 打补丁写 hotfixdata 标记）
+
+入口：
+  python tools/workflow.py publish-foolproof
+  或 魔力宝贝序章补丁\\发布傻瓜补丁两版.bat
 """
 from __future__ import annotations
 
@@ -72,10 +76,12 @@ ANIMATOR_DATA = [
 
 # 九动版已无限期停发：本脚本只构建融合版，忽略任何 --nine-pack 类参数。
 APP_NAME = "傻瓜补丁_融合版"
+# 「带龙族」版：与「原版」唯一区别是护航面板显示龙族循环 A/B 按钮（包内含 带龙族.flag）。
+DRAGON_APP_NAME = "傻瓜补丁_带龙族"
 PANEL_MODES = "常规 / 抓宠（无宠二动）/ 抓宠 / 抓宠卖银币 / 烧卡 / 计数挂机 / 采集自动提取"
 PANEL_SCRIPT_BTNS = "做日常 / 礼包码 / 立刻提取采集物"
 
-SERIES_CLEANUP_PREFIXES = [APP_NAME]
+SERIES_CLEANUP_PREFIXES = [APP_NAME, DRAGON_APP_NAME]
 # 清理旧系列命名，避免发布目录堆积
 SERIES_CLEANUP_PREFIXES.extend(
     [
@@ -99,21 +105,24 @@ LAUNCHER_ENTRY = GAME_ROOT / "新序章多开器" / "scripts" / "multi_launcher_
 LAUNCHER_SHARED = GAME_ROOT / "序章助手共享"
 LAUNCHER_NAME = "多开器"
 
-BAT_CONTENT = rf"""@echo off
+def _bat_content(app_name: str) -> str:
+    return rf"""@echo off
 chcp 65001 >nul
 cd /d "%~dp0"
-if not exist "%~dp0{APP_NAME}.exe" (
-  echo [错误] 找不到 {APP_NAME}.exe
-  echo 请勿只拷贝本 bat，需解压整个「{APP_NAME}」文件夹。
+if not exist "%~dp0{app_name}.exe" (
+  echo [错误] 找不到 {app_name}.exe
+  echo 请勿只拷贝本 bat，需解压整个「{app_name}」文件夹。
   pause
   exit /b 1
 )
 echo 正在打开傻瓜补丁…
-"%~dp0{APP_NAME}.exe"
+"%~dp0{app_name}.exe"
 exit /b %ERRORLEVEL%
 """
 
-README = f"""魔力宝贝：序章 — {APP_NAME}
+
+def _readme_content(app_name: str) -> str:
+    return f"""魔力宝贝：序章 — {app_name}
 
 【本包做什么】
 · 侧栏「百科」→ 助手面板，战斗模式：{PANEL_MODES}
@@ -251,14 +260,14 @@ def publish_patcher() -> Path:
     return exe
 
 
-def build_exe() -> Path:
+def build_exe(app_name: str = APP_NAME, dragon_loop_ui: bool = False) -> Path:
     try:
         import PyInstaller  # noqa: F401
     except ImportError:
         _run([sys.executable, "-m", "pip", "install", "pyinstaller"])
 
     # 只清本包输出，避免打九动版时删掉融合版目录（或反之）
-    app_out = DIST_DIR / APP_NAME
+    app_out = DIST_DIR / app_name
     if app_out.is_dir():
         shutil.rmtree(app_out, ignore_errors=True)
     if STAGING_DIR.is_dir():
@@ -276,7 +285,7 @@ def build_exe() -> Path:
         "--onedir",
         "--windowed",
         "--name",
-        APP_NAME,
+        app_name,
         "--paths",
         str(SCRIPTS_DIR),
         "--paths",
@@ -342,8 +351,8 @@ def build_exe() -> Path:
             pyi_cmd.extend(["--add-data", f"{src};animator"])
     pyi_cmd.append(str(ENTRY))
     _run(pyi_cmd)
-    out_dir = DIST_DIR / APP_NAME
-    exe = out_dir / f"{APP_NAME}.exe"
+    out_dir = DIST_DIR / app_name
+    exe = out_dir / f"{app_name}.exe"
     if not exe.is_file():
         raise RuntimeError(f"未生成 {exe}")
 
@@ -418,9 +427,12 @@ def build_exe() -> Path:
         copied_anim += 1
     print(f"[OK] animator -> {anim_dst} ({copied_anim} files)")
 
-    (out_dir / BAT_NAME).write_text(BAT_CONTENT, encoding="utf-8")
-    (out_dir / "使用说明.txt").write_text(README, encoding="utf-8")
+    (out_dir / BAT_NAME).write_text(_bat_content(app_name), encoding="utf-8")
+    (out_dir / "使用说明.txt").write_text(_readme_content(app_name), encoding="utf-8")
     (out_dir / "融合版.flag").write_text("1\n", encoding="utf-8")
+    if dragon_loop_ui:
+        # 「带龙族」版标记：GUI 检测到后打补丁时把龙族循环 A/B 按钮标记一并写入 hotfixdata。
+        (out_dir / "带龙族.flag").write_text("1\n", encoding="utf-8")
     print(f"[OK] {out_dir}")
     return out_dir
 
@@ -519,13 +531,13 @@ def _python_dll_name(folder: Path) -> str | None:
     return any_dll[0].name if any_dll else None
 
 
-def verify_pack(folder: Path, zip_path: Path) -> None:
+def verify_pack(folder: Path, zip_path: Path, app_name: str = APP_NAME) -> None:
     """打包后硬校验：缺运行时/引擎/源码任一关键文件则失败，避免发出残包。"""
     py_dll = _python_dll_name(folder)
     if py_dll is None:
         raise RuntimeError("发布目录缺少 _internal/python*.dll 运行时")
     file_required = [
-        folder / f"{APP_NAME}.exe",
+        folder / f"{app_name}.exe",
         folder / "_internal" / py_dll,
         folder / "_internal" / "base_library.zip",
         folder / "patcher" / "HotfixPatcher.exe",
@@ -555,20 +567,20 @@ def verify_pack(folder: Path, zip_path: Path) -> None:
     with zipfile.ZipFile(zip_path, "r") as zf:
         names = set(zf.namelist())
     zip_required = [
-        f"{APP_NAME}/{APP_NAME}.exe",
-        f"{APP_NAME}/_internal/{py_dll}",
-        f"{APP_NAME}/_internal/base_library.zip",
-        f"{APP_NAME}/patcher/HotfixPatcher.exe",
-        f"{APP_NAME}/{BAT_NAME}",
-        f"{APP_NAME}/多开器/多开器.exe",
+        f"{app_name}/{app_name}.exe",
+        f"{app_name}/_internal/{py_dll}",
+        f"{app_name}/_internal/base_library.zip",
+        f"{app_name}/patcher/HotfixPatcher.exe",
+        f"{app_name}/{BAT_NAME}",
+        f"{app_name}/多开器/多开器.exe",
     ]
     zip_dir_prefixes = [
-        f"{APP_NAME}/patcher/ref_stubs/",
-        f"{APP_NAME}/patcher/seqchapter_auto_seal/",
-        f"{APP_NAME}/patcher/seqchapter_battle_appear/",
-        f"{APP_NAME}/patcher/seqchapter_helper_bridge/",
-        f"{APP_NAME}/patcher/seqchapter_mini_bridge/",
-        f"{APP_NAME}/多开器/_internal/",
+        f"{app_name}/patcher/ref_stubs/",
+        f"{app_name}/patcher/seqchapter_auto_seal/",
+        f"{app_name}/patcher/seqchapter_battle_appear/",
+        f"{app_name}/patcher/seqchapter_helper_bridge/",
+        f"{app_name}/patcher/seqchapter_mini_bridge/",
+        f"{app_name}/多开器/_internal/",
     ]
     zip_missing = [n for n in zip_required if n not in names]
     zip_missing += [p for p in zip_dir_prefixes if not any(n.startswith(p) for n in names)]
@@ -584,21 +596,28 @@ def verify_pack(folder: Path, zip_path: Path) -> None:
 
 def main() -> int:
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    print(f"=== 傻瓜补丁构建 {stamp}（融合版）===\n")
+    print(f"=== 傻瓜补丁构建 {stamp} ===\n")
     RELEASE_DIR.mkdir(parents=True, exist_ok=True)
 
     print("[CLEAN] 清理同系列旧发布物…")
     cleanup_series_old_releases(RELEASE_DIR, SERIES_CLEANUP_PREFIXES)
 
     publish_patcher()
-    out_dir = build_exe()
-    zip_path = RELEASE_DIR / f"{APP_NAME}_{stamp}.zip"
-    zip_folder(out_dir, zip_path)
-    verify_pack(out_dir, zip_path)
+    # 两版：原版（护航面板无龙族按钮）+ 带龙族（护航面板有龙族循环 A/B 按钮）。
+    # 唯一差别是包内「带龙族.flag」→ GUI 打补丁时写入 hotfixdata 标记，DLL 据此显示按钮。
+    variants = [(APP_NAME, False), (DRAGON_APP_NAME, True)]
+    zipped: list[Path] = []
+    for app_name, dragon_loop_ui in variants:
+        print(f"\n--- 构建 {app_name}（带龙族={dragon_loop_ui}）---")
+        out_dir = build_exe(app_name, dragon_loop_ui=dragon_loop_ui)
+        zip_path = RELEASE_DIR / f"{app_name}_{stamp}.zip"
+        zip_folder(out_dir, zip_path)
+        verify_pack(out_dir, zip_path, app_name)
+        zipped.append(zip_path)
+
     print("\n=== 完成 ===")
-    print(f"  {zip_path}")
-    print(f"  目录: {out_dir}")
-    print(f"  入口: {out_dir / BAT_NAME}")
+    for zip_path in zipped:
+        print(f"  {zip_path}")
     return 0
 
 

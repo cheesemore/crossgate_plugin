@@ -5,7 +5,8 @@
   - pet_tbcommenemybaseconfig → 名字 / tempNo / album / tribe / ETIMGNUMBER
   - pet_tbpefectpetmatconfig → 可满档材质（主表；有行即可开 Perfectpet）
   - pet_tbpefectpetskinconfig → 满档换皮（极少行）
-  - other_tbridepetskinconfig → 坐骑表（另存 ride_skin.csv/json）
+  - other_tbridepetskinconfig → 人物坐骑皮肤（另存 ride_skin.csv/json）
+  - pet_tbridepetskinconfig → 骑宠皮肤（另存 ride_skin.csv/json）
   - pet_tbpetmaxcresteffectconfig → 满档纹章特效（另存）
 
 PAR1 仅含 perfectSkinId；can_perfect / perfect_mat 写在 csv/json。
@@ -113,43 +114,31 @@ def load_ride_skins_char(path: Path) -> list[dict]:
 
 
 def load_ride_skins_pet(path: Path) -> list[dict]:
-    """骑宠皮肤 pet_tbridepetskinconfig（序章在 GoRun 后有附加字段，按名称锚点解析）。"""
-    data = path.read_bytes()
-    # 收集中文串位置
-    strs: list[tuple[int, str]] = []
-    pos = 0
-    while pos < len(data) - 1:
-        try:
-            n, p2 = read_size(data, pos)
-            if 2 <= n <= 40 and p2 + n <= len(data):
-                s = data[p2 : p2 + n].decode("utf-8")
-                if any("\u4e00" <= c <= "\u9fff" for c in s):
-                    strs.append((pos, s))
-                    pos = p2 + n
-                    continue
-        except Exception:
-            pass
-        pos += 1
+    """骑宠皮肤 pet_tbridepetskinconfig（按反编译 RidePetSkinConfig 顺序解析）。
 
+    结构：Id, Grano, Time, Name, Memo, GoRun, Petid, Quality,
+          Cost(count × {Type, Id, Count}), Cond(count × int)
+    """
+    data = path.read_bytes()
+    cnt, pos = read_size(data, 0)
     rows: list[dict] = []
-    for i in range(0, len(strs), 2):
-        np, name = strs[i]
-        memo = strs[i + 1][1] if i + 1 < len(strs) else ""
-        found = None
-        for start in range(max(1, np - 20), np):
-            p = start
-            try:
-                rid, p = read_int(data, p)
-                grano, p = read_int(data, p)
-                time_v, p = read_int(data, p)
-                if p == np and grano > 1000:
-                    found = (rid, grano, time_v)
-                    break
-            except Exception:
-                pass
-        if not found:
-            continue
-        rid, grano, time_v = found
+    for _ in range(cnt):
+        rid, pos = read_int(data, pos)
+        grano, pos = read_int(data, pos)
+        time_v, pos = read_int(data, pos)
+        name, pos = read_string(data, pos)
+        memo, pos = read_string(data, pos)
+        gorun, pos = read_int(data, pos)
+        petid, pos = read_int(data, pos)
+        quality, pos = read_int(data, pos)
+        costn, pos = read_size(data, pos)
+        for _ in range(costn):
+            _, pos = read_int(data, pos)  # Type
+            _, pos = read_int(data, pos)  # Id
+            _, pos = read_int(data, pos)  # Count
+        condn, pos = read_size(data, pos)
+        for _ in range(condn):
+            _, pos = read_int(data, pos)
         rows.append(
             {
                 "kind": "pet_skin",
@@ -159,9 +148,13 @@ def load_ride_skins_pet(path: Path) -> list[dict]:
                 "icon": 0,
                 "name": name,
                 "memo": memo,
-                "gorun": 0,
+                "gorun": gorun,
+                "petid": petid,
+                "quality": quality,
             }
         )
+    if pos != len(data):
+        raise RuntimeError(f"pet ride trailing junk pos={pos} len={len(data)}")
     return rows
 
 
@@ -364,7 +357,10 @@ def main() -> None:
     with OUT_RIDE_CSV.open("w", encoding="utf-8-sig", newline="") as f:
         w = csv.DictWriter(
             f,
-            fieldnames=["kind", "id", "grano", "time", "icon", "name", "memo", "gorun"],
+            fieldnames=[
+                "kind", "id", "grano", "time", "icon", "name", "memo", "gorun",
+                "petid", "quality",
+            ],
         )
         w.writeheader()
         w.writerows(rides)

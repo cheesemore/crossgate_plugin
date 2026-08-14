@@ -213,6 +213,26 @@ public static class SeqChapterTestUi
     private const int LingTangPhaseTo52027 = 5;
     private const int LingTangPhaseTalkNpc = 6;
 
+    // ----- 一键命名（1级宠按捉宠逻辑改名，最多5角色 + 延迟） -----
+    /// <summary>一键命名运行中。</summary>
+    private static bool _petNamerActive;
+    /// <summary>待处理角色 uid 列表（队伍/多控，最多5）。</summary>
+    private static List<string> _petNamerUids;
+    private static int _petNamerRoleIdx;
+    /// <summary>当前角色内已扫描到的宠物下标（下次从这里继续）。</summary>
+    private static int _petNamerPetIdx;
+    private static long _petNamerNextAtMs;
+    private static int _petNamerRenamed;
+    private static int _petNamerSkipped;
+    private static string _petNamerNote = "";
+    private static object _petNamerStatusText;
+    private const int PetNamerMaxUids = 5;
+    private const int PetNamerMinRandomSuffix = 6;
+    /// <summary>每只宠物改名之间的发包间隔。</summary>
+    private const long PetNamerStepMs = 400;
+    /// <summary>角色之间切换的额外间隔。</summary>
+    private const long PetNamerRoleMs = 1000;
+
     // ----- 超级AI（模拟阶段：只采信息+模拟决策，不改出手） -----
     private static bool _superAiActive;
     private static bool _superAiVipBackupValid;
@@ -390,6 +410,7 @@ public static class SeqChapterTestUi
             TickEscortAlertRing();
             TickLingTang();
             TickSuperAi();
+            TickPetNamer();
         }
         catch (Exception ex)
         {
@@ -435,6 +456,11 @@ public static class SeqChapterTestUi
         if (_tab == TabScript && _lingTangStatusText != null && !IsUnityNull(_lingTangStatusText))
         {
             SetText(_lingTangStatusText, FormatLingTangStatus(), 12);
+        }
+
+        if (_tab == TabScript && _petNamerStatusText != null && !IsUnityNull(_petNamerStatusText))
+        {
+            SetText(_petNamerStatusText, FormatPetNamerStatus(), 12);
         }
 
         if (_tab == TabSuperAi && _superAiActive)
@@ -1006,6 +1032,447 @@ public static class SeqChapterTestUi
         {
             WriteLog("RunBearSlayer EX: " + RootMessage(ex));
             Tip("刷熊男失败: " + RootMessage(ex));
+        }
+    }
+
+    private static void RunPetNamer()
+    {
+        try
+        {
+            WriteLog("RunPetNamer");
+            if (_petNamerActive)
+            {
+                StopPetNamer("已手动停止");
+                return;
+            }
+
+            var uids = CollectTeamOrMultiUids();
+            if (uids.Count == 0)
+            {
+                var cap = GetCaptainUid();
+                if (!string.IsNullOrEmpty(cap))
+                {
+                    uids.Add(cap);
+                }
+            }
+
+            if (uids.Count > PetNamerMaxUids)
+            {
+                uids = uids.GetRange(0, PetNamerMaxUids);
+            }
+
+            if (uids.Count == 0)
+            {
+                Tip("一键命名：未找到角色");
+                return;
+            }
+
+            _petNamerActive = true;
+            _petNamerUids = uids;
+            _petNamerRoleIdx = 0;
+            _petNamerPetIdx = 0;
+            _petNamerRenamed = 0;
+            _petNamerSkipped = 0;
+            _petNamerNote = "准备中…";
+            _petNamerNextAtMs = NowMs();
+            Tip(string.Format("一键命名：开始 {0} 个角色", uids.Count));
+            WriteLog("PetNamer start uids=" + string.Join(",", uids.ToArray()));
+        }
+        catch (Exception ex)
+        {
+            WriteLog("RunPetNamer EX: " + RootMessage(ex));
+            Tip("一键命名失败: " + RootMessage(ex));
+        }
+    }
+
+    private static void StopPetNamer(string reason)
+    {
+        _petNamerActive = false;
+        _petNamerUids = null;
+        _petNamerNote = reason;
+        Tip("一键命名：" + reason);
+    }
+
+    private static void TickPetNamer()
+    {
+        if (!_petNamerActive)
+        {
+            return;
+        }
+
+        var now = NowMs();
+        if (now < _petNamerNextAtMs)
+        {
+            return;
+        }
+
+        try
+        {
+            if (_petNamerUids == null || _petNamerRoleIdx >= _petNamerUids.Count)
+            {
+                StopPetNamer(string.Format("完成：改名 {0}，跳过 {1}", _petNamerRenamed, _petNamerSkipped));
+                WriteLog("PetNamer done renamed=" + _petNamerRenamed + " skipped=" + _petNamerSkipped);
+                return;
+            }
+
+            if (TryRenameNextLevelOnePet())
+            {
+                _petNamerNextAtMs = now + PetNamerStepMs;
+            }
+            else
+            {
+                // 当前角色扫完 → 切换下一角色
+                _petNamerRoleIdx++;
+                _petNamerPetIdx = 0;
+                _petNamerNextAtMs = now + PetNamerRoleMs;
+                if (_petNamerRoleIdx < _petNamerUids.Count)
+                {
+                    _petNamerNote = string.Format("角色 {0}/{1} 处理完成，切换下一角色",
+                        _petNamerRoleIdx, _petNamerUids.Count);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            WriteLog("TickPetNamer EX: " + RootMessage(ex));
+            _petNamerNextAtMs = now + PetNamerStepMs;
+        }
+    }
+
+    /// <summary>
+    /// 处理当前角色「下一只」1 级背包宠：改名/跳过均只处理一只，返回 true 表示需延迟；
+    /// 当前角色已扫完返回 false（由调用方切换角色）。
+    /// </summary>
+    private static bool TryRenameNextLevelOnePet()
+    {
+        if (_petNamerUids == null || _petNamerRoleIdx >= _petNamerUids.Count)
+        {
+            return false;
+        }
+
+        var uid = _petNamerUids[_petNamerRoleIdx];
+        var pets = GetPetListByUid(uid);
+        if (pets == null || pets.Count == 0)
+        {
+            return false;
+        }
+
+        var petMgr = GetManagerInstance("PetManager");
+        if (petMgr == null)
+        {
+            return false;
+        }
+
+        var sendChange = FindSendChangePetNameNamer(petMgr);
+        if (sendChange == null)
+        {
+            return false;
+        }
+
+        var getFileValue = FindGetPetFileValueNamer(petMgr);
+
+        while (_petNamerPetIdx < pets.Count)
+        {
+            var i = _petNamerPetIdx;
+            _petNamerPetIdx = i + 1;
+
+            var pet = pets[i];
+            if (pet == null)
+            {
+                continue;
+            }
+
+            if (Convert.ToInt32(GetMember(pet, "useFlag") ?? 0) != 1)
+            {
+                continue;
+            }
+
+            var data = GetMember(pet, "data");
+            if (data == null)
+            {
+                continue;
+            }
+
+            if (ReadIntMemberNamer(data, "Level") != StorePetLevel)
+            {
+                continue;
+            }
+
+            // 命中一只 1 级背包宠：算档改名或跳过，返回 true 触发延迟
+            if (!TryGetMaxResetBaseRandomNamer(data, out var maxRand))
+            {
+                // ResetBaseInfo 未到：跳过（下次再点）
+                _petNamerSkipped++;
+                return true;
+            }
+
+            var perfect = IsPerfectPetNamer(pet, data);
+            var grade = 0;
+            if (!perfect)
+            {
+                grade = GetPetGradeValueNamer(petMgr, getFileValue, data);
+                if (grade < 0)
+                {
+                    grade = 0;
+                }
+            }
+
+            var newName = FormatPetMarkNameNamer(perfect, grade, maxRand);
+            var display = GetDisplayPetNameNamer(data);
+            if (!NeedsPetRenameMarkNamer(display, newName, maxRand))
+            {
+                _petNamerSkipped++;
+                return true;
+            }
+
+            var index = Convert.ToInt32(GetMember(data, "Index") ?? i);
+            sendChange.Invoke(petMgr, new object[] { uid, index, newName });
+            _petNamerRenamed++;
+            _petNamerNote = string.Format("角色 {0}/{1}：改名 #{2} → {3}",
+                _petNamerRoleIdx + 1, _petNamerUids.Count, index, newName);
+            WriteLog("PetNamer rename uid=" + uid + " index=" + index + " name=" + newName);
+            return true;
+        }
+
+        return false;
+    }
+
+    private static string FormatPetNamerStatus()
+    {
+        if (!_petNamerActive)
+        {
+            return "一键命名: 未启动\n点按钮为 5 个角色背包里的 1 级宠物按捉宠规则改名（#档/#满/@随机）。";
+        }
+
+        var total = _petNamerUids != null ? _petNamerUids.Count : 0;
+        var cur = _petNamerRoleIdx + 1;
+        if (cur > total)
+        {
+            cur = total;
+        }
+
+        return "一键命名: 运行中\n角色 " + cur + "/" + total
+               + " · 已改名 " + _petNamerRenamed
+               + " · 跳过 " + _petNamerSkipped
+               + "\n" + _petNamerNote;
+    }
+
+    private static bool IsPerfectPetNamer(object pet, object data)
+    {
+        try
+        {
+            var flag = GetMember(pet, "isPrefectPet");
+            if (flag is bool b)
+            {
+                return b;
+            }
+        }
+        catch
+        {
+            // fall through
+        }
+
+        try
+        {
+            return Convert.ToInt32(GetMember(data, "Nowvitalbase") ?? 0)
+                   >= Convert.ToInt32(GetMember(data, "Maxvitalbase") ?? 0)
+                   && Convert.ToInt32(GetMember(data, "Nowstrbase") ?? 0)
+                   >= Convert.ToInt32(GetMember(data, "Maxstrbase") ?? 0)
+                   && Convert.ToInt32(GetMember(data, "Nowtghbase") ?? 0)
+                   >= Convert.ToInt32(GetMember(data, "Maxtghbase") ?? 0)
+                   && Convert.ToInt32(GetMember(data, "Nowquickbase") ?? 0)
+                   >= Convert.ToInt32(GetMember(data, "Maxquickbase") ?? 0)
+                   && Convert.ToInt32(GetMember(data, "Nowmagicbase") ?? 0)
+                   >= Convert.ToInt32(GetMember(data, "Maxmagicbase") ?? 0);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static int GetPetGradeValueNamer(object petMgr, MethodInfo getFileValue, object data)
+    {
+        if (petMgr != null && getFileValue != null)
+        {
+            try
+            {
+                return Convert.ToInt32(getFileValue.Invoke(petMgr, new object[] { data }) ?? 0);
+            }
+            catch
+            {
+                // fall through
+            }
+        }
+
+        try
+        {
+            var maxSum = Convert.ToInt32(GetMember(data, "Maxvitalbase") ?? 0)
+                         + Convert.ToInt32(GetMember(data, "Maxstrbase") ?? 0)
+                         + Convert.ToInt32(GetMember(data, "Maxtghbase") ?? 0)
+                         + Convert.ToInt32(GetMember(data, "Maxquickbase") ?? 0)
+                         + Convert.ToInt32(GetMember(data, "Maxmagicbase") ?? 0);
+            var nowSum = Convert.ToInt32(GetMember(data, "Nowvitalbase") ?? 0)
+                         + Convert.ToInt32(GetMember(data, "Nowstrbase") ?? 0)
+                         + Convert.ToInt32(GetMember(data, "Nowtghbase") ?? 0)
+                         + Convert.ToInt32(GetMember(data, "Nowquickbase") ?? 0)
+                         + Convert.ToInt32(GetMember(data, "Nowmagicbase") ?? 0);
+            return maxSum - nowSum;
+        }
+        catch
+        {
+            return 0;
+        }
+    }
+
+    private static bool TryGetMaxResetBaseRandomNamer(object data, out int maxRand)
+    {
+        maxRand = 0;
+        var reset = GetMember(data, "ResetBaseInfo");
+        if (reset == null)
+        {
+            return false;
+        }
+
+        foreach (var name in new[]
+                 {
+                     "Vitalbase", "Strbase", "Tghbase", "Quickbase", "Magicbase",
+                     "vitalbase_", "strbase_", "tghbase_", "quickbase_", "magicbase_"
+                 })
+        {
+            var v = ReadIntMemberNamer(reset, name);
+            if (v > maxRand)
+            {
+                maxRand = v;
+            }
+        }
+
+        return true;
+    }
+
+    private static string FormatPetMarkNameNamer(bool perfect, int grade, int maxRand)
+    {
+        var head = perfect ? "#满" : "#" + grade;
+        if (maxRand >= PetNamerMinRandomSuffix)
+        {
+            return head + "@" + maxRand;
+        }
+
+        return head;
+    }
+
+    private static bool NeedsPetRenameMarkNamer(string display, string newName, int maxRand)
+    {
+        if (string.IsNullOrEmpty(display) || string.IsNullOrEmpty(newName))
+        {
+            return false;
+        }
+
+        if (string.Equals(display, newName, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        if (!display.StartsWith("#", StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        var at = display.LastIndexOf('@');
+        if (at > 0 && at < display.Length - 1)
+        {
+            if (int.TryParse(display.Substring(at + 1), out var tagged)
+                && tagged < PetNamerMinRandomSuffix)
+            {
+                return true;
+            }
+        }
+        else if (maxRand >= PetNamerMinRandomSuffix)
+        {
+            return true;
+        }
+
+        return false;
+    }
+
+    private static string GetDisplayPetNameNamer(object data)
+    {
+        var free = Convert.ToString(GetMember(data, "FreeName") ?? "") ?? "";
+        if (!string.IsNullOrEmpty(free))
+        {
+            return free;
+        }
+
+        return Convert.ToString(GetMember(data, "Name") ?? "") ?? "";
+    }
+
+    private static MethodInfo FindSendChangePetNameNamer(object petMgr)
+    {
+        if (petMgr == null)
+        {
+            return null;
+        }
+
+        foreach (var m in petMgr.GetType().GetMethods(
+                     BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+        {
+            if (m.Name != "SendChangePetName")
+            {
+                continue;
+            }
+
+            var ps = m.GetParameters();
+            if (ps.Length == 3
+                && ps[0].ParameterType == typeof(string)
+                && (ps[1].ParameterType == typeof(int) || ps[1].ParameterType == typeof(short))
+                && ps[2].ParameterType == typeof(string))
+            {
+                return m;
+            }
+        }
+
+        return null;
+    }
+
+    private static MethodInfo FindGetPetFileValueNamer(object petMgr)
+    {
+        if (petMgr == null)
+        {
+            return null;
+        }
+
+        foreach (var m in petMgr.GetType().GetMethods(
+                     BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+        {
+            if (m.Name != "GetPetFileValue")
+            {
+                continue;
+            }
+
+            if (m.GetParameters().Length == 1)
+            {
+                return m;
+            }
+        }
+
+        return null;
+    }
+
+    private static int ReadIntMemberNamer(object obj, string name)
+    {
+        try
+        {
+            var v = GetMember(obj, name);
+            if (v == null || v is bool)
+            {
+                return 0;
+            }
+
+            return Convert.ToInt32(v);
+        }
+        catch
+        {
+            return 0;
         }
     }
 
@@ -2319,6 +2786,7 @@ public static class SeqChapterTestUi
         _navNameInput = null;
         _catchSellYInput = null;
         _lingTangStatusText = null;
+        _petNamerStatusText = null;
         _superAiStatusText = null;
         _superAiBattleRoot = null;
         _appearStatusText = null;
@@ -4923,7 +5391,7 @@ public static class SeqChapterTestUi
         SetAnchoredTop(RequireRect(hint, "hs"), 0f, -4f, 500f, 56f);
         SetText(
             AddText(hint),
-            "简单脚本：点按钮运行。\n礼包码读 hotfixdata/seqchapter_gift_codes.txt（最多5角色）。\n采集物满格（999）才提，默认提入账号银行。\n一键加点：人物按推荐第一方案，宠物先加力量到极限。\n一键上架：只上架默认定价表单内装备（读 seqchapter_auto_sell_prices.txt）。\n刷熊男：等杀熊者→丢欧兹那克→走17,15→穿身触发战斗→循环。",
+            "简单脚本：点按钮运行。\n礼包码读 hotfixdata/seqchapter_gift_codes.txt（最多5角色）。\n采集物满格（999）才提，默认提入账号银行。\n一键加点：人物按推荐第一方案，宠物先加力量到极限。\n一键上架：只上架默认定价表单内装备（读 seqchapter_auto_sell_prices.txt）。\n刷熊男：等杀熊者→丢欧兹那克→走17,15→穿身触发战斗→循环。\n一键命名：5角色背包1级宠按捉宠规则改名（#档/#满/@随机）。",
             12);
         var btn = CreateUiChild(_bodyRoot, "Daily", rtType);
         SetAnchoredTop(RequireRect(btn, "db"), 0f, -68f, 200f, 40f);
@@ -4978,6 +5446,20 @@ public static class SeqChapterTestUi
         StretchFull(RequireRect(bsLab, "bsl"));
         SetText(AddText(bsLab), "刷熊男（开/停）", 15);
         BindButton(bearSlayer, bsImg, RunBearSlayer);
+
+        var petNamer = CreateUiChild(_bodyRoot, "PetNamer", rtType);
+        SetAnchoredTop(RequireRect(petNamer, "pnb"), 0f, -368f, 240f, 40f);
+        var pnImg = AddComp(petNamer, "UnityEngine.UI.Image");
+        SetColor(pnImg, 0.20f, 0.45f, 0.60f, 1f);
+        var pnLab = CreateUiChild(petNamer, "L", rtType);
+        StretchFull(RequireRect(pnLab, "pnl"));
+        SetText(AddText(pnLab), "一键命名（开/停）", 15);
+        BindButton(petNamer, pnImg, RunPetNamer);
+
+        var pnStatus = CreateUiChild(_bodyRoot, "PetNamerStatus", rtType);
+        SetAnchoredTop(RequireRect(pnStatus, "pns"), 0f, -418f, 500f, 56f);
+        _petNamerStatusText = AddText(pnStatus);
+        SetText(_petNamerStatusText, FormatPetNamerStatus(), 12);
 
         // 「测试铃声」「刷灵堂」入口隐藏（逻辑保留，不在此页展示）
         _lingTangStatusText = null;
@@ -5682,6 +6164,8 @@ public static class SeqChapterTestUi
             return;
         }
 
+        var dragonLoopUi = DragonLoopUiEnabled();
+
         var hint2 = CreateUiChild(_bodyRoot, "Hint2", rtType);
         SetAnchoredTop(RequireRect(hint2, "ha2"), 0f, -8f, 500f, 88f);
         var hintText = AddText(hint2);
@@ -5698,8 +6182,10 @@ public static class SeqChapterTestUi
             hintText,
             "队列护航：可塞未接；完成一项后等 5 秒再下一项。\n"
             + "手动暂停不清铃；自动暂停约每2秒响铃，点「我知道了」或停止才停。静止5秒尝试恢复，连续20次失败自动暂停。\n"
-            + "龙族循环A：自动重置龙4→按序执行龙族纷争1-4→宠物位满停止。\n"
-            + "龙族循环B：跳过龙族纷争2，执行 1/3/4。",
+            + (dragonLoopUi
+                ? "龙族循环A：自动重置龙4→按序执行龙族纷争1-4→宠物位满停止。\n"
+                  + "龙族循环B：跳过龙族纷争2，执行 1/3/4。"
+                : ""),
             11);
 
         var y = -96f;
@@ -5763,51 +6249,53 @@ public static class SeqChapterTestUi
         }
 
         y -= 50f;
-        // 龙族循环 A 线按钮（始终显示）
-        var dragonBtn = CreateUiChild(_bodyRoot, "DragonLoopBtn", rtType);
-        SetAnchoredTop(RequireRect(dragonBtn, "dlb"), 0f, y, 420f, 40f);
-        var dragonImg = AddComp(dragonBtn, "UnityEngine.UI.Image");
-        SetColor(dragonImg, _dragonLoopActive ? 0.55f : 0.3f, _dragonLoopActive ? 0.24f : 0.3f, _dragonLoopActive ? 0.22f : 0.42f, 1f);
-        var dragonLab = CreateUiChild(dragonBtn, "L", rtType);
-        StretchFull(RequireRect(dragonLab, "dll"));
-        SetText(AddText(dragonLab), _dragonLoopActive
-            ? ("停止龙族循环(第" + (_dragonLoopCount + 1) + "轮)")
-            : "龙族循环A(110-113)", 14);
-        BindButton(dragonBtn, dragonImg, () =>
+        // 龙族循环 A/B 线按钮（仅当 hotfixdata 存在 seqchapter_dragon_loop.flag 标记时显示）
+        if (dragonLoopUi)
         {
-            if (_dragonLoopActive)
+            var dragonBtn = CreateUiChild(_bodyRoot, "DragonLoopBtn", rtType);
+            SetAnchoredTop(RequireRect(dragonBtn, "dlb"), 0f, y, 420f, 40f);
+            var dragonImg = AddComp(dragonBtn, "UnityEngine.UI.Image");
+            SetColor(dragonImg, _dragonLoopActive ? 0.55f : 0.3f, _dragonLoopActive ? 0.24f : 0.3f, _dragonLoopActive ? 0.22f : 0.42f, 1f);
+            var dragonLab = CreateUiChild(dragonBtn, "L", rtType);
+            StretchFull(RequireRect(dragonLab, "dll"));
+            SetText(AddText(dragonLab), _dragonLoopActive
+                ? ("停止龙族循环(第" + (_dragonLoopCount + 1) + "轮)")
+                : "龙族循环A(110-113)", 14);
+            BindButton(dragonBtn, dragonImg, () =>
             {
-                StopDragonLoop();
-            }
-            else
-            {
-                StartDragonLoop();
-            }
-        });
-        y -= 48f;
+                if (_dragonLoopActive)
+                {
+                    StopDragonLoop();
+                }
+                else
+                {
+                    StartDragonLoop();
+                }
+            });
+            y -= 48f;
 
-        // 龙族循环 B 线按钮（跳过龙族纷争2）
-        var dragonBtnB = CreateUiChild(_bodyRoot, "DragonLoopBtnB", rtType);
-        SetAnchoredTop(RequireRect(dragonBtnB, "dlbb"), 0f, y, 420f, 40f);
-        var dragonImgB = AddComp(dragonBtnB, "UnityEngine.UI.Image");
-        SetColor(dragonImgB, _dragonLoopActive ? 0.55f : 0.3f, _dragonLoopActive ? 0.24f : 0.3f, _dragonLoopActive ? 0.22f : 0.42f, 1f);
-        var dragonLabB = CreateUiChild(dragonBtnB, "L", rtType);
-        StretchFull(RequireRect(dragonLabB, "dllb"));
-        SetText(AddText(dragonLabB), _dragonLoopActive
-            ? ("停止龙族循环(第" + (_dragonLoopCount + 1) + "轮)")
-            : "龙族循环B(110/112/113)", 14);
-        BindButton(dragonBtnB, dragonImgB, () =>
-        {
-            if (_dragonLoopActive)
+            var dragonBtnB = CreateUiChild(_bodyRoot, "DragonLoopBtnB", rtType);
+            SetAnchoredTop(RequireRect(dragonBtnB, "dlbb"), 0f, y, 420f, 40f);
+            var dragonImgB = AddComp(dragonBtnB, "UnityEngine.UI.Image");
+            SetColor(dragonImgB, _dragonLoopActive ? 0.55f : 0.3f, _dragonLoopActive ? 0.24f : 0.3f, _dragonLoopActive ? 0.22f : 0.42f, 1f);
+            var dragonLabB = CreateUiChild(dragonBtnB, "L", rtType);
+            StretchFull(RequireRect(dragonLabB, "dllb"));
+            SetText(AddText(dragonLabB), _dragonLoopActive
+                ? ("停止龙族循环(第" + (_dragonLoopCount + 1) + "轮)")
+                : "龙族循环B(110/112/113)", 14);
+            BindButton(dragonBtnB, dragonImgB, () =>
             {
-                StopDragonLoop();
-            }
-            else
-            {
-                StartDragonLoopB();
-            }
-        });
-        y -= 48f;
+                if (_dragonLoopActive)
+                {
+                    StopDragonLoop();
+                }
+                else
+                {
+                    StartDragonLoopB();
+                }
+            });
+            y -= 48f;
+        }
 
         if (_escortAlertRinging)
         {
@@ -11035,6 +11523,27 @@ public static class SeqChapterTestUi
         }
 
         return list;
+    }
+
+    /// <summary>护航面板是否显示「龙族循环 A/B」按钮：hotfixdata 存在 seqchapter_dragon_loop.flag 标记即显示。
+    /// 傻瓜补丁分「带龙族」/「原版」两版，唯一差别就是这个标记。</summary>
+    private static bool DragonLoopUiEnabled()
+    {
+        try
+        {
+            foreach (var path in EnumerateHotfixAssetPaths("seqchapter_dragon_loop.flag", "hotfixdata/seqchapter_dragon_loop.flag"))
+            {
+                if (File.Exists(path))
+                {
+                    return true;
+                }
+            }
+        }
+        catch
+        {
+            // ignore
+        }
+        return false;
     }
 
     private static bool CanLoadBytes(string assetPath)

@@ -1,13 +1,7 @@
 @echo off
 chcp 65001 >nul
-cd /d "%~dp0"
-echo [BUILD] 傻瓜补丁·融合版（四选一：普通加速/抓宠/烧卡/慢速烧卡） ...
-python scripts\publish_foolproof.py --fusion-pack
-if errorlevel 1 (
-  echo [FAIL]
-  pause
-  exit /b 1
-)
-echo.
-echo 完成。发布物在 发布plugin\ 目录（同系列旧包已自动删除）。
+echo [ARCHIVED] 本 bat 已封存。
+echo 请改用：魔力宝贝序章补丁\发布傻瓜补丁两版.bat
+echo 或：python tools\workflow.py publish-foolproof
 pause
+exit /b 1

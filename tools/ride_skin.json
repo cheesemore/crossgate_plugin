@@ -127,7 +127,117 @@
     "icon": 0,
     "name": "迅捷土蜘蛛",
     "memo": "钻石购买",
-    "gorun": 0
+    "gorun": 5,
+    "petid": 331,
+    "quality": 0
+  },
+  {
+    "kind": "pet_skin",
+    "id": 2,
+    "grano": 107011,
+    "time": 0,
+    "icon": 0,
+    "name": "迅捷陆行龟",
+    "memo": "钻石购买",
+    "gorun": 5,
+    "petid": 5012,
+    "quality": 0
+  },
+  {
+    "kind": "pet_skin",
+    "id": 3,
+    "grano": 101722,
+    "time": 0,
+    "icon": 0,
+    "name": "迅捷火龙蜥",
+    "memo": "钻石购买",
+    "gorun": 5,
+    "petid": 723,
+    "quality": 0
+  },
+  {
+    "kind": "pet_skin",
+    "id": 4,
+    "grano": 101503,
+    "time": 0,
+    "icon": 0,
+    "name": "迅捷史莱姆",
+    "memo": "钻石购买",
+    "gorun": 5,
+    "petid": 504,
+    "quality": 0
+  },
+  {
+    "kind": "pet_skin",
+    "id": 5,
+    "grano": 101202,
+    "time": 0,
+    "icon": 0,
+    "name": "迅捷水蓝鸟魔",
+    "memo": "钻石购买",
+    "gorun": 5,
+    "petid": 203,
+    "quality": 0
+  },
+  {
+    "kind": "pet_skin",
+    "id": 6,
+    "grano": 101522,
+    "time": 0,
+    "icon": 0,
+    "name": "迅捷炸弹",
+    "memo": "钻石购买",
+    "gorun": 5,
+    "petid": 523,
+    "quality": 0
+  },
+  {
+    "kind": "pet_skin",
+    "id": 7,
+    "grano": 110530,
+    "time": 0,
+    "icon": 0,
+    "name": "闪电雷伊",
+    "memo": "钻石购买",
+    "gorun": 15,
+    "petid": 490003,
+    "quality": 2
+  },
+  {
+    "kind": "pet_skin",
+    "id": 8,
+    "grano": 110384,
+    "time": 0,
+    "icon": 0,
+    "name": "毒角狮子",
+    "memo": "钻石购买",
+    "gorun": 15,
+    "petid": 490004,
+    "quality": 2
+  },
+  {
+    "kind": "pet_skin",
+    "id": 9,
+    "grano": 101205,
+    "time": 0,
+    "icon": 0,
+    "name": "丘比特的幻影",
+    "memo": "钻石购买",
+    "gorun": 15,
+    "petid": 206,
+    "quality": 2
+  },
+  {
+    "kind": "pet_skin",
+    "id": 10,
+    "grano": 101031,
+    "time": 0,
+    "icon": 0,
+    "name": "迅捷巨狼",
+    "memo": "钻石购买",
+    "gorun": 10,
+    "petid": 32,
+    "quality": 1
   },
   {
     "kind": "pet_skin",
@@ -137,7 +247,9 @@
     "icon": 0,
     "name": "迅捷炎熊",
     "memo": "钻石购买",
-    "gorun": 0
+    "gorun": 10,
+    "petid": 12,
+    "quality": 1
   },
   {
     "kind": "pet_skin",
@@ -147,7 +259,9 @@
     "icon": 0,
     "name": "迅捷寒冰翼龙",
     "memo": "钻石购买",
-    "gorun": 0
+    "gorun": 10,
+    "petid": 712,
+    "quality": 1
   },
   {
     "kind": "pet_skin",
@@ -157,7 +271,33 @@
     "icon": 0,
     "name": "迷你修拉号",
     "memo": "钻石购买",
-    "gorun": 0
+    "gorun": 15,
+    "petid": 490001,
+    "quality": 2
+  },
+  {
+    "kind": "pet_skin",
+    "id": 14,
+    "grano": 131001,
+    "time": 0,
+    "icon": 0,
+    "name": "奥术飞毯",
+    "memo": "钻石购买",
+    "gorun": 15,
+    "petid": 490002,
+    "quality": 2
+  },
+  {
+    "kind": "pet_skin",
+    "id": 15,
+    "grano": 111638,
+    "time": 0,
+    "icon": 0,
+    "name": "克洛丝晶王",
+    "memo": "累积兑换活动",
+    "gorun": 15,
+    "petid": 490005,
+    "quality": 2
   },
   {
     "kind": "pet_skin",
@@ -167,116 +307,32 @@
     "icon": 0,
     "name": "骨龙",
     "memo": "累积兑换活动",
-    "gorun": 0
+    "gorun": 15,
+    "petid": 490006,
+    "quality": 2
   },
   {
     "kind": "pet_skin",
-    "id": 4098,
-    "grano": 107011,
+    "id": 17,
+    "grano": 101902,
     "time": 0,
     "icon": 0,
-    "name": "迅捷陆行龟",
-    "memo": "钻石购买",
-    "gorun": 0
-  },
-  {
-    "kind": "pet_skin",
-    "id": 4099,
-    "grano": 101722,
-    "time": 0,
-    "icon": 0,
-    "name": "迅捷火龙蜥",
-    "memo": "钻石购买",
-    "gorun": 0
-  },
-  {
-    "kind": "pet_skin",
-    "id": 4100,
-    "grano": 101503,
-    "time": 0,
-    "icon": 0,
-    "name": "迅捷史莱姆",
-    "memo": "钻石购买",
-    "gorun": 0
-  },
-  {
-    "kind": "pet_skin",
-    "id": 4101,
-    "grano": 101202,
-    "time": 0,
-    "icon": 0,
-    "name": "迅捷水蓝鸟魔",
-    "memo": "钻石购买",
-    "gorun": 0
-  },
-  {
-    "kind": "pet_skin",
-    "id": 4102,
-    "grano": 101522,
-    "time": 0,
-    "icon": 0,
-    "name": "迅捷炸弹",
-    "memo": "钻石购买",
-    "gorun": 0
-  },
-  {
-    "kind": "pet_skin",
-    "id": 4103,
-    "grano": 110530,
-    "time": 0,
-    "icon": 0,
-    "name": "闪电雷伊",
-    "memo": "钻石购买",
-    "gorun": 0
-  },
-  {
-    "kind": "pet_skin",
-    "id": 8200,
-    "grano": 110384,
-    "time": 0,
-    "icon": 0,
-    "name": "毒角狮子",
-    "memo": "钻石购买",
-    "gorun": 0
-  },
-  {
-    "kind": "pet_skin",
-    "id": 8201,
-    "grano": 101205,
-    "time": 0,
-    "icon": 0,
-    "name": "丘比特的幻影",
-    "memo": "钻石购买",
-    "gorun": 0
-  },
-  {
-    "kind": "pet_skin",
-    "id": 8202,
-    "grano": 101031,
-    "time": 0,
-    "icon": 0,
-    "name": "迅捷巨狼",
-    "memo": "钻石购买",
-    "gorun": 0
-  },
-  {
-    "kind": "pet_skin",
-    "id": 8206,
-    "grano": 131001,
-    "time": 0,
-    "icon": 0,
-    "name": "奥术飞毯",
-    "memo": "钻石购买",
-    "gorun": 0
-  },
-  {
-    "kind": "pet_skin",
-    "id": 8207,
-    "grano": 111638,
-    "time": 0,
-    "icon": 0,
-    "name": "克洛丝晶王",
+    "name": "火焰巨龙",
     "memo": "累积兑换活动",
-    "gorun": 0
+    "gorun": 15,
+    "petid": 490007,
+    "quality": 2
+  },
+  {
+    "kind": "pet_skin",
+    "id": 18,
+    "grano": 118053,
+    "time": 0,
+    "icon": 0,
+    "name": "多拉姆糖",
+    "memo": "充值礼盒",
+    "gorun": 15,
+    "petid": 490008,
+    "quality": 2
   }
 ]

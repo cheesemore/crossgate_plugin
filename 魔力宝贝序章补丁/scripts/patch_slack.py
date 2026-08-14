@@ -213,6 +213,19 @@ def assert_combo_slack_ok(
                 f"请改用「神奇九动·DLL版」，或等客户端 .text 余量增大后再用 IL 版。"
             )
             continue
+        # 桥接：旧引擎误标 append+200B；实际 Cecil 轻量重写+外置 DLL，体积不变。
+        # 只要 VA 间隙够（或新引擎已标 cecil_rewrite）就放行。
+        if pid == "bridge":
+            if mode == "cecil_rewrite" or (growth > 0 and va_gap >= growth) or growth <= 0:
+                warnings.append(
+                    f"助手桥接({pid}): 按 Cecil 外置 DLL 处理（不计入 raw 追加；"
+                    f"usable={usable}B / va_gap={va_gap}B）。"
+                )
+                continue
+            hard_fail.append(
+                f"助手桥接({pid}): VA 间隙不足（需 {growth}B，va_gap={va_gap}B / usable={usable}B）。"
+            )
+            continue
         hard_fail.append(f"{p.get('name')}({pid}): +{p.get('growth_bytes')}B — {p.get('note')}")
 
     if hard_fail:

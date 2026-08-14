@@ -11,7 +11,7 @@
 用法：
   傻瓜补丁_*.exe
   傻瓜补丁_*.exe --auto
-  傻瓜补丁_*.exe --auto --no-accel [--no-frameskip] [--bridge]
+  傻瓜补丁_*.exe --auto --no-accel [--accel2] [--no-frameskip] [--bridge]
 """
 from __future__ import annotations
 
@@ -59,6 +59,15 @@ def _detect_nine_pack() -> bool:
 NINE_PACK = _detect_nine_pack()
 
 
+def _detect_dragon_loop_pack() -> bool:
+    # 傻瓜补丁「带龙族」版：护航面板显示龙族循环 A/B 按钮（带龙族.flag）。
+    # 「原版」不含该 flag → 不显示。两版唯一区别就是护航面板这两个按钮。
+    return _has_flag("带龙族.flag", "DRAGON_LOOP_PACK")
+
+
+DRAGON_LOOP_PACK = _detect_dragon_loop_pack()
+
+
 def show_popup(title: str, text: str, *, error: bool = False) -> None:
     root = tk.Tk()
     root.withdraw()
@@ -72,14 +81,10 @@ def show_popup(title: str, text: str, *, error: bool = False) -> None:
 
 
 def _profile_title() -> str:
-    if NINE_PACK:
-        return "傻瓜补丁（九动版）"
     return "傻瓜补丁（融合版）"
 
 
 def _panel_modes_tip() -> str:
-    if NINE_PACK:
-        return "常规 / 九动 / 抓宠 / 抓宠卖银币 / 烧卡"
     return "常规 / 抓宠（无宠二动）/ 抓宠 / 抓宠卖银币 / 烧卡 / 计数挂机 / 采集自动提取"
 
 
@@ -88,6 +93,10 @@ def run_auto() -> int:
         # 加速默认关（2026-08 起：战斗倍速默认连带掐断倍速检测上报，默认不打）
         apply_accel = any(
             a in ("--accel", "--speed", "/accel") for a in sys.argv[1:]
+        )
+        # 加速2（战斗加速方案2：只加速表现，不改 BattleTimeScale），默认关
+        apply_accel2 = any(
+            a in ("--accel2", "--accel-2", "/accel2") for a in sys.argv[1:]
         )
         apply_frameskip = not any(
             a in ("--no-frameskip", "--no-bossfps", "/no-frameskip") for a in sys.argv[1:]
@@ -98,6 +107,8 @@ def run_auto() -> int:
         msgs = run_foolproof_patch(
             enable_nine=NINE_PACK,
             apply_accel=apply_accel,
+            apply_accel2=apply_accel2,
+            dragon_loop_ui=DRAGON_LOOP_PACK,
             apply_frameskip=apply_frameskip,
             inject_bridge=inject_bridge,
             on_log=lambda line: print(line, flush=True),
@@ -135,11 +146,12 @@ class FoolproofApp(tk.Tk):
         )
         ttk.Button(row, text="浏览…", command=self.browse).pack(side=tk.LEFT)
 
-        pack_name = "九动版" if NINE_PACK else "融合版"
+        pack_name = "融合版"
         tip = (
             f"本包：傻瓜补丁·{pack_name}\n"
             f"· 侧栏「百科」→ 助手面板，战斗模式：{_panel_modes_tip()}\n"
             "· 外层选项：「战斗加速」（开→战斗倍速+心跳回传1.5x；关→原速+心跳回传1.0x）\n"
+            "             「加速2」（战斗加速方案2：只加速表现，可与战斗加速共存）\n"
             "             「跳帧」（切后台/老板键限帧 30FPS）\n"
             "             与「多开器适配功能」（默认不打，占容量；勾选=注入精简桥接，供包内「多开器.exe」登录/拉多控/一键召唤）\n"
             "· 采集自动提取：战斗页独立开关（对账号所有在线角色，满999格逐格提入账号银行，节奏式间隔发送）\n"
@@ -155,6 +167,13 @@ class FoolproofApp(tk.Tk):
             body,
             text="战斗加速（默认关：3x 倍速+心跳回传1.5x；开启=倍速，会连带掐断倍速检测上报）",
             variable=self.apply_accel_var,
+        ).pack(anchor=tk.W, pady=(0, 6))
+
+        self.apply_accel2_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            body,
+            text="加速2（战斗加速方案2，默认关：只加速表现——跑位/箭矢/气功弹/击飞/去慢放，不改倍速，可与上方战斗加速共存）",
+            variable=self.apply_accel2_var,
         ).pack(anchor=tk.W, pady=(0, 6))
 
         self.apply_frameskip_var = tk.BooleanVar(value=True)
@@ -470,6 +489,8 @@ class FoolproofApp(tk.Tk):
                     enable_nine=NINE_PACK,
                     gift_codes=self.gift_codes_box.get("1.0", "end"),
                     apply_accel=bool(self.apply_accel_var.get()),
+                    apply_accel2=bool(self.apply_accel2_var.get()),
+                    dragon_loop_ui=DRAGON_LOOP_PACK,
                     apply_frameskip=bool(self.apply_frameskip_var.get()),
                     inject_bridge=bool(self.inject_bridge_var.get()),
                     on_log=lambda line: self.after(0, self._append, line),

@@ -1272,7 +1272,8 @@
       "诺利",
       "火龙神使",
       "火焰巨龙",
-      "狂暴炎龙"
+      "狂暴炎龙",
+      "多拉姆糖"
     ],
     "temp_no": 903,
     "album_no": -1,
@@ -1871,20 +1872,6 @@
     "perfect_mat_flag": 0
   },
   {
-    "name": "箕龙",
-    "aliases": [
-      "箕龙"
-    ],
-    "temp_no": 103118,
-    "album_no": -1,
-    "tribe": 1,
-    "anim_id": 104325,
-    "perfect_skin_id": 0,
-    "can_perfect": 0,
-    "perfect_mat": "",
-    "perfect_mat_flag": 0
-  },
-  {
     "name": "心龙",
     "aliases": [
       "心龙"
@@ -1908,20 +1895,6 @@
     "album_no": -1,
     "tribe": 1,
     "anim_id": 104327,
-    "perfect_skin_id": 0,
-    "can_perfect": 0,
-    "perfect_mat": "",
-    "perfect_mat_flag": 0
-  },
-  {
-    "name": "番茄咩",
-    "aliases": [
-      "番茄咩"
-    ],
-    "temp_no": 10117,
-    "album_no": -1,
-    "tribe": 7,
-    "anim_id": 104332,
     "perfect_skin_id": 0,
     "can_perfect": 0,
     "perfect_mat": "",
@@ -5268,20 +5241,6 @@
     "perfect_mat_flag": 0
   },
   {
-    "name": "魔法师之鬼",
-    "aliases": [
-      "魔法师之鬼"
-    ],
-    "temp_no": 313000,
-    "album_no": -1,
-    "tribe": 2,
-    "anim_id": 110505,
-    "perfect_skin_id": 0,
-    "can_perfect": 0,
-    "perfect_mat": "",
-    "perfect_mat_flag": 0
-  },
-  {
     "name": "德鲁依之鬼",
     "aliases": [
       "德鲁依之鬼"
@@ -5305,20 +5264,6 @@
     "album_no": -1,
     "tribe": 2,
     "anim_id": 110507,
-    "perfect_skin_id": 0,
-    "can_perfect": 0,
-    "perfect_mat": "",
-    "perfect_mat_flag": 0
-  },
-  {
-    "name": "巫师之鬼",
-    "aliases": [
-      "巫师之鬼"
-    ],
-    "temp_no": 313300,
-    "album_no": -1,
-    "tribe": 2,
-    "anim_id": 110508,
     "perfect_skin_id": 0,
     "can_perfect": 0,
     "perfect_mat": "",
@@ -11066,7 +11011,7 @@
     ],
     "temp_no": 480017,
     "album_no": 327,
-    "tribe": 2,
+    "tribe": 6,
     "anim_id": 120081,
     "perfect_skin_id": 0,
     "can_perfect": 0,
@@ -11103,6 +11048,94 @@
     "album_no": 329,
     "tribe": 2,
     "anim_id": 101922,
+    "perfect_skin_id": 0,
+    "can_perfect": 1,
+    "perfect_mat": "New_Pet_Inner_3",
+    "perfect_mat_flag": 0
+  },
+  {
+    "name": "熔火・格塔克",
+    "aliases": [
+      "熔火・格塔克"
+    ],
+    "temp_no": 480020,
+    "album_no": 330,
+    "tribe": 0,
+    "anim_id": 116915,
+    "perfect_skin_id": 0,
+    "can_perfect": 0,
+    "perfect_mat": "",
+    "perfect_mat_flag": 0
+  },
+  {
+    "name": "黯血・莉奥拉",
+    "aliases": [
+      "黯血・莉奥拉"
+    ],
+    "temp_no": 480021,
+    "album_no": 331,
+    "tribe": 2,
+    "anim_id": 110515,
+    "perfect_skin_id": 0,
+    "can_perfect": 0,
+    "perfect_mat": "",
+    "perfect_mat_flag": 0
+  },
+  {
+    "name": "番茄精灵",
+    "aliases": [
+      "番茄咩",
+      "番茄精灵"
+    ],
+    "temp_no": 480022,
+    "album_no": 332,
+    "tribe": 5,
+    "anim_id": 104332,
+    "perfect_skin_id": 0,
+    "can_perfect": 1,
+    "perfect_mat": "New_Pet_Inner_3",
+    "perfect_mat_flag": 0
+  },
+  {
+    "name": "沧澜・维隆",
+    "aliases": [
+      "箕龙",
+      "沧澜・维隆"
+    ],
+    "temp_no": 480023,
+    "album_no": 333,
+    "tribe": 1,
+    "anim_id": 104325,
+    "perfect_skin_id": 0,
+    "can_perfect": 1,
+    "perfect_mat": "New_Pet_Inner_3",
+    "perfect_mat_flag": 0
+  },
+  {
+    "name": "冥镰・莫尔",
+    "aliases": [
+      "魔法师之鬼",
+      "冥镰・莫尔"
+    ],
+    "temp_no": 480024,
+    "album_no": 334,
+    "tribe": 7,
+    "anim_id": 110505,
+    "perfect_skin_id": 0,
+    "can_perfect": 1,
+    "perfect_mat": "New_Pet_Inner_3",
+    "perfect_mat_flag": 0
+  },
+  {
+    "name": "幽殤・瑟拉",
+    "aliases": [
+      "巫师之鬼",
+      "幽殤・瑟拉"
+    ],
+    "temp_no": 480025,
+    "album_no": 335,
+    "tribe": 7,
+    "anim_id": 110508,
     "perfect_skin_id": 0,
     "can_perfect": 1,
     "perfect_mat": "New_Pet_Inner_3",

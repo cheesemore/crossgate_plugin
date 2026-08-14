@@ -37,6 +37,7 @@ DEFAULT_COMBO_KWARGS = {
     "pet_equip_unlock": False,
     "wiki_download_res": False,
     "wiki_label": False,
+    "dragon_loop_ui": True,  # 护航面板「龙族循环A/B」按钮：默认带（傻瓜补丁分「带龙族」/「原版」两版）
     "daily_claim": True,
     "newbie_gift_code": True,
     "boss_key_fps": True,  # 切后台 / 老板键隐藏 → 30 FPS
@@ -78,6 +79,8 @@ FOOLPROOF_NO_NINE_COMBO_KWARGS = {
     "auto_catch_external": True,
     "auto_catch_nopet_external": True,
     "auto_catch_sell_external": True,
+    # 原版：护航面板不显示龙族循环 A/B 按钮（带龙族版由 publish 包 flag 决定覆盖为 True）
+    "dragon_loop_ui": False,
 }
 
 # 傻瓜「烧卡档」：同面板双 DLL（抓宠+烧卡），倍速/特效取最高；无九动

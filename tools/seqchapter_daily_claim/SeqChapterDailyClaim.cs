@@ -32,7 +32,7 @@ public static class SeqChapterDailyClaim
     private static readonly string[] DefaultNewbieGiftCodes =
     {
         "VIP666", "VIP777", "VIP888", "VIP999",
-        "MLBB666", "MLBB777", "mlbb521", "mlbb24", "mlbb0803", "mlbb0805",
+        "mlbb0813", "mlbb0814",
     };
 
     /// <summary>运行时列表：优先读 hotfixdata/seqchapter_gift_codes.txt（一行一个，# 注释）。</summary>

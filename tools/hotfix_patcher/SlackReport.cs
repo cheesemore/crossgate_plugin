@@ -179,8 +179,15 @@ internal static class SlackReport
         list.Add(new PatchSlackProfile(
             "skill_effect", "技能特效加速", skill.Bytes, skill.Mode, skill.Already, skill.Note));
 
+        // 桥接实际走 Cecil 轻量重写 + 外置 DLL，hotfix 固定体积不变，不吃 raw 追加余量。
+        // 旧版误标 append +200B，会在 raw_slack≈180 的客户端上误报「余量不足」并中止傻瓜补丁。
         list.Add(new PatchSlackProfile(
-            "bridge", "助手桥接", 200, "append", false, "建议上限约 200B（与九动互斥）"));
+            "bridge",
+            "助手桥接",
+            200,
+            "cecil_rewrite",
+            false,
+            "Cecil 轻量重写+外置 DLL，不占用 raw 追加；与九动 DLL 互斥"));
 
         list.Add(new PatchSlackProfile(
             "nine_external",

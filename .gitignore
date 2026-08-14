@@ -94,6 +94,8 @@ tools/_update_*.py
 tools/_nine_*.log
 tools/_family_*.log
 tools/_battle_test/
+tools/_tmp_*.py
+tools/_verify_*/
 
 # OS
 Thumbs.db

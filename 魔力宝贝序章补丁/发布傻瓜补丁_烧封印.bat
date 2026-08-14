@@ -1,9 +1,6 @@
 @echo off
 chcp 65001 >nul
-cd /d "%~dp0"
-echo [INFO] 已并入「融合版 / 九动版」四选一。请用：
-echo   发布傻瓜补丁_融合版.bat
-echo   发布傻瓜补丁_九动版.bat
-echo.
-echo 正在转发到融合版…
-call "%~dp0发布傻瓜补丁_融合版.bat"
+echo [ARCHIVED] 旧分档打包已停用。
+echo 请改用：魔力宝贝序章补丁\发布傻瓜补丁两版.bat
+pause
+exit /b 1

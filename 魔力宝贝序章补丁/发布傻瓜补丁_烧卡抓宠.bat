@@ -1,5 +1,6 @@
 @echo off
 chcp 65001 >nul
-cd /d "%~dp0"
-echo [INFO] 「烧卡抓宠」已并入融合版（四选一含普通加速）。正在转发…
-call "%~dp0发布傻瓜补丁_融合版.bat"
+echo [ARCHIVED] 旧分档打包已停用（烧卡抓宠/烧封印/自动抓宠等）。
+echo 请改用：魔力宝贝序章补丁\发布傻瓜补丁两版.bat
+pause
+exit /b 1
