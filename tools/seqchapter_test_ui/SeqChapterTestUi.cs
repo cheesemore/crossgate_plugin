@@ -6567,7 +6567,7 @@ public static class SeqChapterTestUi
                     continue;
                 }
 
-                send.Invoke(itemMgr, new object[] { "丢弃物品", i, 1, uid });
+                send.Invoke(itemMgr, new object[] { "丢弃道具", i, 1, uid });
                 dropped++;
                 Tip("已丢弃[" + name + "]");
             }
@@ -7181,7 +7181,7 @@ public static class SeqChapterTestUi
 
         if (id == 113)
         {
-            return "特殊处理: 开始用道具（队长白色/黑色意志） #" + id;
+            return "特殊处理: 开始用道具（队长白之/黑之意志） #" + id;
         }
 
         return "特殊处理: 已识别龙族但ID不匹配（未丢未用） #" + id;
@@ -7628,7 +7628,7 @@ public static class SeqChapterTestUi
             {
                 var useKeywords = _escortMissionId == 112
                     ? new[] { "白之记忆", "黑之记忆" }
-                    : new[] { "白色意志", "黑色意志" };
+                    : new[] { "白之意志", "黑之意志" };
                 if (UseCaptainMemoryItem(useKeywords))
                 {
                     _dragonUseMemoryPending = true;

@@ -492,7 +492,7 @@ public static class SeqChapterBearSlayer
                     continue;
                 }
 
-                send.Invoke(itemMgr, new object[] { "丢弃物品", i, 1, _uid });
+                send.Invoke(itemMgr, new object[] { "丢弃道具", i, 1, _uid });
                 dropped = true;
                 Tip("已丢弃: " + name);
             }
