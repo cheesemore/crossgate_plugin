@@ -2,6 +2,8 @@
 
 仓库：`E:\cross\魔力宝贝：序章`。干净底稿只读：`E:\crosscopy\魔力宝贝：序章`。
 
+**更新 / 打补丁 / 发傻瓜包完整规范：** [`游戏更新与补丁规范.md`](游戏更新与补丁规范.md)
+
 ## 一句话命令
 
 | 场景 | 命令 |
@@ -12,23 +14,23 @@
 | 打傻瓜补丁两版 | `python tools/workflow.py publish-foolproof` |
 | 按配置默认发布 | `python tools/workflow.py publish-all` |
 
-## 铁律（详见 `.cursor/rules/`）
+## 铁律（详见规范文档与 `.cursor/rules/`）
 
 1. **不写游戏客户端文件**（`hotfix.dll.bytes` 等）除非用户明确要求代打；默认 `repatch`/`auto-update` 是用户允许的固化流程。
 2. **永不污染 crosscopy**。
 3. **不杀 cg37** 除非用户明确同意。
-4. 默认组合：拦截倍速上报、日常、客服→autoskill、精简桥接、龙族护航 UI 开；九动封存不提。
+4. 默认组合：拦截倍速上报、日常、客服→autoskill、精简桥接、龙族护航 UI 开；**加速类默认关**（技能特效归属战斗倍速）；九动封存不提。
 5. 新功能先查 `tools/常用反射方法速查.md`，复用已有协议片段。
 6. 废弃模块见 `tools/DEPRECATED.md`，默认不打开。
 
 ## 傻瓜补丁两版
 
-`publish_foolproof.py` **一次产出**：
+`publish_foolproof.py` **一次产出**（至 `E:\cross\发布plugin\`）：
 
 - `傻瓜补丁_融合版_*.zip`（护航无龙族按钮）
 - `傻瓜补丁_带龙族_*.zip`（包内 `带龙族.flag` → 打补丁写 `seqchapter_dragon_loop.flag`）
 
-说明文件**不提**龙族差异、**不提**九动。
+包内含多开器、窗口监视。说明文件**不提**龙族差异、**不提**九动。
 
 ## 协议复用
 
