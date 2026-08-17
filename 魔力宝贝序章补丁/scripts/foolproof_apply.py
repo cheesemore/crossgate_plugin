@@ -104,7 +104,8 @@ def run_foolproof_patch(
     """一键诊断并打傻瓜补丁（百科助手面板版）。成功返回消息列表；失败抛 FoolproofError。
 
     enable_nine：九动版 True / 融合版 False（由包类型决定，面板内是否出现九动）。
-    apply_accel：战斗加速开关，默认关。开→战斗倍速+心跳回传1.5x；关→原速+心跳回传1.0x。
+    apply_accel：战斗加速开关，默认关。开→战斗倍速+技能特效加速（默认3x）+心跳回传1.5x；
+        关→原速+无特效加速+心跳回传1.0x。
         注意：默认组合总是拦截倍速检测上报（CheckTimeScaleWarning /
         SendTimeScaleWarning 打成空方法，防检测），无论加速是否开启。
     apply_accel2：战斗加速方案2开关，默认关。开→只加速战斗表现（跑位/箭矢/气功弹/击飞/去慢放），
@@ -190,20 +191,22 @@ def run_foolproof_patch(
     kwargs["on_log"] = on_log
 
     if not apply_accel:
-        # 加速关：完全不碰 vip-timescale-patch（不设 vip_echo → 不打心跳回传，避免连带 kill-report）
+        # 加速关：不打 VIP 倍速 / 心跳回传 / 跑速 / 过场 / 技能特效（特效归属战斗倍速）
         kwargs["vip"] = False
         kwargs["vip_non_vip"] = False
         kwargs["vip_echo"] = None
         kwargs["map_sprint"] = False
-        kwargs["skill_effect_speed"] = False
         kwargs["transition_speed"] = False
+        kwargs["skill_effect_speed"] = False
         _emit(messages, on_log, "加速补丁：关（不打战斗倍速/心跳回传/跑速/特效/过场）")
     else:
-        # 加速开：战斗倍速（VIP+非VIP 同倍速）+ 心跳回传 1.5x（强制绑定 kill-report，掐断倍速检测上报）
+        # 加速开：战斗倍速 + 心跳回传 1.5x + 技能特效（默认 3x）
         kwargs["vip"] = True
         kwargs["vip_non_vip"] = True
         kwargs["vip_echo"] = 1.5
-        _emit(messages, on_log, "加速补丁：开（战斗倍速 + 心跳回传固定 1.5x，强制携带 kill-report）")
+        kwargs["skill_effect_speed"] = True
+        kwargs["skill_effect_scale"] = float(kwargs.get("skill_effect_scale") or 3.0)
+        _emit(messages, on_log, "加速补丁：开（战斗倍速 + 特效加速 + 心跳回传固定 1.5x，强制携带 kill-report）")
 
     if apply_accel2:
         kwargs["combat_accel"] = True
@@ -286,23 +289,24 @@ def run_foolproof_patch(
     # 九动已永久封存：新发布包一律不带，且不再特意说明「无九动」。
     nine_part = f" · 九动{nine_label}" if enable_nine else ""
     accel2_part = " · 加速2(表现加速)" if apply_accel2 else ""
+    fx = kwargs.get("skill_effect_scale", 3.0) if kwargs.get("skill_effect_speed") else 0
+    fx_part = f" · 特效{fx:g}x" if fx else " · 无特效加速"
     if not apply_accel:
         _emit(
             messages,
             on_log,
-            f"已应用：无战斗倍速 · 原速跑图 · 长按详情 · 无特效加速 · 心跳回传1.0x"
+            f"已应用：无战斗倍速 · 原速跑图 · 长按详情{fx_part} · 心跳回传1.0x"
             f"{accel2_part}{panel_part}{gm_part}{daily_part}{nine_part}{frameskip_part}{bridge_part}"
             + (" · 一级含蝙蝠/哥布林" if kwargs.get("level_one_include_all") else ""),
         )
     else:
         vip = kwargs.get("vip_scale", 5)
-        fx = kwargs.get("skill_effect_scale", 2.0)
         echo = kwargs.get("vip_echo", 1.5)
         sprint_part = " · Sprint快" if kwargs.get("map_sprint") else ""
         _emit(
             messages,
             on_log,
-            f"已应用：VIP{vip}x{sprint_part} · 长按详情 · 特效{fx}x · 心跳回传{echo:g}x"
+            f"已应用：VIP{vip}x{sprint_part} · 长按详情{fx_part} · 心跳回传{echo:g}x"
             f"{accel2_part}{panel_part}{gm_part}{daily_part}{nine_part}{frameskip_part}{bridge_part}"
             + (" · 一级含蝙蝠/哥布林" if kwargs.get("level_one_include_all") else ""),
         )

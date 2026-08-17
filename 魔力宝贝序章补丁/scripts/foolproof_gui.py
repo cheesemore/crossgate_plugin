@@ -150,14 +150,15 @@ class FoolproofApp(tk.Tk):
         tip = (
             f"本包：傻瓜补丁·{pack_name}\n"
             f"· 侧栏「百科」→ 助手面板，战斗模式：{_panel_modes_tip()}\n"
-            "· 外层选项：「战斗加速」（开→战斗倍速+心跳回传1.5x；关→原速+心跳回传1.0x）\n"
+            "· 外层选项：「战斗加速」（开→战斗倍速+特效3x+心跳回传1.5x；关→原速+无特效加速）\n"
             "             「加速2」（战斗加速方案2：只加速表现，可与战斗加速共存）\n"
             "             「跳帧」（切后台/老板键限帧 30FPS）\n"
-            "             与「多开器适配功能」（默认不打，占容量；勾选=注入精简桥接，供包内「多开器.exe」登录/拉多控/一键召唤）\n"
+            "             与「多开器适配功能」（默认开；勾选=注入精简桥接，供包内「多开器.exe」登录/拉多控/一键召唤）\n"
             "· 采集自动提取：战斗页独立开关（对账号所有在线角色，满999格逐格提入账号银行，节奏式间隔发送）\n"
             "· 脚本页「立刻提取采集物」可手动触发一次\n"
             "· 分享改日常、礼包码默认带上\n"
             "· 「启动动画预览」使用上方游戏目录读取资源（需已填对目录）\n"
+            "· 「启动窗口监视」：右下角置顶，定时刷新所有 cg37 窗口标题\n"
             "若提示客户端不干净：可点「从干净目录恢复…」。"
         )
         ttk.Label(body, text=tip, justify=tk.LEFT).pack(anchor=tk.W, pady=(10, 8))
@@ -207,6 +208,12 @@ class FoolproofApp(tk.Tk):
             command=self.on_launch_launcher,
         )
         self.launcher_btn.pack(side=tk.LEFT, padx=(8, 0))
+        self.window_monitor_btn = ttk.Button(
+            btns,
+            text="启动窗口监视",
+            command=self.on_launch_window_monitor,
+        )
+        self.window_monitor_btn.pack(side=tk.LEFT, padx=(8, 0))
         self.animator_btn = ttk.Button(
             btns, text="启动动画预览", command=self.on_launch_animator
         )
@@ -258,6 +265,7 @@ class FoolproofApp(tk.Tk):
         self.restore_btn.state(state)
         self.animator_btn.state(state)
         self.launcher_btn.state(state)
+        self.window_monitor_btn.state(state)
 
     def _animator_candidates(self) -> list[Path]:
         cands: list[Path] = []
@@ -333,6 +341,53 @@ class FoolproofApp(tk.Tk):
                 [
                     scripts.parent.parent / "新序章多开器" / "scripts" / "multi_launcher_gui.py",
                     scripts.parent.parent / "新序章多开器" / "multi_launcher_gui.py",
+                ]
+            )
+        return [p for p in cands if p.is_file()]
+
+    def on_launch_window_monitor(self) -> None:
+        if self._busy:
+            return
+        cands = self._window_monitor_candidates()
+        if not cands:
+            messagebox.showinfo(
+                f"{_profile_title()}",
+                "包内未找到「窗口监视.exe」。\n\n"
+                "窗口监视需在新版傻瓜补丁包中随附（发布时已内置）。\n"
+                "也可直接运行：魔力宝贝序章补丁\\scripts\\window_monitor_gui.py\n"
+                "或双击「启动窗口监视.bat」。",
+            )
+            return
+        try:
+            exe = cands[0]
+            if exe.suffix.lower() == ".py":
+                subprocess.Popen(
+                    [sys.executable, str(exe)],
+                    cwd=str(exe.parent),
+                )
+            else:
+                subprocess.Popen([str(exe)], cwd=str(exe.parent))
+            self._append(f"已启动窗口监视：{exe}")
+        except Exception as exc:
+            messagebox.showerror(f"{_profile_title()} — 失败", f"无法启动窗口监视：\n{exc}")
+
+    def _window_monitor_candidates(self) -> list[Path]:
+        cands: list[Path] = []
+        if getattr(sys, "frozen", False):
+            exe_dir = Path(sys.executable).resolve().parent
+            cands.extend(
+                [
+                    exe_dir / "窗口监视.exe",
+                    exe_dir / "窗口监视" / "窗口监视.exe",
+                    exe_dir / "window_monitor_gui.exe",
+                ]
+            )
+        else:
+            scripts = Path(__file__).resolve().parent
+            cands.extend(
+                [
+                    scripts / "window_monitor_gui.py",
+                    scripts.parent / "scripts" / "window_monitor_gui.py",
                 ]
             )
         return [p for p in cands if p.is_file()]

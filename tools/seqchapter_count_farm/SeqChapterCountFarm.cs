@@ -68,16 +68,11 @@ public static class SeqChapterCountFarm
                 return "魔石--%";
             }
 
-            var roleMgr = GetManagerInstance("RoleManager");
-            if (roleMgr == null)
-            {
-                return "魔石--%";
-            }
-
-            var dict = GetMember(roleMgr, "m_buffInfo") as IDictionary;
+            var dict = GetBuffInfoDict();
             if (dict == null || dict.Count == 0)
             {
-                // 缓存为空（读不到数据也显示 --）：请求由 OnBattleEntered 按场次节奏触发
+                // 缓存为空：标题刷新时也主动拉一次（仍受 8 秒限流）
+                TryRequestMoshiBuffAll();
                 return "魔石--%";
             }
 
@@ -86,13 +81,14 @@ public static class SeqChapterCountFarm
             var allFull = true;
             var totalCur = 0L;
             var totalLimit = 0L;
+            var missing = false;
             foreach (var uid in uids)
             {
                 long cur;
                 long limit;
                 if (!TryReadMoshiProgress(dict, uid, out cur, out limit))
                 {
-                    // 该号暂无魔石缓存：跳过（请求由 OnBattleEntered 按场次节奏触发）
+                    missing = true;
                     allFull = false;
                     continue;
                 }
@@ -100,7 +96,7 @@ public static class SeqChapterCountFarm
                 hasAny = true;
                 if (limit <= 0)
                 {
-                    // 上限未就绪（Time 为 0 等）：按未满处理，不能算满
+                    // 上限未就绪：按未满处理，不能算满
                     allFull = false;
                     continue;
                 }
@@ -115,19 +111,19 @@ public static class SeqChapterCountFarm
                 }
             }
 
-            if (!hasAny)
+            if (!hasAny || totalLimit <= 0)
             {
+                if (missing || !hasAny)
+                {
+                    TryRequestMoshiBuffAll();
+                }
+
                 return "魔石--%";
             }
 
             if (allFull)
             {
                 return "魔石满";
-            }
-
-            if (totalLimit <= 0)
-            {
-                return "魔石--%";
             }
 
             // 一位小数：千分比取整（940 → 94.0%），未全员满时最多 99.9%
@@ -147,7 +143,45 @@ public static class SeqChapterCountFarm
         }
     }
 
-    /// <summary>读取某 uid 的魔石 buff（Id=10）当前值/上限；无缓存返回 false。</summary>
+    /// <summary>读取 RoleManager.m_buffInfo（实例字段；与助手概况一致的兜底）。</summary>
+    private static IDictionary GetBuffInfoDict()
+    {
+        try
+        {
+            var roleMgrType = FindType("RoleManager");
+            var field = roleMgrType?.GetField(
+                "m_buffInfo",
+                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.Instance);
+            object dictObj = null;
+            if (field != null && field.IsStatic)
+            {
+                dictObj = field.GetValue(null);
+            }
+            else
+            {
+                var inst = GetManagerInstance("RoleManager");
+                if (field != null && inst != null)
+                {
+                    dictObj = field.GetValue(inst);
+                }
+                else if (inst != null)
+                {
+                    dictObj = GetMember(inst, "m_buffInfo");
+                }
+            }
+
+            return dictObj as IDictionary;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// 读取某 uid 的魔石 buff（Id=10）当前值/上限；无可用进度返回 false。
+    /// 游戏 UI（Com_Buff）只用 Str/Str2 展示进度，Value/Time 对 Id=10 不可靠。
+    /// </summary>
     private static bool TryReadMoshiProgress(
         IDictionary buffDict,
         string uid,
@@ -158,7 +192,7 @@ public static class SeqChapterCountFarm
         limit = 0;
         try
         {
-            if (buffDict == null || !buffDict.Contains(uid))
+            if (buffDict == null || string.IsNullOrEmpty(uid) || !buffDict.Contains(uid))
             {
                 return false;
             }
@@ -182,23 +216,25 @@ public static class SeqChapterCountFarm
                     continue;
                 }
 
-                cur = Convert.ToInt64(GetMember(info, "Value") ?? 0);
-                limit = Convert.ToInt64(GetMember(info, "Time") ?? 0);
+                var str2 = Convert.ToString(GetMember(info, "Str2") ?? "") ?? "";
+                var str = Convert.ToString(GetMember(info, "Str") ?? "") ?? "";
 
-                // 服务端可能不填 Value/Time（进度信息在 Str2/Str 文案里，如 "3500/5000"）：
-                // 数值无效时回退解析文案。
-                if (limit <= 0)
+                // 优先文案（与游戏内描述一致）；富文本/中文前缀也能解析
+                if (TryParseBuffFraction(str2, out cur, out limit)
+                    || TryParseBuffFraction(str, out cur, out limit))
                 {
-                    var str2 = Convert.ToString(GetMember(info, "Str2") ?? "") ?? "";
-                    var str = Convert.ToString(GetMember(info, "Str") ?? "") ?? "";
-                    if (TryParseBuffFraction(str2, out cur, out limit)
-                        || TryParseBuffFraction(str, out cur, out limit))
-                    {
-                        // 文案解析成功
-                    }
+                    return limit > 0;
                 }
 
-                return true;
+                // 回退 Value/Time：仅当上限像每日魔石上限（≥1000）才采信，避免 Time 是开关/无关字段
+                cur = Convert.ToInt64(GetMember(info, "Value") ?? 0);
+                limit = Convert.ToInt64(GetMember(info, "Time") ?? 0);
+                if (limit >= 1000)
+                {
+                    return true;
+                }
+
+                return false;
             }
         }
         catch
@@ -209,7 +245,10 @@ public static class SeqChapterCountFarm
         return false;
     }
 
-    /// <summary>从魔石 buff 文案（如 "3500/5000"、"3500/5000/天"）解析 当前/上限；失败返回 false。</summary>
+    /// <summary>
+    /// 从魔石 buff 文案解析 当前/上限。
+    /// 支持 "3500/5000"、"3500/5000/天"、中文前缀、TMP 富文本标签。
+    /// </summary>
     private static bool TryParseBuffFraction(string text, out long cur, out long limit)
     {
         cur = 0;
@@ -221,56 +260,115 @@ public static class SeqChapterCountFarm
 
         try
         {
-            var parts = text.Split(new[] { '/' }, StringSplitOptions.RemoveEmptyEntries);
-            if (parts.Length < 2)
+            var plain = StripRichTextTags(text);
+            if (string.IsNullOrEmpty(plain))
             {
                 return false;
             }
 
-            var c = ExtractLeadingNumber(parts[0]);
-            var l = ExtractLeadingNumber(parts[1]);
-            if (c == null || l == null)
+            // 扫描全文第一个「数字 / 数字」（忽略前后中文、单位）
+            var i = 0;
+            while (i < plain.Length)
             {
-                return false;
-            }
+                while (i < plain.Length && (plain[i] < '0' || plain[i] > '9'))
+                {
+                    i++;
+                }
 
-            cur = c.Value;
-            limit = l.Value;
-            return true;
+                if (i >= plain.Length)
+                {
+                    break;
+                }
+
+                var startA = i;
+                while (i < plain.Length && plain[i] >= '0' && plain[i] <= '9')
+                {
+                    i++;
+                }
+
+                var j = i;
+                while (j < plain.Length && (plain[j] == ' ' || plain[j] == '\t'))
+                {
+                    j++;
+                }
+
+                if (j >= plain.Length || plain[j] != '/')
+                {
+                    continue;
+                }
+
+                j++;
+                while (j < plain.Length && (plain[j] == ' ' || plain[j] == '\t'))
+                {
+                    j++;
+                }
+
+                if (j >= plain.Length || plain[j] < '0' || plain[j] > '9')
+                {
+                    continue;
+                }
+
+                var startB = j;
+                while (j < plain.Length && plain[j] >= '0' && plain[j] <= '9')
+                {
+                    j++;
+                }
+
+                long c;
+                long l;
+                if (!long.TryParse(plain.Substring(startA, i - startA), out c)
+                    || !long.TryParse(plain.Substring(startB, j - startB), out l)
+                    || l <= 0)
+                {
+                    i = startA + 1;
+                    continue;
+                }
+
+                cur = c;
+                limit = l;
+                return true;
+            }
         }
         catch
         {
-            return false;
+            // ignore
         }
+
+        return false;
     }
 
-    /// <summary>提取字符串开头的数字（容忍 "3500"、" 3500" 等）；无数字返回 null。</summary>
-    private static long? ExtractLeadingNumber(string text)
+    /// <summary>去掉 TMP/UGUI 富文本标签（&lt;color=...&gt; 等），保留标签外文字。</summary>
+    private static string StripRichTextTags(string text)
     {
-        if (string.IsNullOrEmpty(text))
+        if (string.IsNullOrEmpty(text) || text.IndexOf('<') < 0)
         {
-            return null;
+            return text;
         }
 
-        var i = 0;
-        while (i < text.Length && (text[i] == ' ' || text[i] == '\t'))
+        var sb = new System.Text.StringBuilder(text.Length);
+        var inTag = false;
+        for (var i = 0; i < text.Length; i++)
         {
-            i++;
+            var ch = text[i];
+            if (ch == '<')
+            {
+                inTag = true;
+                continue;
+            }
+
+            if (ch == '>' && inTag)
+            {
+                inTag = false;
+                continue;
+            }
+
+            if (!inTag)
+            {
+                sb.Append(ch);
+            }
         }
 
-        var start = i;
-        while (i < text.Length && text[i] >= '0' && text[i] <= '9')
-        {
-            i++;
-        }
-
-        if (i == start)
-        {
-            return null;
-        }
-
-        long v;
-        return long.TryParse(text.Substring(start, i - start), out v) ? v : (long?)null;
+        return sb.ToString();
     }
 
     /// <summary>收集队伍/多开在线的队员 uid（队长优先，兜底主号）。</summary>
@@ -535,13 +633,7 @@ public static class SeqChapterCountFarm
                 return false;
             }
 
-            var roleMgr = GetManagerInstance("RoleManager");
-            if (roleMgr == null)
-            {
-                return false;
-            }
-
-            var dict = GetMember(roleMgr, "m_buffInfo") as IDictionary;
+            var dict = GetBuffInfoDict();
             if (dict == null || dict.Count == 0)
             {
                 return false;
@@ -554,7 +646,7 @@ public static class SeqChapterCountFarm
                 long limit;
                 if (!TryReadMoshiProgress(dict, uid, out cur, out limit))
                 {
-                    // 该号暂无魔石缓存，跳过（请求由 OnBattleEntered 按场次节奏触发）
+                    // 该号暂无魔石缓存，不算满
                     return false;
                 }
 

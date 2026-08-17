@@ -1288,7 +1288,7 @@ def apply_combo(
     transition_speed: bool = False,
     transition_speed_scale: float = 0.4,
     skill_effect_speed: bool = False,
-    skill_effect_scale: float = 2.0,
+    skill_effect_scale: float = 3.0,
     combat_accel: bool = False,
     pet_equip_unlock: bool = False,
     wiki_download_res: bool = False,
@@ -1307,6 +1307,11 @@ def apply_combo(
     game_root: Path | None = None,
     on_log=None,
 ) -> list[str]:
+    # 技能特效加速归属「战斗倍速」：开 vip 时默认一并打上（倍率默认 3x）
+    if vip and not skill_effect_speed:
+        skill_effect_speed = True
+        skill_effect_scale = float(skill_effect_scale or 3.0)
+
     hotfix = hotfix_path(game_root)
     orig = hotfix_orig(game_root)
     messages: list[str] = []
@@ -1684,14 +1689,16 @@ def main() -> int:
     )
     parser.add_argument(
         "--skill-effect-speed",
-        action="store_true",
-        help="战斗技能特效帧动画 1.5/2/3/5 倍速（不影响回合读秒）",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="技能特效加速（归属战斗倍速；勾选 --vip 时会自动带上；默认关）",
     )
     parser.add_argument(
         "--skill-effect-scale",
         type=float,
         choices=[1.5, 2.0, 3.0, 5.0],
-        default=2.0,
+        default=3.0,
+        help="特效倍速（随战斗倍速开启时默认 3）",
     )
     parser.add_argument(
         "--inject-bridge",

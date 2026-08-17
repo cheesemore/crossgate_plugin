@@ -3,10 +3,12 @@
 """GUI / 简单补丁 / 傻瓜补丁共用的默认组合选项。"""
 
 # 助手面板（百科入口）+ 抓宠/烧卡 DLL 面板模式：玩法开关在面板里切
-# 默认组合：不勾加速（vip / vip_non_vip / 心跳回传均关）。
+# 默认组合：不勾加速（vip / vip_non_vip / 心跳回传 / 技能特效均关）。
+#   技能特效加速归属「战斗倍速」：勾选 vip 时由 apply_combo 自动带上（默认 3x）。
 #   原因：战斗倍速补丁默认连带掐断倍速检测上报（CheckTimeScaleWarning /
 #   SendTimeScaleWarning 打成空方法，防检测）；用户明确默认不打加速。
 #   MAC 伪装（假设备指纹）默认不开（仅 --fake-mac 显式开启）。
+#   kill_timescale_report 默认仍开（与是否开倍速无关）。
 DEFAULT_COMBO_KWARGS = {
     "vip": False,  # 默认不打战斗倍速（加速关闭）
     "vip_non_vip": False,  # 默认不启用非VIP倍速
@@ -32,8 +34,8 @@ DEFAULT_COMBO_KWARGS = {
     "level_one_include_all": True,
     "transition_speed": False,
     "transition_speed_scale": 0.4,
-    "skill_effect_speed": False,  # 技能特效加速默认关（属加速类）
-    "skill_effect_scale": 2.0,
+    "skill_effect_speed": False,  # 归属战斗倍速：默认关；勾选 vip 时由 apply_combo / 傻瓜加速一并打开
+    "skill_effect_scale": 3.0,  # 随战斗倍速开启时的默认特效倍率
     "pet_equip_unlock": False,
     "wiki_download_res": False,
     "wiki_label": False,
@@ -116,7 +118,7 @@ FOOLPROOF_AUTO_CATCH_COMBO_KWARGS = {
     "level_one_include_all": True,
     "vip_scale": 5,
     "skill_effect_speed": True,
-    "skill_effect_scale": 2.0,
+    "skill_effect_scale": 3.0,
 }
 
 FOOLPROOF_AUTO_CATCH_NOPET_COMBO_KWARGS = {
@@ -144,8 +146,8 @@ LAUNCH_INJECT_PRESET = {
     "level_one_include_all": True,
     "transition_speed": False,
     "transition_speed_scale": 0.4,
-    "skill_effect_speed": False,  # 技能特效加速默认关
-    "skill_effect_scale": 2.0,
+    "skill_effect_speed": False,  # 归属战斗倍速：默认关
+    "skill_effect_scale": 3.0,
     "pet_equip_unlock": False,
     "wiki_download_res": False,
     "wiki_label": False,

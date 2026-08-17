@@ -158,8 +158,8 @@ class ComboPatchApp:
         self.level_one_include_all_var = tk.BooleanVar(value=True)
         self.transition_speed_var = tk.BooleanVar(value=False)
         self.transition_speed_scale_var = tk.StringVar(value="0.4")
-        self.skill_effect_speed_var = tk.BooleanVar(value=False)  # 技能特效加速默认关（加速类）
-        self.skill_effect_scale_var = tk.StringVar(value="2")
+        self.skill_effect_speed_var = tk.BooleanVar(value=False)  # 归属战斗倍速，默认关
+        self.skill_effect_scale_var = tk.StringVar(value="3")
         self.combat_accel_var = tk.BooleanVar(value=False)  # 战斗加速方案2 默认关（加速类，连带掐断上报）
         self.daily_claim_var = tk.BooleanVar(value=True)
         self.newbie_gift_code_var = tk.BooleanVar(value=True)
@@ -264,7 +264,7 @@ class ComboPatchApp:
 
         ttk.Checkbutton(
             tab_common,
-            text="战斗技能特效加速（火球/爆炸等帧动画，不影响回合读秒）",
+            text="战斗技能特效加速（归属战斗倍速；勾选 VIP 倍速时会自动带上，默认 3x）",
             variable=self.skill_effect_speed_var,
         ).pack(anchor=tk.W, pady=(8, 0))
         effect_row = ttk.Frame(tab_common)
@@ -283,6 +283,13 @@ class ComboPatchApp:
             text="战斗加速方案2（近战跑位12/18 + 击飞撞墙1次 + 箭矢24 + 气功弹12 + 慢放清除；连带掐断检测上报）",
             variable=self.combat_accel_var,
         ).pack(anchor=tk.W, pady=(8, 0))
+
+        def _on_vip_toggle(*_args: object) -> None:
+            # 技能特效归属战斗倍速：勾选 VIP 时自动带上
+            if self.vip_var.get():
+                self.skill_effect_speed_var.set(True)
+
+        self.vip_var.trace_add("write", _on_vip_toggle)
 
         ttk.Checkbutton(
             tab_common,

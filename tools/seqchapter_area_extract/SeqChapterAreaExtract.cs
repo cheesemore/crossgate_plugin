@@ -9,12 +9,10 @@ using System.Reflection;
 /// 「脚本」页有「立刻提取」按钮（ExtractNowFromUi，绕过冷却强制提取一轮）。
 /// 不需要自动采集：对账号所有在线角色逐个请求采集数据，已采物品共 5 格，
 /// 单格达到 999 时对该格发 SendArea("取出物品到账号仓库", uid, index+1, pile) 提取到账号银行。
-/// 提取节奏与日常一致：状态机 + 主线程 Timer（StepSec=0.4s），
-/// 每个操作只发一条消息并等待服务端回推（最多约 5.2s，超时重试 2 次后跳过），
-/// 避免瞬间连发大量消息导致卡顿/封号风险。
-/// 角色覆盖：MultiInfo 在线角色（五开）→ 当前队伍 → 保底主角色，不再只提队长。
-/// 触发：开启即跑一轮 + 每次 CollectionManager.OnEvent（服务端采集数据推送）即检
-///       + 每 10 分钟后台兜底一轮。
+/// 节奏：状态机 + 主线程 Timer；5 个号 × 每号 5 格分开遍历，格间/号间加短延时，
+/// 每 tick 最多发 1 条协议，避免一瞬间扫完导致卡顿。
+/// 角色覆盖：MultiInfo 在线角色（五开）→ 当前队伍 → 保底主角色。
+/// 触发：开启/立刻提取强制一轮；采集推送仅在空闲且冷却后排队；每 10 分钟兜底。
 /// </summary>
 public static class SeqChapterAreaExtract
 {
@@ -24,11 +22,23 @@ public static class SeqChapterAreaExtract
     /// <summary>单格触发提取的堆叠数（满格）。</summary>
     public const int FullPile = 999;
 
-    /// <summary>节奏 tick 间隔（秒）：同日常。</summary>
-    private const float StepSec = 0.4f;
+    /// <summary>每角色采集仓库格数。</summary>
+    private const int SlotCount = 5;
 
-    /// <summary>等待服务端回推的最大 tick 数（约 5.2s：服务器慢时多等一会，读到即继续）。</summary>
+    /// <summary>节奏 tick 间隔（秒）。</summary>
+    private const float StepSec = 0.5f;
+
+    /// <summary>发包后至少等待这么多 tick 再读回包（避免旧缓存误判成功）。</summary>
+    private const int MinWaitAfterSendTicks = 2;
+
+    /// <summary>等待服务端回推的最大 tick 数（约 6.5s）。</summary>
     private const int WaitTicksMax = 13;
+
+    /// <summary>格与格之间空转 tick（约 1s）。</summary>
+    private const int PauseBetweenSlotsTicks = 2;
+
+    /// <summary>角色与角色之间空转 tick（约 1.5s）。</summary>
+    private const int PauseBetweenUidsTicks = 3;
 
     /// <summary>每个等待操作超时后再重发次数，之后跳过。</summary>
     private const int MaxOpRetries = 2;
@@ -50,17 +60,20 @@ public static class SeqChapterAreaExtract
     private static object _timer;
     private static int _state;
     private static int _waitTicks;
+    private static int _pauseLeft;
     private static int _opRetryCount;
     private static List<string> _uids;
     private static int _uidIndex;
-    private static List<object[]> _slots;
     private static int _slotIndex;
     private static int _attempt;
     private static int _extractedCount;
     private static long _lastSendMs;
     private static long _lastScanMs;
     private static bool _pendingEvent;
+    /// <summary>面板开启/立刻提取：绕过冷却强制开一轮。</summary>
+    private static bool _forceRun;
     private static int _fullSlotCount;
+    private static int _resumeAfterPause;
 
     private static bool _areaHooked;
     private static Action<object> _onAreaEvent;
@@ -70,12 +83,13 @@ public static class SeqChapterAreaExtract
     private const int StCollect = 1;
     private const int StRequestData = 2;
     private const int StWaitData = 3;
-    private const int StScanSlots = 4;
+    private const int StCheckSlot = 4;
     private const int StExtract = 5;
     private const int StWaitExtract = 6;
-    private const int StNextSlot = 7;
+    private const int StPause = 7;
     private const int StNextUid = 8;
     private const int StDone = 9;
+    private const int StAdvanceSlot = 10;
 
     public static bool IsPipelineActive()
     {
@@ -108,6 +122,7 @@ public static class SeqChapterAreaExtract
         {
             TryHookAreaEvent();
             EnsureTimer();
+            _forceRun = true;
             _pendingEvent = true;
         }
         else
@@ -116,7 +131,8 @@ public static class SeqChapterAreaExtract
             _pipelineRunning = false;
             _state = StIdle;
             _uids = null;
-            _slots = null;
+            _forceRun = false;
+            _pendingEvent = false;
         }
     }
 
@@ -165,8 +181,9 @@ public static class SeqChapterAreaExtract
         }
 
         EnsureTimer();
+        _forceRun = true;
         _pendingEvent = true;
-        _lastSendMs = 0; // 绕过冷却
+        _lastSendMs = 0; // 立刻提取：清冷却
         return _fullSlotCount;
     }
 
@@ -277,7 +294,6 @@ public static class SeqChapterAreaExtract
                 _pipelineRunning = false;
                 _state = StIdle;
                 _uids = null;
-                _slots = null;
             }
 
             return;
@@ -293,7 +309,7 @@ public static class SeqChapterAreaExtract
         }
     }
 
-    // ---------------- 状态机（同日常节奏） ----------------
+    // ---------------- 状态机：5 号 × 5 格分开遍历 + 短延时 ----------------
 
     private static void StepExtract()
     {
@@ -303,18 +319,22 @@ public static class SeqChapterAreaExtract
             {
                 var now = NowMs();
                 var due = _pendingEvent
+                          || _forceRun
                           || (_uids == null && now - _lastScanMs >= ScanIntervalMs);
                 if (!due)
                 {
                     return;
                 }
 
-                if (now - _lastSendMs < ExtractCooldownMs && !_pendingEvent)
+                // 采集推送只排队；仅面板强制 / 立刻提取可绕过冷却
+                if (!_forceRun && now - _lastSendMs < ExtractCooldownMs)
                 {
                     return;
                 }
 
+                _forceRun = false;
                 _pendingEvent = false;
+                _pipelineRunning = true;
                 _state = StCollect;
                 return;
             }
@@ -322,11 +342,13 @@ public static class SeqChapterAreaExtract
             {
                 _uids = CollectUids();
                 _uidIndex = 0;
+                _slotIndex = 0;
                 _extractedCount = 0;
                 _fullSlotCount = 0;
                 if (_uids == null || _uids.Count == 0)
                 {
                     _lastScanMs = NowMs();
+                    _pipelineRunning = false;
                     _state = StIdle;
                     return;
                 }
@@ -343,9 +365,11 @@ public static class SeqChapterAreaExtract
                 }
 
                 var uid = _uids[_uidIndex];
+                InvalidateAreaData(uid);
                 SendAreaData(uid);
                 _waitTicks = 0;
                 _opRetryCount = 0;
+                _slotIndex = 0;
                 _state = StWaitData;
                 return;
             }
@@ -353,15 +377,16 @@ public static class SeqChapterAreaExtract
             {
                 _waitTicks++;
                 var uid = _uids[_uidIndex];
-                if (ReadAreaData(uid) != null)
+                // 至少等 MinWaitAfterSendTicks，避免立刻读到未清干净的旧缓存
+                if (_waitTicks >= MinWaitAfterSendTicks && ReadAreaData(uid) != null)
                 {
-                    _state = StScanSlots;
+                    _state = StCheckSlot;
                     return;
                 }
 
                 if (_waitTicks >= WaitTicksMax)
                 {
-                    if (RetryOrSkip("等采集数据", StNextUid))
+                    if (RetryOrSkip(StNextUid))
                     {
                         return;
                     }
@@ -371,33 +396,38 @@ public static class SeqChapterAreaExtract
 
                 return;
             }
-            case StScanSlots:
+            case StCheckSlot:
             {
-                var uid = _uids[_uidIndex];
-                _slots = CollectFullSlots(uid);
-                _fullSlotCount = CountFullSlots();
-                if (_slots.Count == 0)
+                if (_slotIndex >= SlotCount)
                 {
-                    _state = StNextUid;
+                    BeginPause(PauseBetweenUidsTicks, StNextUid);
                     return;
                 }
 
-                _slotIndex = 0;
-                _state = StExtract;
+                var uid = _uids[_uidIndex];
+                var pile = ReadSlotPile(uid, _slotIndex);
+                if (pile >= FullPile)
+                {
+                    _fullSlotCount++;
+                    _state = StExtract;
+                    return;
+                }
+
+                // 未满：也按格空转一下，避免连扫反射卡主线程
+                BeginPause(PauseBetweenSlotsTicks, StAdvanceSlot);
                 return;
             }
             case StExtract:
             {
-                if (_slotIndex >= _slots.Count)
+                var uid = _uids[_uidIndex];
+                var pile = ReadSlotPile(uid, _slotIndex);
+                if (pile < FullPile)
                 {
-                    _state = StNextUid;
+                    BeginPause(PauseBetweenSlotsTicks, StAdvanceSlot);
                     return;
                 }
 
-                var uid = _uids[_uidIndex];
-                var index = Convert.ToInt32(_slots[_slotIndex][0]);
-                var pile = Convert.ToInt32(_slots[_slotIndex][1]);
-                if (SendTakeOutToAccountBank(uid, index, pile))
+                if (SendTakeOutToAccountBank(uid, _slotIndex, pile))
                 {
                     _lastSendMs = NowMs();
                 }
@@ -410,13 +440,18 @@ public static class SeqChapterAreaExtract
             case StWaitExtract:
             {
                 _waitTicks++;
+                if (_waitTicks < MinWaitAfterSendTicks)
+                {
+                    return;
+                }
+
                 var uid = _uids[_uidIndex];
-                var index = Convert.ToInt32(_slots[_slotIndex][0]);
-                var cur = ReadSlotPile(uid, index);
-                if (cur < FullPile)
+                var cur = ReadSlotPile(uid, _slotIndex);
+                // cur < 0：读失败，继续等，勿当成功
+                if (cur >= 0 && cur < FullPile)
                 {
                     _extractedCount++;
-                    _state = StNextSlot;
+                    BeginPause(PauseBetweenSlotsTicks, StAdvanceSlot);
                     return;
                 }
 
@@ -429,22 +464,33 @@ public static class SeqChapterAreaExtract
                     }
                     else
                     {
-                        _state = StNextSlot; // 跳过该格
+                        BeginPause(PauseBetweenSlotsTicks, StAdvanceSlot);
                     }
                 }
 
                 return;
             }
-            case StNextSlot:
+            case StPause:
+            {
+                if (_pauseLeft > 0)
+                {
+                    _pauseLeft--;
+                    return;
+                }
+
+                _state = _resumeAfterPause;
+                return;
+            }
+            case StAdvanceSlot:
             {
                 _slotIndex++;
-                if (_slotIndex >= _slots.Count)
+                if (_slotIndex >= SlotCount)
                 {
-                    _state = StNextUid;
+                    BeginPause(PauseBetweenUidsTicks, StNextUid);
                 }
                 else
                 {
-                    _state = StExtract;
+                    _state = StCheckSlot;
                 }
 
                 return;
@@ -466,6 +512,10 @@ public static class SeqChapterAreaExtract
             case StDone:
             {
                 _lastScanMs = NowMs();
+                // 本轮提取回包产生的 OnEvent 不连环开下一轮
+                _pendingEvent = false;
+                _pipelineRunning = false;
+                _uids = null;
                 if (_extractedCount > 0)
                 {
                     Tip("自动提取：本轮提取 " + _extractedCount + " 格到账号银行");
@@ -477,8 +527,22 @@ public static class SeqChapterAreaExtract
         }
     }
 
+    /// <summary>空转若干 tick 后再进 nextState（格间/号间延时）。</summary>
+    private static void BeginPause(int ticks, int nextState)
+    {
+        if (ticks <= 0)
+        {
+            _state = nextState;
+            return;
+        }
+
+        _pauseLeft = ticks;
+        _resumeAfterPause = nextState;
+        _state = StPause;
+    }
+
     /// <summary>等待超时处理：未到重试上限返回 false（调用方回发送状态重发）；已到上限跳到 skipState。</summary>
-    private static bool RetryOrSkip(string opName, int skipState)
+    private static bool RetryOrSkip(int skipState)
     {
         if (_opRetryCount < MaxOpRetries)
         {
@@ -492,6 +556,34 @@ public static class SeqChapterAreaExtract
     }
 
     // ---------------- 数据读取 / 发送 ----------------
+
+    /// <summary>清掉该 uid 的采集缓存，强制等本次「获取数据」回包。</summary>
+    private static void InvalidateAreaData(string uid)
+    {
+        try
+        {
+            if (string.IsNullOrEmpty(uid))
+            {
+                return;
+            }
+
+            var cm = GetManagerInstance("CollectionManager");
+            var areaInfos = GetMember(cm, "AreaInfos") as IDictionary;
+            if (areaInfos == null)
+            {
+                return;
+            }
+
+            if (areaInfos.Contains(uid))
+            {
+                areaInfos.Remove(uid);
+            }
+        }
+        catch
+        {
+            // ignore
+        }
+    }
 
     private static object ReadAreaData(string uid)
     {
@@ -525,65 +617,6 @@ public static class SeqChapterAreaExtract
         {
             return null;
         }
-    }
-
-    private static List<object[]> CollectFullSlots(string uid)
-    {
-        var result = new List<object[]>();
-        try
-        {
-            var area = ReadAreaData(uid);
-            if (area == null)
-            {
-                return result;
-            }
-
-            var have = GetMember(area, "Itemhave") as IEnumerable;
-            if (have == null)
-            {
-                return result;
-            }
-
-            var idx = 0;
-            foreach (var item in have)
-            {
-                if (item == null)
-                {
-                    idx++;
-                    continue;
-                }
-
-                var pile = Convert.ToInt32(GetMember(item, "Pile") ?? 0);
-                if (pile >= FullPile)
-                {
-                    result.Add(new object[] { idx, pile });
-                }
-
-                idx++;
-            }
-        }
-        catch
-        {
-            // ignore
-        }
-
-        return result;
-    }
-
-    private static int CountFullSlots()
-    {
-        var count = 0;
-        if (_uids == null)
-        {
-            return 0;
-        }
-
-        foreach (var uid in _uids)
-        {
-            count += CollectFullSlots(uid).Count;
-        }
-
-        return count;
     }
 
     /// <summary>读某角色某格最新 Pile；读取失败返回 -1。</summary>
@@ -831,7 +864,13 @@ public static class SeqChapterAreaExtract
             return;
         }
 
-        // 服务端推送采集数据：标记待处理，状态机在冷却允许时立即开始一轮
+        // 本轮跑着时忽略推送，避免提取回包连环开下一轮导致卡顿
+        if (_pipelineRunning || _state != StIdle)
+        {
+            return;
+        }
+
+        // 仅排队；仍受 ExtractCooldownMs 约束（面板强制用 _forceRun）
         _pendingEvent = true;
     }
 

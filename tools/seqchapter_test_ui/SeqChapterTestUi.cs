@@ -9,7 +9,7 @@ using System.Text;
 using UnityEngine;
 
 /// <summary>
-/// 助手面板（百科入口）：概况 / 战斗模式 / 简单脚本 / 任务护航 / 导航 / 形象。
+/// 助手面板（百科入口）：概况 / 战斗模式 / AI / 脚本 / 任务护航 / 界面 / 导航 / 形象。
 /// 抓宠·烧卡·九动等在「战斗模式」页互斥切换。Update+UGUI（HybridCLR 无 OnGUI）。
 /// 部署 hotfixdata/SeqChapterTestUi.dll.bytes；日志 SeqChapterTestUi.log。
 /// </summary>
@@ -23,8 +23,9 @@ public static class SeqChapterTestUi
     private const int TabSuperAi = 2;
     private const int TabScript = 3;
     private const int TabEscort = 4;
-    private const int TabNav = 5;
-    private const int TabAppear = 6;
+    private const int TabOpenUi = 5;
+    private const int TabNav = 6;
+    private const int TabAppear = 7;
     private const int NavWaypointPageSize = 4;
 
     private const string ModeNormal = "normal";
@@ -178,10 +179,13 @@ public static class SeqChapterTestUi
     /// <summary>当前循环实际执行的任务集（A/B 线）。</summary>
     private static int[] _dragonMissionIds;
     private const string DragonTitleKeyword = "龙族纷争";
-    /// <summary>存包腾位阶段已重试次数（每轮最多 2 次存包）。</summary>
+    /// <summary>存包腾位阶段已重试发包次数。</summary>
     private static int _dragonStoreRetries;
-    private const int DragonStoreMaxRetries = 2;
-    private const long DragonStoreWaitMs = 3000;
+    private const int DragonStoreMaxRetries = 3;
+    /// <summary>存包后等待空位的复检次数（兼容银行回包滞后）。</summary>
+    private static int _dragonStoreRechecks;
+    private const int DragonStoreMaxRechecks = 10;
+    private const long DragonStoreWaitMs = 2500;
     /// <summary>phase2 判断可接时，因重置回包可能滞后，允许重试等待的次数与间隔。</summary>
     private static int _dragonCheckRetries;
     private const int DragonCheckMaxRetries = 5;
@@ -686,6 +690,10 @@ public static class SeqChapterTestUi
             else if (tab == TabEscort)
             {
                 BuildEscortBody();
+            }
+            else if (tab == TabOpenUi)
+            {
+                BuildOpenUiBody();
             }
             else if (tab == TabNav)
             {
@@ -2718,15 +2726,16 @@ public static class SeqChapterTestUi
             SetPanelActive(false);
         });
 
-        // tabs：概况 / 战斗 / AI / 脚本 / 护航 / 导航 / 形象
+        // tabs：概况 / 战斗 / AI / 脚本 / 护航 / 界面 / 导航 / 形象
         _tabButtons.Clear();
-        BuildTabButton(_shellGo, rtType, -270f, "概况", TabOverview, 68f);
-        BuildTabButton(_shellGo, rtType, -198f, "战斗", TabBattle, 68f);
-        BuildTabButton(_shellGo, rtType, -126f, "AI", TabSuperAi, 56f);
-        BuildTabButton(_shellGo, rtType, -66f, "脚本", TabScript, 68f);
-        BuildTabButton(_shellGo, rtType, 6f, "护航", TabEscort, 68f);
-        BuildTabButton(_shellGo, rtType, 78f, "导航", TabNav, 68f);
-        BuildTabButton(_shellGo, rtType, 150f, "形象", TabAppear, 68f);
+        BuildTabButton(_shellGo, rtType, -278f, "概况", TabOverview, 60f);
+        BuildTabButton(_shellGo, rtType, -214f, "战斗", TabBattle, 60f);
+        BuildTabButton(_shellGo, rtType, -150f, "AI", TabSuperAi, 48f);
+        BuildTabButton(_shellGo, rtType, -98f, "脚本", TabScript, 60f);
+        BuildTabButton(_shellGo, rtType, -34f, "护航", TabEscort, 60f);
+        BuildTabButton(_shellGo, rtType, 30f, "界面", TabOpenUi, 60f);
+        BuildTabButton(_shellGo, rtType, 94f, "导航", TabNav, 60f);
+        BuildTabButton(_shellGo, rtType, 158f, "形象", TabAppear, 60f);
 
         _bodyRoot = CreateUiChild(_shellGo, "Body", rtType);
         SetAnchoredTop(RequireRect(_bodyRoot, "body"), 0f, -88f, 580f, 500f);
@@ -2765,7 +2774,7 @@ public static class SeqChapterTestUi
 
     private static void RefreshTabButtonLabels()
     {
-        var names = new[] { "概况", "战斗", "AI", "脚本", "护航", "导航", "形象" };
+        var names = new[] { "概况", "战斗", "AI", "脚本", "护航", "界面", "导航", "形象" };
         for (var i = 0; i < _tabButtons.Count && i < names.Length; i++)
         {
             var mark = i == _tab ? "●" : "○";
@@ -6155,6 +6164,516 @@ public static class SeqChapterTestUi
         SetText(_navStatusText, string.IsNullOrEmpty(_navStatusLine) ? "状态: 就绪（地图号=currentFloor）" : _navStatusLine, 12);
     }
 
+    /// <summary>界面页：一键打开原客服入口可切的各功能面板。</summary>
+    private static void BuildOpenUiBody()
+    {
+        var rtType = RequireType("UnityEngine.RectTransform");
+        var hint = CreateUiChild(_bodyRoot, "OpenUiHint", rtType);
+        SetAnchoredTop(RequireRect(hint, "ouh"), 0f, -4f, 540f, 40f);
+        var hintTxt = AddText(hint);
+        try
+        {
+            SetProp(hintTxt, "alignment", EnumValue("UnityEngine.TextAnchor", "UpperLeft", 0));
+        }
+        catch
+        {
+            // ignore
+        }
+
+        SetText(hintTxt, "打开界面：点按钮打开对应面板（原侧栏客服可改的那些入口）。", 12);
+
+        // 两列按钮
+        var entries = new[]
+        {
+            new[] { "autoskill", "高级自动战斗" },
+            new[] { "blindbox", "盲盒(3028)" },
+            new[] { "lottery", "幸运秘宝" },
+            new[] { "crystal", "水晶阁(3043)" },
+            new[] { "honour", "荣耀士兵(3044)" },
+            new[] { "challengeboss", "讨伐令(3045)" },
+            new[] { "diglett", "地鼠抽奖(3046)" },
+            new[] { "bravetrial", "英雄试炼(3047)" },
+            new[] { "boss", "讨伐Boss" },
+            new[] { "bossland", "Boss大陆(3050)" },
+            new[] { "ruby", "露比试炼" },
+            new[] { "petreform", "宠物改造" },
+            new[] { "familyhall", "公会领地传送" },
+            new[] { "gm1", "GM命令工具" },
+            new[] { "gm2", "GM道具商店" },
+            new[] { "gm3", "GM宠物商店" },
+            new[] { "gm4", "GM宠物特效" },
+            new[] { "gm5", "GM动画设置" },
+        };
+
+        var y = -52f;
+        for (var i = 0; i < entries.Length; i++)
+        {
+            var col = i % 2;
+            var row = i / 2;
+            var x = col == 0 ? -130f : 130f;
+            var yy = y - row * 44f;
+            var id = entries[i][0];
+            var label = entries[i][1];
+            var btn = CreateUiChild(_bodyRoot, "OpenUi_" + id, rtType);
+            SetAnchoredTop(RequireRect(btn, "oub"), x, yy, 240f, 38f);
+            var img = AddComp(btn, "UnityEngine.UI.Image");
+            SetColor(img, 0.18f, 0.32f, 0.42f, 1f);
+            var lab = CreateUiChild(btn, "L", rtType);
+            StretchFull(RequireRect(lab, "oul"));
+            SetText(AddText(lab), label, 14);
+            var captured = id;
+            BindButton(btn, img, () => OpenFeaturePanel(captured));
+        }
+
+        WriteLog("BuildOpenUiBody done");
+    }
+
+    /// <summary>打开功能面板（与客服入口模式对应）。</summary>
+    private static void OpenFeaturePanel(string mode)
+    {
+        try
+        {
+            WriteLog("OpenFeaturePanel " + mode);
+            bool ok;
+            string tip;
+            switch (mode)
+            {
+                case "autoskill":
+                    ok = TryOpenAutoSkillPanel();
+                    tip = ok ? "已打开高级自动战斗" : "打开高级自动战斗失败";
+                    break;
+                case "blindbox":
+                    ok = TryOpenBlindbox();
+                    tip = ok ? "已请求盲盒数据" : "打开盲盒失败";
+                    break;
+                case "lottery":
+                    ok = TryOpenUiPanelBare("LotteryPanel");
+                    tip = ok ? "已打开幸运秘宝" : "打开幸运秘宝失败";
+                    break;
+                case "crystal":
+                    ok = TryOpenUiPanelBare("LuckCrystalPanel");
+                    tip = ok ? "已打开水晶阁" : "打开水晶阁失败";
+                    break;
+                case "honour":
+                    ok = TryOpenUiPanelBare("HonourPanel");
+                    tip = ok ? "已打开荣耀士兵" : "打开荣耀士兵失败";
+                    break;
+                case "challengeboss":
+                    ok = TryOpenUiPanelBare("ChallengeBossPanel");
+                    tip = ok ? "已打开讨伐令" : "打开讨伐令失败";
+                    break;
+                case "diglett":
+                    ok = TryOpenDiglettLottery();
+                    tip = ok ? "已请求地鼠抽奖" : "打开地鼠抽奖失败";
+                    break;
+                case "bravetrial":
+                    ok = TryOpenUiPanelBare("BraveTrialPanel");
+                    tip = ok ? "已打开英雄试炼" : "打开英雄试炼失败";
+                    break;
+                case "boss":
+                    ok = TryOpenUiPanelBare("BOSSChallengePanel");
+                    tip = ok ? "已打开讨伐Boss" : "打开讨伐Boss失败";
+                    break;
+                case "bossland":
+                    ok = TryOpenBossLand();
+                    tip = ok ? "已请求Boss大陆" : "打开Boss大陆失败";
+                    break;
+                case "ruby":
+                    ok = TryOpenRubyTrial();
+                    tip = ok ? "已打开露比试炼" : "打开露比试炼失败";
+                    break;
+                case "petreform":
+                    ok = TryOpenPetReform();
+                    tip = ok ? "已打开宠物改造" : "打开宠物改造失败";
+                    break;
+                case "familyhall":
+                    ok = TryOpenFamilyHallTeleport();
+                    tip = ok ? "已发送公会领地传送" : "公会传送失败";
+                    break;
+                case "gm1":
+                    ok = TryOpenUiPanelBare("GMToolsPanel");
+                    tip = ok ? "已打开GM命令工具" : "打开GM命令失败";
+                    break;
+                case "gm2":
+                    ok = TryOpenUiPanelBare("GMStorePanel");
+                    tip = ok ? "已打开GM道具商店" : "打开GM道具店失败";
+                    break;
+                case "gm3":
+                    ok = TryOpenUiPanelBare("GMPetStorePanel");
+                    tip = ok ? "已打开GM宠物商店" : "打开GM宠店失败";
+                    break;
+                case "gm4":
+                    ok = TryOpenUiPanelBare("GMPetEffectPanel");
+                    tip = ok ? "已打开GM宠物特效" : "打开GM特效失败";
+                    break;
+                case "gm5":
+                    ok = TryOpenUiPanelBare("GMAnimationSettingPanel");
+                    tip = ok ? "已打开GM动画设置" : "打开GM动画失败";
+                    break;
+                default:
+                    ok = false;
+                    tip = "未知面板: " + mode;
+                    break;
+            }
+
+            Tip(tip);
+            WriteLog("OpenFeaturePanel " + mode + " ok=" + ok);
+        }
+        catch (Exception ex)
+        {
+            WriteLog("OpenFeaturePanel EX: " + RootMessage(ex));
+            Tip("打开失败: " + RootMessage(ex));
+        }
+    }
+
+    private static string GetSelectOrMainUid()
+    {
+        var uid = Convert.ToString(GetStaticMember("PlayerDataHolder", "SelectPlayerUid") ?? "") ?? "";
+        if (string.IsNullOrEmpty(uid))
+        {
+            uid = Convert.ToString(GetStaticMember("PlayerDataHolder", "MainPlayerUid") ?? "") ?? "";
+        }
+
+        return uid;
+    }
+
+    /// <summary>UIManager.GetUIPanel&lt;T&gt;() 后调 UIPanel.Open()（无参）。</summary>
+    private static bool TryOpenUiPanelBare(string panelTypeName)
+    {
+        var panel = GetUiPanel(panelTypeName);
+        if (panel == null)
+        {
+            WriteLog("TryOpenUiPanelBare miss type=" + panelTypeName);
+            return false;
+        }
+
+        MethodInfo open = null;
+        for (var t = panel.GetType(); t != null; t = t.BaseType)
+        {
+            open = t.GetMethod(
+                "Open",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly,
+                null,
+                Type.EmptyTypes,
+                null);
+            if (open != null)
+            {
+                break;
+            }
+        }
+
+        if (open == null)
+        {
+            open = panel.GetType().GetMethod(
+                "Open",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+                null,
+                Type.EmptyTypes,
+                null);
+        }
+
+        if (open == null)
+        {
+            WriteLog("TryOpenUiPanelBare no Open() on " + panelTypeName);
+            return false;
+        }
+
+        open.Invoke(panel, null);
+        return true;
+    }
+
+    private static bool TryOpenAutoSkillPanel()
+    {
+        var mgr = GetManagerInstance("BattleAutoSkillManager");
+        if (mgr == null)
+        {
+            return false;
+        }
+
+        var uid = GetSelectOrMainUid();
+        if (string.IsNullOrEmpty(uid))
+        {
+            return false;
+        }
+
+        var open = mgr.GetType().GetMethod(
+            "OpenAutoSkillSettingPanel",
+            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+            null,
+            new[] { typeof(string) },
+            null);
+        if (open == null)
+        {
+            return false;
+        }
+
+        open.Invoke(mgr, new object[] { uid });
+        return true;
+    }
+
+    private static bool TryOpenBlindbox()
+    {
+        var mgr = GetManagerInstance("ActivityManager");
+        if (mgr == null)
+        {
+            return false;
+        }
+
+        var uid = GetSelectOrMainUid();
+        if (string.IsNullOrEmpty(uid))
+        {
+            return false;
+        }
+
+        MethodInfo send = null;
+        foreach (var m in mgr.GetType().GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+        {
+            if (m.Name != "SendBlindboxDraw")
+            {
+                continue;
+            }
+
+            var ps = m.GetParameters();
+            if (ps.Length >= 3 && ps[0].ParameterType == typeof(string) && ps[1].ParameterType == typeof(string))
+            {
+                send = m;
+                break;
+            }
+        }
+
+        if (send == null)
+        {
+            return false;
+        }
+
+        var psAll = send.GetParameters();
+        var args = new object[psAll.Length];
+        args[0] = "获取数据";
+        args[1] = uid;
+        args[2] = null;
+        for (var i = 3; i < args.Length; i++)
+        {
+            args[i] = psAll[i].HasDefaultValue ? psAll[i].DefaultValue : null;
+        }
+
+        send.Invoke(mgr, args);
+        return true;
+    }
+
+    /// <summary>侧栏同款：ActivityManager.SendDiglettLotteryMsg("请求数据", uid) → SC「同步数据」开 DiglettLotteryPanel。</summary>
+    private static bool TryOpenDiglettLottery()
+    {
+        var mgr = GetManagerInstance("ActivityManager");
+        if (mgr == null)
+        {
+            return false;
+        }
+
+        var uid = GetSelectOrMainUid();
+        if (string.IsNullOrEmpty(uid))
+        {
+            return false;
+        }
+
+        var send = mgr.GetType().GetMethod(
+            "SendDiglettLotteryMsg",
+            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+            null,
+            new[] { typeof(string), typeof(string) },
+            null);
+        if (send == null)
+        {
+            return false;
+        }
+
+        send.Invoke(mgr, new object[] { "请求数据", uid });
+        return true;
+    }
+
+    /// <summary>
+    /// Boss 大陆/水晶副本挂在 BOSSChallengePanel 子页：先开父面板，再 SendCrystalAndSwMsg("获取数据", 101, 0, uid)。
+    /// </summary>
+    private static bool TryOpenBossLand()
+    {
+        var uid = GetSelectOrMainUid();
+        if (string.IsNullOrEmpty(uid))
+        {
+            return false;
+        }
+
+        // 父面板需在场才能收 FramAndCrystal 并 Open CrystalAndSwPanel
+        TryOpenUiPanelBare("BOSSChallengePanel");
+
+        var mgr = GetManagerInstance("BountyOfferedManager");
+        if (mgr == null)
+        {
+            return false;
+        }
+
+        var send = mgr.GetType().GetMethod(
+            "SendCrystalAndSwMsg",
+            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+            null,
+            new[] { typeof(string), typeof(int), typeof(int), typeof(string) },
+            null);
+        if (send == null)
+        {
+            return false;
+        }
+
+        // dungeonId 101 = 侧栏 Tab2（水晶副本其一）；102 为 Tab3
+        send.Invoke(mgr, new object[] { "获取数据", 101, 0, uid });
+        return true;
+    }
+
+    private static bool TryOpenPetReform()
+    {
+        var mgr = GetManagerInstance("PetManager");
+        if (mgr == null)
+        {
+            return false;
+        }
+
+        var uid = GetSelectOrMainUid();
+        if (string.IsNullOrEmpty(uid))
+        {
+            return false;
+        }
+
+        MethodInfo open = null;
+        foreach (var m in mgr.GetType().GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+        {
+            if (m.Name != "OpenPetMain")
+            {
+                continue;
+            }
+
+            var ps = m.GetParameters();
+            if (ps.Length == 4
+                && ps[0].ParameterType == typeof(string)
+                && ps[1].ParameterType == typeof(int)
+                && ps[2].ParameterType == typeof(int)
+                && ps[3].ParameterType == typeof(int))
+            {
+                open = m;
+                break;
+            }
+        }
+
+        if (open == null)
+        {
+            return false;
+        }
+
+        // openPage=3 → PET_TYPE.RESET（洗档/改造/重构）
+        open.Invoke(mgr, new object[] { uid, -1, 3, -1 });
+        return true;
+    }
+
+    private static bool TryOpenRubyTrial()
+    {
+        var panel = GetUiPanel("RubyTrialPanel");
+        if (panel == null)
+        {
+            return false;
+        }
+
+        var protoType = FindType("Proto_SC_LoopyTrial");
+        if (protoType == null)
+        {
+            return TryOpenUiPanelBare("RubyTrialPanel");
+        }
+
+        var proto = Activator.CreateInstance(protoType);
+        var mainUid = Convert.ToString(GetStaticMember("PlayerDataHolder", "MainPlayerUid") ?? "") ?? "";
+        SetMember(proto, "KUid", mainUid);
+
+        MethodInfo open1 = null;
+        foreach (var m in panel.GetType().GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+        {
+            if (m.Name != "Open")
+            {
+                continue;
+            }
+
+            var ps = m.GetParameters();
+            if (ps.Length == 1 && ps[0].ParameterType.IsAssignableFrom(protoType))
+            {
+                open1 = m;
+                break;
+            }
+        }
+
+        if (open1 == null)
+        {
+            return TryOpenUiPanelBare("RubyTrialPanel");
+        }
+
+        open1.Invoke(panel, new object[] { proto });
+        return true;
+    }
+
+    private static bool TryOpenFamilyHallTeleport()
+    {
+        var mgr = GetManagerInstance("FamilyManager");
+        if (mgr == null)
+        {
+            return false;
+        }
+
+        MethodInfo send = null;
+        foreach (var m in mgr.GetType().GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+        {
+            if (m.Name != "SendFamily")
+            {
+                continue;
+            }
+
+            var ps = m.GetParameters();
+            if (ps.Length >= 3
+                && ps[0].ParameterType == typeof(string)
+                && ps[1].ParameterType == typeof(int)
+                && ps[2].ParameterType == typeof(string))
+            {
+                send = m;
+                break;
+            }
+        }
+
+        if (send == null)
+        {
+            return false;
+        }
+
+        var psAll = send.GetParameters();
+        var args = new object[psAll.Length];
+        args[0] = "NPC传送";
+        args[1] = 0;
+        args[2] = "1";
+        for (var i = 3; i < args.Length; i++)
+        {
+            if (psAll[i].ParameterType == typeof(string))
+            {
+                args[i] = "";
+            }
+            else if (psAll[i].ParameterType == typeof(int))
+            {
+                args[i] = 0;
+            }
+            else if (psAll[i].ParameterType.IsValueType)
+            {
+                args[i] = Activator.CreateInstance(psAll[i].ParameterType);
+            }
+            else
+            {
+                args[i] = null;
+            }
+        }
+
+        send.Invoke(mgr, args);
+        return true;
+    }
+
     private static void BuildEscortBody()
     {
         var rtType = RequireType("UnityEngine.RectTransform");
@@ -8300,16 +8819,13 @@ public static class SeqChapterTestUi
             if (CheckAllPetSlotFree(out var petFailUid))
             {
                 WriteLog("dragon loop next round: count=" + _dragonLoopCount);
-                Tip("龙族循环第 " + _dragonLoopCount + " 轮完成，准备下一轮…");
-                _dragonPhase = 1;
-                _dragonPhaseAtMs = NowMs();
-                _dragonCheckRetries = 0;
-                ResetDragon4ForAll();
+                BeginDragonNextRound("龙族循环第 " + _dragonLoopCount + " 轮完成，准备下一轮…");
             }
             else
             {
-                // 宠物位满：尝试存 1 级宠到银行腾位
+                // 宠物位满：尝试存 1 级宠到银行腾位，等空位后再继续循环
                 _dragonStoreRetries = 0;
+                _dragonStoreRechecks = 0;
                 var stored = StoreLevelOnePetsForFull();
                 if (stored)
                 {
@@ -8478,6 +8994,8 @@ public static class SeqChapterTestUi
             _dragonPhaseAtMs = NowMs();
             _dragonUseMemoryPending = false;
             _dragonCheckRetries = 0;
+            _dragonStoreRetries = 0;
+            _dragonStoreRechecks = 0;
             WriteLog("dragon loop start line=" + line);
             Tip("龙族循环" + line + "线：开始，先重置龙族纷争4…");
             ResetDragon4ForAll();
@@ -8521,7 +9039,25 @@ public static class SeqChapterTestUi
         }
     }
 
-    /// <summary>龙族循环 phase 1/2：重置等待 → 判断可接 → 入队执行。</summary>
+    /// <summary>龙族循环进入下一轮：重置龙4 → phase1 等待 → 检查可接 → 再跑队列。</summary>
+    private static void BeginDragonNextRound(string tip)
+    {
+        if (!string.IsNullOrEmpty(tip))
+        {
+            Tip(tip);
+        }
+
+        _dragonPhase = 1;
+        _dragonPhaseAtMs = NowMs();
+        _dragonCheckRetries = 0;
+        _dragonStoreRetries = 0;
+        _dragonStoreRechecks = 0;
+        _dragonUseMemoryPending = false;
+        ResetDragon4ForAll();
+        TryRebuildEscortTab();
+    }
+
+    /// <summary>龙族循环 phase 1/2/4：重置等待 → 判断可接 → 入队执行；phase4=存宠后等空位再继续。</summary>
     private static void TickDragonLoopPrepare()
     {
         var now = NowMs();
@@ -8624,11 +9160,13 @@ public static class SeqChapterTestUi
                     // ignore
                 }
             }
+
+            return;
         }
 
         if (_dragonPhase == 4)
         {
-            // 存包腾位等待：等服务器处理完，重新检查空位
+            // 存包腾位：等银行回包 → 全员有空位则继续循环；否则再存/再等，不因一次复检失败就停
             if (now - _dragonPhaseAtMs < DragonStoreWaitMs)
             {
                 return;
@@ -8636,41 +9174,42 @@ public static class SeqChapterTestUi
 
             if (CheckAllPetSlotFree(out var failUid2))
             {
-                WriteLog("dragon loop store ok, next round count=" + _dragonLoopCount);
-                Tip("龙族循环：存包完成，准备下一轮…");
-                _dragonPhase = 1;
-                _dragonPhaseAtMs = now;
-                ResetDragon4ForAll();
+                WriteLog("dragon loop store ok, next round count=" + _dragonLoopCount + " recheck=" + _dragonStoreRechecks);
+                BeginDragonNextRound("龙族循环：存包完成，全员有空位，继续循环…");
+                return;
             }
-            else
+
+            _dragonStoreRechecks++;
+
+            // 仍满：优先再发一次存宠；发不出也不立刻停，继续等空位（回包滞后）
+            if (_dragonStoreRetries < DragonStoreMaxRetries)
             {
-                _dragonStoreRetries++;
-                if (_dragonStoreRetries < DragonStoreMaxRetries)
+                var stored = StoreLevelOnePetsForFull();
+                if (stored)
                 {
-                    var stored = StoreLevelOnePetsForFull();
-                    if (stored)
-                    {
-                        Tip("龙族循环：宠物仍满，再次存1级宠物到银行…");
-                        _dragonPhaseAtMs = now;
-                    }
-                    else
-                    {
-                        WriteLog("dragon loop stop: 存包后仍满且无可存1级宠 uid=" + failUid2 + " count=" + _dragonLoopCount);
-                        Tip("龙族循环停止：队员宠物位满且无1级宠可存包，共循环 " + _dragonLoopCount + " 轮");
-                        _dragonLoopActive = false;
-                        _dragonPhase = 0;
-                        TryRebuildEscortTab();
-                    }
-                }
-                else
-                {
-                    WriteLog("dragon loop stop: 存包重试后仍满 uid=" + failUid2 + " count=" + _dragonLoopCount);
-                    Tip("龙族循环停止：宠物位满且存包失败（银行可能已满），共循环 " + _dragonLoopCount + " 轮");
-                    _dragonLoopActive = false;
-                    _dragonPhase = 0;
-                    TryRebuildEscortTab();
+                    _dragonStoreRetries++;
+                    WriteLog("dragon loop store retry=" + _dragonStoreRetries + " recheck=" + _dragonStoreRechecks);
+                    Tip("龙族循环：宠物仍满，继续存1级宠到银行…");
+                    _dragonPhaseAtMs = now;
+                    return;
                 }
             }
+
+            if (_dragonStoreRechecks < DragonStoreMaxRechecks)
+            {
+                WriteLog("dragon loop store wait free uid=" + failUid2
+                    + " recheck=" + _dragonStoreRechecks + "/" + DragonStoreMaxRechecks);
+                _dragonPhaseAtMs = now;
+                return;
+            }
+
+            WriteLog("dragon loop stop: 存包后仍满 uid=" + failUid2
+                + " retries=" + _dragonStoreRetries + " rechecks=" + _dragonStoreRechecks
+                + " count=" + _dragonLoopCount);
+            Tip("龙族循环停止：宠物位满且存包后仍无空位，共循环 " + _dragonLoopCount + " 轮");
+            _dragonLoopActive = false;
+            _dragonPhase = 0;
+            TryRebuildEscortTab();
         }
     }
 
@@ -10682,7 +11221,11 @@ public static class SeqChapterTestUi
         }
     }
 
-    /// <summary>有 UI_WindowsMessage / wmdb 选项时，点第一个非取消项。</summary>
+    /// <summary>
+    /// 有 UI_WindowsMessage / wmdb 选项时自动点选。
+    /// 优先「发送/确定」类按钮（NPC 输入框：自动任务已填好内容后点发送）；
+    /// 跳过取消/删除。LINEINPUT 窗口附带输入框文本作为 data。
+    /// </summary>
     private static void TryAutoPickDialogue()
     {
         var now = NowMs();
@@ -10693,6 +11236,15 @@ public static class SeqChapterTestUi
 
         try
         {
+            // 输入框+取消/发送（自动任务已填）：碰到就点发送，不看 MessageBox 文案
+            if (TryClickNpcInputDialogSend())
+            {
+                _lastDialogueClickMs = now;
+                _dialogueAutoClicks++;
+                WriteLog("autoDialogue input-dialog send");
+                return;
+            }
+
             if (!IsDialoguePanelOpen())
             {
                 return;
@@ -10711,20 +11263,38 @@ public static class SeqChapterTestUi
             }
 
             var seqno = Convert.ToInt32(GetMember(wmdb, "seqno") ?? 0);
-            var buttonData = GetMember(wmdb, "buttonData") as Array;
-            if (buttonData == null || buttonData.Length == 0)
-            {
-                return;
-            }
-
             // 同一窗未刷新前不连点
             if (seqno == _lastDialogueSeqno && now - _lastDialogueClickMs < DialogueClickIntervalMs * 2)
             {
                 return;
             }
 
+            var windowTypeObj = GetMember(wmdb, "windowType");
+            var windowType = Convert.ToInt32(windowTypeObj ?? 0);
+            var isLineInput = IsLineInputWindowType(windowTypeObj, windowType)
+                              || HasWindowsMessageInputField()
+                              || WmdbHasSendAndCancel(wmdb);
+
+            // 输入框对话：优先点 UI「发送」
+            if (isLineInput && TryClickWindowsMessageSendButton())
+            {
+                _lastDialogueClickMs = now;
+                _lastDialogueSeqno = seqno;
+                _dialogueAutoClicks++;
+                WriteLog("autoDialogue LINEINPUT UI send seq=" + seqno);
+                return;
+            }
+
+            var buttonData = GetMember(wmdb, "buttonData") as Array;
+            if (buttonData == null || buttonData.Length == 0)
+            {
+                return;
+            }
+
             int pickValue = -1;
             string pickName = null;
+            int fallbackValue = -1;
+            string fallbackName = null;
             for (var i = 0; i < buttonData.Length && i < 9; i++)
             {
                 var btn = buttonData.GetValue(i);
@@ -10740,14 +11310,29 @@ public static class SeqChapterTestUi
                     continue;
                 }
 
-                if (name == "取 消" || name == "取消" || name == "删 除" || name == "删除")
+                if (IsDialogueCancelName(name))
                 {
                     continue;
                 }
 
-                pickValue = value;
-                pickName = name;
-                break;
+                if (IsDialogueSendName(name))
+                {
+                    pickValue = value;
+                    pickName = name;
+                    break;
+                }
+
+                if (fallbackValue < 0)
+                {
+                    fallbackValue = value;
+                    fallbackName = name;
+                }
+            }
+
+            if (pickValue < 0)
+            {
+                pickValue = fallbackValue;
+                pickName = fallbackName;
             }
 
             if (pickValue < 0)
@@ -10768,23 +11353,22 @@ public static class SeqChapterTestUi
                 data = "";
             }
 
+            // LINEINPUT / 发送+取消：把输入框（自动任务已填）内容带上
+            if (isLineInput)
+            {
+                var inputText = ReadWindowsMessageInputText();
+                if (!string.IsNullOrEmpty(inputText))
+                {
+                    data = inputText;
+                }
+            }
+
             var loc = GetStaticMember("PlayerDataHolder", "location");
             var x = Convert.ToInt32(GetMember(loc, "x") ?? GetMember(loc, "X") ?? 0);
             var y = Convert.ToInt32(GetMember(loc, "y") ?? GetMember(loc, "Y") ?? 0);
             var objindex = Convert.ToInt32(GetMember(wmdb, "objindex") ?? 0);
-            var windowType = Convert.ToInt32(GetMember(wmdb, "windowType") ?? 0);
             var uid = Convert.ToString(GetMember(wmdb, "m_Uid") ?? "") ?? "";
 
-            var send = npcMgr.GetType().GetMethod(
-                "SendWindows",
-                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-            if (send == null)
-            {
-                WriteLog("SendWindows missing");
-                return;
-            }
-
-            // 优先匹配 8 参重载
             MethodInfo send8 = null;
             foreach (var m in npcMgr.GetType().GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
             {
@@ -10803,25 +11387,20 @@ public static class SeqChapterTestUi
 
             if (send8 == null)
             {
+                WriteLog("SendWindows missing");
                 return;
             }
 
-            var args = new object[send8.GetParameters().Length];
+            var psAll = send8.GetParameters();
+            var args = new object[psAll.Length];
             args[0] = x;
             args[1] = y;
             args[2] = seqno;
             args[3] = objindex;
             args[4] = select;
-            args[5] = data;
+            args[5] = data ?? "";
             args[6] = windowType;
             args[7] = uid;
-            for (var i = 8; i < args.Length; i++)
-            {
-                args[i] = Type.Missing;
-            }
-
-            // 填默认 curr：用 Type.Missing 对反射可选参不稳，按参数类型给 0
-            var psAll = send8.GetParameters();
             for (var i = 8; i < psAll.Length; i++)
             {
                 if (psAll[i].ParameterType.IsEnum || psAll[i].ParameterType.IsValueType)
@@ -10838,12 +11417,393 @@ public static class SeqChapterTestUi
             _lastDialogueClickMs = now;
             _lastDialogueSeqno = seqno;
             _dialogueAutoClicks++;
-            WriteLog("autoDialogue seq=" + seqno + " opt=" + pickName + " v=" + pickValue);
+            WriteLog("autoDialogue seq=" + seqno + " opt=" + pickName + " v=" + pickValue
+                     + " wt=" + windowType + " lineInput=" + isLineInput
+                     + " dataLen=" + (data == null ? 0 : data.Length));
         }
         catch (Exception ex)
         {
             WriteLog("TryAutoPickDialogue EX: " + RootMessage(ex));
         }
+    }
+
+    private static string NormalizeDialogueBtnName(string name)
+    {
+        if (string.IsNullOrEmpty(name))
+        {
+            return "";
+        }
+
+        var sb = new System.Text.StringBuilder(name.Length);
+        foreach (var ch in name)
+        {
+            if (ch == ' ' || ch == '\t' || ch == '\u3000')
+            {
+                continue;
+            }
+
+            sb.Append(ch);
+        }
+
+        return sb.ToString();
+    }
+
+    private static bool IsDialogueCancelName(string name)
+    {
+        var n = NormalizeDialogueBtnName(name);
+        return n == "取消" || n == "删除" || n == "关闭";
+    }
+
+    private static bool IsDialogueSendName(string name)
+    {
+        var n = NormalizeDialogueBtnName(name);
+        return n == "发送" || n == "确定" || n == "确认" || n == "提交";
+    }
+
+    private static bool IsLineInputWindowType(object windowTypeObj, int windowType)
+    {
+        // WINDOW_MESSAGETYPE_MESSAGEANDLINEINPUT=1, WIDEMESSAGEANDLINEINPUT=11
+        if (windowType == 1 || windowType == 11)
+        {
+            return true;
+        }
+
+        try
+        {
+            var s = Convert.ToString(windowTypeObj ?? "") ?? "";
+            return s.IndexOf("LINEINPUT", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>点 UI_WindowsMessage 上「发送」；没有发送文案则点第一个非取消可见按钮。</summary>
+    private static bool TryClickWindowsMessageSendButton()
+    {
+        try
+        {
+            var panel = GetUiPanel("UI_WindowsMessage");
+            if (panel == null || !IsUnityObjectActive(panel))
+            {
+                return false;
+            }
+
+            string[] names =
+            {
+                "m_Btn_Commond1", "m_Btn_Commond2", "m_Btn_Commond3", "m_Btn_Commond4",
+                "m_Btn_Commond5", "m_Btn_Commond6", "m_Btn_Commond7", "m_Btn_Commond8",
+                "m_Btn_Commond9"
+            };
+            object fallback = null;
+            foreach (var fieldName in names)
+            {
+                var btn = GetMember(panel, fieldName);
+                if (btn == null || !IsUnityObjectActive(btn))
+                {
+                    continue;
+                }
+
+                var title = GetCustomButtonTitle(btn);
+                if (IsDialogueCancelName(title))
+                {
+                    continue;
+                }
+
+                if (IsDialogueSendName(title))
+                {
+                    if (InvokeButtonClick(btn))
+                    {
+                        return true;
+                    }
+                }
+
+                if (fallback == null && !string.IsNullOrEmpty(NormalizeDialogueBtnName(title)))
+                {
+                    fallback = btn;
+                }
+            }
+
+            return fallback != null && InvokeButtonClick(fallback);
+        }
+        catch (Exception ex)
+        {
+            WriteLog("TryClickWindowsMessageSendButton EX: " + RootMessage(ex));
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// 碰到「输入框 + 取消/发送」就点发送（不看 MessageBox 文案）。
+    /// </summary>
+    private static bool TryClickNpcInputDialogSend()
+    {
+        // ChangeNamePanel：输入 + 取消 + 提交 → 有内容就点提交
+        try
+        {
+            var panel = GetUiPanel("ChangeNamePanel");
+            if (panel != null && IsUnityObjectActive(panel))
+            {
+                var input = GetMember(panel, "m_ITxt_Name");
+                var text = "";
+                if (input != null)
+                {
+                    text = Convert.ToString(GetProp(input, "text") ?? GetMember(input, "text") ?? "") ?? "";
+                }
+
+                var submit = GetMember(panel, "m_Btn_Submit");
+                var cancel = GetMember(panel, "m_Btn_Cancel");
+                if (!string.IsNullOrWhiteSpace(text)
+                    && submit != null && IsUnityObjectActive(submit)
+                    && cancel != null && IsUnityObjectActive(cancel)
+                    && InvokeButtonClick(submit))
+                {
+                    return true;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            WriteLog("TryClickNpcInputDialogSend ChangeName EX: " + RootMessage(ex));
+        }
+
+        // UI_WindowsMessage：LINEINPUT / 有输入框 / 发送+取消
+        try
+        {
+            if (!IsDialoguePanelOpen())
+            {
+                return false;
+            }
+
+            var npcMgr = GetManagerInstance("NpcManager");
+            var wmdb = GetMember(npcMgr, "wmdb");
+            var windowTypeObj = GetMember(wmdb, "windowType");
+            var windowType = Convert.ToInt32(windowTypeObj ?? 0);
+            var isInput = IsLineInputWindowType(windowTypeObj, windowType)
+                          || HasWindowsMessageInputField()
+                          || WmdbHasSendAndCancel(wmdb);
+            if (!isInput)
+            {
+                return false;
+            }
+
+            return TryClickWindowsMessageSendButton();
+        }
+        catch (Exception ex)
+        {
+            WriteLog("TryClickNpcInputDialogSend WindowsMessage EX: " + RootMessage(ex));
+        }
+
+        return false;
+    }
+
+    private static bool WmdbHasSendAndCancel(object wmdb)
+    {
+        try
+        {
+            var buttonData = GetMember(wmdb, "buttonData") as Array;
+            if (buttonData == null)
+            {
+                return false;
+            }
+
+            var hasSend = false;
+            var hasCancel = false;
+            for (var i = 0; i < buttonData.Length && i < 9; i++)
+            {
+                var btn = buttonData.GetValue(i);
+                if (btn == null)
+                {
+                    continue;
+                }
+
+                var name = Convert.ToString(GetMember(btn, "name") ?? "") ?? "";
+                if (string.IsNullOrEmpty(name))
+                {
+                    continue;
+                }
+
+                if (IsDialogueSendName(name))
+                {
+                    hasSend = true;
+                }
+
+                if (IsDialogueCancelName(name))
+                {
+                    hasCancel = true;
+                }
+            }
+
+            return hasSend && hasCancel;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool HasWindowsMessageInputField()
+    {
+        return FindWindowsMessageInputField() != null;
+    }
+
+    private static object FindWindowsMessageInputField()
+    {
+        try
+        {
+            var panel = GetUiPanel("UI_WindowsMessage");
+            if (panel == null)
+            {
+                return null;
+            }
+
+            var go = GetProp(panel, "gameObject") ?? GetMember(panel, "gameObject");
+            if (go == null)
+            {
+                return null;
+            }
+
+            foreach (var typeName in new[] { "TMPro.TMP_InputField", "UnityEngine.UI.InputField" })
+            {
+                var t = FindType(typeName);
+                if (t == null)
+                {
+                    continue;
+                }
+
+                MethodInfo getComps = null;
+                foreach (var m in go.GetType().GetMethods(BindingFlags.Instance | BindingFlags.Public))
+                {
+                    if (m.Name != "GetComponentsInChildren" || !m.IsGenericMethodDefinition)
+                    {
+                        continue;
+                    }
+
+                    var ps = m.GetParameters();
+                    if (ps.Length == 1 && ps[0].ParameterType == typeof(bool))
+                    {
+                        getComps = m.MakeGenericMethod(t);
+                        break;
+                    }
+                }
+
+                if (getComps == null)
+                {
+                    continue;
+                }
+
+                var arr = getComps.Invoke(go, new object[] { true }) as Array;
+                if (arr != null && arr.Length > 0)
+                {
+                    return arr.GetValue(0);
+                }
+            }
+        }
+        catch
+        {
+            // ignore
+        }
+
+        return null;
+    }
+
+    private static string GetCustomButtonTitle(object btn)
+    {
+        try
+        {
+            var title = GetMember(btn, "Title") ?? GetProp(btn, "Title");
+            if (title == null)
+            {
+                return "";
+            }
+
+            var text = GetProp(title, "text") ?? GetMember(title, "text");
+            return Convert.ToString(text ?? "") ?? "";
+        }
+        catch
+        {
+            return "";
+        }
+    }
+
+    private static bool InvokeButtonClick(object btn)
+    {
+        try
+        {
+            var onClick = GetProp(btn, "onClick") ?? GetMember(btn, "onClick");
+            if (onClick == null)
+            {
+                return false;
+            }
+
+            var invoke = onClick.GetType().GetMethod("Invoke", Type.EmptyTypes);
+            if (invoke == null)
+            {
+                invoke = onClick.GetType().GetMethod("Invoke", BindingFlags.Instance | BindingFlags.Public);
+            }
+
+            if (invoke == null)
+            {
+                return false;
+            }
+
+            invoke.Invoke(onClick, null);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            WriteLog("InvokeButtonClick EX: " + RootMessage(ex));
+            return false;
+        }
+    }
+
+    private static bool IsUnityObjectActive(object obj)
+    {
+        try
+        {
+            if (obj == null || IsUnityNull(obj))
+            {
+                return false;
+            }
+
+            var go = GetProp(obj, "gameObject") ?? GetMember(obj, "gameObject") ?? obj;
+            var active = GetProp(go, "activeInHierarchy");
+            if (active is bool b)
+            {
+                return b;
+            }
+
+            var activeSelf = GetProp(go, "activeSelf");
+            return activeSelf is bool b2 && b2;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>读 UI_WindowsMessage 上 TMP/UGUI 输入框文本（自动任务常已填好）。</summary>
+    private static string ReadWindowsMessageInputText()
+    {
+        try
+        {
+            var field = FindWindowsMessageInputField();
+            if (field == null)
+            {
+                return "";
+            }
+
+            var text = Convert.ToString(GetProp(field, "text") ?? GetMember(field, "text") ?? "") ?? "";
+            return string.IsNullOrWhiteSpace(text) ? "" : text.Trim();
+        }
+        catch (Exception ex)
+        {
+            WriteLog("ReadWindowsMessageInputText EX: " + RootMessage(ex));
+        }
+
+        return "";
     }
 
     private static bool IsDialoguePanelOpen()
