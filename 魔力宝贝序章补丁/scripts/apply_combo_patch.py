@@ -43,6 +43,7 @@ DEFAULT_GIFT_CODES = [
     "VIP999",
     "mlbb0813",
     "mlbb0814",
+    "mlbb0818",
 ]
 
 

@@ -56,10 +56,25 @@ public static class SeqChapterTestUi
     private static int _dialogueAutoClicks;
     private const long DebounceMs = 400;
     private const long OverviewRefreshMs = 500;
-    /// <summary>NpcManager.SendWindows 内置约 2s 冷却；间隔须 ≥ 此值才发得出去。</summary>
-    private const long DialogueClickIntervalMs = 2100;
+    /// <summary>两次对话面板弹出间隔实测约 0.5s；0.8s 足够，不必等 SendWindows 的 2s 冷却。</summary>
+    private const long DialogueClickIntervalMs = 800;
     private const long StuckIdleMs = 5000;
+    /// <summary>卡图判定后，阶段1：先等这么久再只点任务。</summary>
+    private const long StuckNavOnlyWaitMs = 2000;
+    /// <summary>挪格后短观察，再点任务 / 再走回原格。</summary>
     private const long StuckResumeDelayMs = 1500;
+    /// <summary>阶段2：挪动+点任务 最多次数；满后进入阶段3（挪动+走回原格+点任务）。</summary>
+    private const int StuckShuffleClickMax = 5;
+    /// <summary>刷灵堂仍用旧「连挪 N 次再续航」阈值。</summary>
+    private const int StuckShuffleBeforeNavRetry = 5;
+    private const int EscortStuckPhaseNavOnly = 0;
+    private const int EscortStuckPhaseShuffleClick = 1;
+    private const int EscortStuckPhaseClassic = 2;
+    private const int StuckKindNone = 0;
+    private const int StuckKindNavOnlyWait = 1;
+    private const int StuckKindShuffleClick = 2;
+    private const int StuckKindClassicReturn = 3;
+    private const int StuckKindClassicClick = 4;
     /// <summary>单一步骤内卡楼梯恢复累计达此次数 → 自动暂停（换步骤才重置）。</summary>
     private const int EscortMaxRecoverFails = 20;
     /// <summary>遇敌 1 级提示铃（BattleProcesser LevelOneFlag → AudioUtil.PlaySE）。</summary>
@@ -137,14 +152,133 @@ public static class SeqChapterTestUi
     private static long _escortAwaitingReadyMs;
     /// <summary>当前步骤卡楼梯恢复累计次数；换步骤才清零（有位移不清零）。</summary>
     private static int _escortRecoverAttempts;
+    /// <summary>卡图恢复阶段：0=先等2s点任务；1=挪动+点任务；2=挪动+走回+点任务。</summary>
+    private static int _escortStuckPhase;
+    /// <summary>阶段1内「挪动+点任务」已执行次数。</summary>
+    private static int _escortStuckShuffles;
     /// <summary>记录上次观测到的任务子步骤 missionStepNum；-1=未知。</summary>
     private static int _escortLastStepNum = -1;
+    /// <summary>当前步骤是「遇敌/打怪获取道具」，护航原地挂机等待掉落。</summary>
+    private static bool _escortWaitItem;
+    /// <summary>进入等待道具时的 missionStepNum。</summary>
+    private static int _escortWaitAtStepNum = -1;
+    /// <summary>从步骤文案「获得XXX」解析出的目标道具名；可空。</summary>
+    private static string _escortWaitItemName = "";
+    /// <summary>本次等待是否由护航发出「开始挂机」。</summary>
+    private static bool _escortStartedEncounter;
+    /// <summary>等待道具期间上一拍是否在战斗（退战边沿）。</summary>
+    private static bool _escortWasInBattle;
+    /// <summary>遇敌步骤：必须先到达本步导航点附近才开遇敌（格）。</summary>
+    private const int EscortEncounterArriveNear = 4;
+    /// <summary>
+    /// 中秋 #119 月宫救兔护航特例（步骤 5 挂机传送布朗山；步骤 2 回登入点+赤凤之翼；步骤 7 挂机传送奇怪的洞窟怪）。
+    /// 两个傻瓜包都带（助手面板 wiki_test_ui）。临时活动：等用户明确下令后再永久删除本开关及全部 119 特例。
+    /// </summary>
+    private const bool TempMidAutumnEscort119 = true;
+    /// <summary>中秋 #119：队长回登入点后等待切图（登入点在阿凯鲁法）。</summary>
+    private static bool _escortLoginGatePending;
+    private static long _escortLoginGateAtMs;
+    private const long EscortLoginGateWaitMs = 4000;
+    /// <summary>中秋 #119 步骤 2：回登入点后使用赤凤之翼，再等弹窗点完再点任务。</summary>
+    private static bool _escortUseItemPending;
+    private static long _escortUseItemAtMs;
+    private static bool _escortWingWizardSeen;
+    private static long _escortWingWizardClosedAtMs;
+    private static int _escortWingNextClicks;
+    private static bool _escortWingPickedDest;
+    /// <summary>赤凤之翼弹窗出现等待。服务端 LSSPROTO_WINDOWS 分页，可能晚半拍才开。</summary>
+    private const long EscortWingWizardAppearMs = 4000;
+    private const long EscortWingWizardSettleMs = 1500;
+    private const long EscortWingWizardTimeoutMs = 20000;
+    private const int EscortWingMaxNextClicks = 12;
+    private const int WindowButtonNextValue = 0x20;
+    private const string MoonRabbitWingDestKeyword = "哥拉尔";
+    /// <summary>脚本页「测试赤凤之翼」：独立点分页窗，不推进护航。</summary>
+    private static bool _scriptWingTestPending;
+    private static long _scriptWingTestAtMs;
+    private const int MoonRabbitMissionId = 119;
+    private const int MoonRabbitLoginGateStep2 = 2;
+    /// <summary>挑战暗影巡卫（执行序 StepID=5）：挂机传送布朗山后再导航。</summary>
+    private const int MoonRabbitBrownMountainStep = 5;
+    /// <summary>battle_tbautobattlenavigationconfig Id=6「布朗山」。</summary>
+    private const int MoonRabbitBrownMountainTeleportId = 6;
+    /// <summary>布朗山 传送落点 floor（配置 Map.floor=52709，与步骤 5 首个 PathPoint 同图）。</summary>
+    private const int MoonRabbitBrownMountainFloor = 52709;
+    /// <summary>调查星月落痕·礁石（执行序 StepID=7）。</summary>
+    private const int MoonRabbitReefStep = 7;
+    /// <summary>battle_tbautobattlenavigationconfig Id=2「奇怪的洞窟怪」。TaskManager.SendMisc Type=挂机传送。</summary>
+    private const int MoonRabbitHangupTeleportId = 2;
+    /// <summary>奇怪的洞窟怪 传送落点 floor（配置 Map.floor=52140）。</summary>
+    private const int MoonRabbitHangupTeleportFloor = 52140;
+    private const int MoonRabbitReefMapFloor = 100;
+    private const int MoonRabbitReefX = 611;
+    private const int MoonRabbitReefY = 26;
+    private const int MoonRabbitReefNearDist = 25;
+    private const string MoonRabbitWingKeyword = "赤凤之翼";
+    /// <summary>
+    /// 中秋 #119：仅对 15000 (22,33) 做特例。
+    /// 遇敌步会把 AutoWarpIndex 设到表尾 100；切图后官方还握着「回芙蕾雅」。
+    /// 先取消这条回程，再导航 15001（正向下一张），不要 RunTask（失败会回退到 100）。
+    /// </summary>
+    private const int MoonRabbitWarpStuckFloor = 15000;
+    private const int MoonRabbitWarpStuckX = 22;
+    private const int MoonRabbitWarpStuckY = 33;
+    private const int MoonRabbitWarpNextFloor = 15001;
+    private const int MoonRabbitWarpNextX = 31;
+    private const int MoonRabbitWarpNextY = 22;
+    private const int MoonRabbitWarpGoalFloor = 400;
+    private const int MoonRabbitWarpGoalX = 247;
+    private const int MoonRabbitWarpGoalY = 581;
+    private const long MoonRabbitWarpUnstickSettleMs = 1500;
+    /// <summary>第一次导航后固定隔 2 秒再试一次。</summary>
+    private const long MoonRabbitWarpUnstickRetryMs = 2000;
+    private const int MoonRabbitWarpUnstickMaxClicks = 2;
+    /// <summary>0=无 1=已点过，等第二次。</summary>
+    private static int _escort119WarpUnstickPhase;
+    private static long _escort119WarpUnstickAtMs;
+    private static int _escort119WarpUnstickClicks;
+    private static bool _escort119WarpUnstickDone;
+    /// <summary>最后一步（与月宫使者交谈，StepID=1）不交任务，改把兑换券存账号银行，任务会回到第一步。</summary>
+    private const int MoonRabbitLastStep = 1;
+    private const string MoonRabbitTicketKeyword = "七夕礼盒兑换券";
+    private const string MoonRabbitAccountBankActivity = "远程账号道具仓库";
+    private static bool _escort119TicketBankDone;
+    private static bool _escort119TicketBankPending;
+    private static long _escort119TicketBankAtMs;
+    private static long _escort119LastStepSinceMs;
+    private static readonly List<string> _escort119TicketBankUids = new List<string>();
+    private static int _escort119TicketBankUidIndex;
+    private static int _escort119TicketBankFailStreak;
+    private static bool _escort119TicketBankAwaitConfirm;
+    private static bool _escort119TicketBankAnyStored;
+    private const long EscortTicketBankWaitMs = 2500;
+    private const long EscortTicketMissingWaitMs = 8000;
+    /// <summary>账号之间、以及存券后复查背包的间隔。</summary>
+    private const long EscortTicketBankAccountGapMs = 2000;
+    private const int EscortTicketBankMaxFails = 5;
+    private static bool _escort119GateDone2;
+    private static bool _escort119TeleportDone5;
+    private static bool _escort119TeleportDone7;
+    private static bool _escortHangupTeleportPending;
+    private static long _escortHangupTeleportAtMs;
+    private static int _escortHangupTeleportExpectFloor;
+    private const long EscortHangupTeleportWaitMs = 4000;
+    private static int _escort119PendingAfterGateStep = -1;
     private static int _prevRunTaskId = -999;
     private static int _lastPosX = int.MinValue;
     private static int _lastPosY = int.MinValue;
     private static long _lastActivityMs;
     private static long _stuckMoveAtMs;
     private static bool _stuckResumePending;
+    private static int _stuckResumeKind;
+    /// <summary>阶段3：随机挪格前的坐标，用于走回原格。</summary>
+    private static int _stuckReturnX;
+    private static int _stuckReturnY;
+    /// <summary>护航观测到的上一地图 floor；切图只刷新静止计时，续航交给官方。</summary>
+    private static int _escortLastFloor = int.MinValue;
+    private static long _escortMapChangeAtMs;
+    /// <summary>切图后约 1.5s 内不判普通卡图，避免打断官方续航。</summary>
+    private const long EscortMapChangeSettleMs = 2000;
     /// <summary>任务已完成后，等待弹窗出现/点完的起始时间；0=未进入收尾。</summary>
     private static long _escortFinishWaitMs;
     private const long EscortFinishGraceMs = 2500;
@@ -174,9 +308,7 @@ public static class SeqChapterTestUi
     private const long DragonUseMemoryDelayMs = 1500;
     /// <summary>A 线：龙族纷争 1-4 全量。</summary>
     private static readonly int[] DragonMissionIds = { 110, 111, 112, 113 };
-    /// <summary>B 线：跳过龙族纷争2（111），仅 110/112/113。</summary>
-    private static readonly int[] DragonMissionIdsB = { 110, 112, 113 };
-    /// <summary>当前循环实际执行的任务集（A/B 线）。</summary>
+    /// <summary>当前循环实际执行的任务集。</summary>
     private static int[] _dragonMissionIds;
     private const string DragonTitleKeyword = "龙族纷争";
     /// <summary>存包腾位阶段已重试发包次数。</summary>
@@ -193,12 +325,20 @@ public static class SeqChapterTestUi
     private const int StorePetLevel = 1;
     private const int PetStatusRest = 0;
 
+    /// <summary>中秋 #119 循环（临时；等用户下令再删）。</summary>
+    private static bool _midAutumnLoopActive;
+    private static int _midAutumnLoopCount;
+    /// <summary>true=哥拉尔版（登入点哥拉尔、不用赤凤之翼）；false=阿凯版（回登入点+赤凤之翼）。</summary>
+    private static bool _midAutumnGoralEdition;
+
     // ----- 刷灵堂脚本 -----
     private static bool _lingTangActive;
     /// <summary>1..6 步骤；0=未运行。</summary>
     private static int _lingTangPhase;
     private static int _lingTangCycles;
     private static int _lingTangStuckFails;
+    private static int _lingTangStuckShuffles;
+    private static bool _lingTangStuckNavTriedFirst;
     private static long _lingTangLastNavMs;
     private static long _lingTangLastActivityMs;
     private static long _lingTangStuckMoveAtMs;
@@ -415,10 +555,11 @@ public static class SeqChapterTestUi
             TickLingTang();
             TickSuperAi();
             TickPetNamer();
+            TickScriptWingTest();
         }
         catch (Exception ex)
         {
-            WriteLog("TickEscort/LingTang/SuperAi EX: " + RootMessage(ex));
+            WriteLog("TickEscort/LingTang/SuperAi/WingTest EX: " + RootMessage(ex));
         }
 
         if (!_visible)
@@ -5457,13 +5598,22 @@ public static class SeqChapterTestUi
         BindButton(bearSlayer, bsImg, RunBearSlayer);
 
         var petNamer = CreateUiChild(_bodyRoot, "PetNamer", rtType);
-        SetAnchoredTop(RequireRect(petNamer, "pnb"), 0f, -368f, 240f, 40f);
+        SetAnchoredTop(RequireRect(petNamer, "pnb"), -130f, -368f, 220f, 40f);
         var pnImg = AddComp(petNamer, "UnityEngine.UI.Image");
         SetColor(pnImg, 0.20f, 0.45f, 0.60f, 1f);
         var pnLab = CreateUiChild(petNamer, "L", rtType);
         StretchFull(RequireRect(pnLab, "pnl"));
         SetText(AddText(pnLab), "一键命名（开/停）", 15);
         BindButton(petNamer, pnImg, RunPetNamer);
+
+        var wingTest = CreateUiChild(_bodyRoot, "WingTest", rtType);
+        SetAnchoredTop(RequireRect(wingTest, "wtb"), 130f, -368f, 220f, 40f);
+        var wtImg = AddComp(wingTest, "UnityEngine.UI.Image");
+        SetColor(wtImg, 0.62f, 0.28f, 0.18f, 1f);
+        var wtLab = CreateUiChild(wingTest, "L", rtType);
+        StretchFull(RequireRect(wtLab, "wtl"));
+        SetText(AddText(wtLab), _scriptWingTestPending ? "赤凤之翼（点窗中）" : "测试赤凤之翼", 14);
+        BindButton(wingTest, wtImg, RunScriptWingTest);
 
         var pnStatus = CreateUiChild(_bodyRoot, "PetNamerStatus", rtType);
         SetAnchoredTop(RequireRect(pnStatus, "pns"), 0f, -418f, 500f, 56f);
@@ -5542,6 +5692,8 @@ public static class SeqChapterTestUi
         _lingTangActive = true;
         _lingTangPhase = LingTangPhaseTo1515;
         _lingTangStuckFails = 0;
+        _lingTangStuckShuffles = 0;
+        _lingTangStuckNavTriedFirst = false;
         _lingTangStuckPending = false;
         _lingTangLastNavMs = 0;
         _lingTangLastNpcMs = 0;
@@ -5609,6 +5761,12 @@ public static class SeqChapterTestUi
             _lingTangLastX = x;
             _lingTangLastY = y;
             _lingTangLastActivityMs = now;
+            if (!_lingTangStuckPending)
+            {
+                _lingTangStuckNavTriedFirst = false;
+                _lingTangStuckShuffles = 0;
+            }
+
             if (_lingTangStuckFails > 0 && !_lingTangStuckPending)
             {
                 _lingTangStuckFails = 0;
@@ -5768,12 +5926,34 @@ public static class SeqChapterTestUi
                 return;
             }
 
+            if (!_lingTangStuckNavTriedFirst)
+            {
+                _lingTangStuckNavTriedFirst = true;
+                _lingTangLastActivityMs = now;
+                Tip("刷灵堂：卡图，先继续导航（观察5秒）");
+                WriteLog("LingTang stuck nav-first phase=" + _lingTangPhase);
+                LingTangReissueCurrentNav(true);
+                return;
+            }
+
+            if (_lingTangStuckShuffles >= StuckShuffleBeforeNavRetry)
+            {
+                _lingTangStuckShuffles = 0;
+                _lingTangLastActivityMs = now;
+                Tip("刷灵堂：已挪 " + StuckShuffleBeforeNavRetry + " 次，改为继续导航（观察5秒）");
+                WriteLog("LingTang stuck nav-observe phase=" + _lingTangPhase);
+                LingTangReissueCurrentNav(true);
+                return;
+            }
+
             if (TryRandomStepOne())
             {
+                _lingTangStuckShuffles++;
                 _lingTangStuckMoveAtMs = now;
                 _lingTangStuckPending = true;
                 _lingTangLastActivityMs = now;
-                Tip("刷灵堂：卡楼梯，挪格后续航（" + _lingTangStuckFails + "/" + LingTangMaxStuckFails + "）");
+                Tip("刷灵堂：卡楼梯，挪格后续航（" + _lingTangStuckFails + "/" + LingTangMaxStuckFails
+                    + " 挪" + _lingTangStuckShuffles + "/" + StuckShuffleBeforeNavRetry + "）");
             }
             else
             {
@@ -6700,10 +6880,12 @@ public static class SeqChapterTestUi
         SetText(
             hintText,
             "队列护航：可塞未接；完成一项后等 5 秒再下一项。\n"
-            + "手动暂停不清铃；自动暂停约每2秒响铃，点「我知道了」或停止才停。静止5秒尝试恢复，连续20次失败自动暂停。\n"
+            + "手动暂停不清铃；自动暂停约每2秒响铃，点「我知道了」或停止才停。静止5秒尝试恢复，连挪5次后改为直接续任务再观察5秒；本步骤连续20次失败自动暂停。\n"
+            + (TempMidAutumnEscort119
+                ? "中秋循环：阿凯版=回登入点+赤凤之翼；哥拉尔版=登入点在哥拉尔、不用赤凤之翼。最后一步分账号存兑换券后下一轮。\n"
+                : "")
             + (dragonLoopUi
-                ? "龙族循环A：自动重置龙4→按序执行龙族纷争1-4→宠物位满停止。\n"
-                  + "龙族循环B：跳过龙族纷争2，执行 1/3/4。"
+                ? "龙族循环A：自动重置龙4→按序执行龙族纷争1-4→宠物位满停止。"
                 : ""),
             11);
 
@@ -6768,7 +6950,7 @@ public static class SeqChapterTestUi
         }
 
         y -= 50f;
-        // 龙族循环 A/B 线按钮（仅当 hotfixdata 存在 seqchapter_dragon_loop.flag 标记时显示）
+        // 龙族循环 A（仅带龙族.flag）；中秋循环两版都显示（临时活动）
         if (dragonLoopUi)
         {
             var dragonBtn = CreateUiChild(_bodyRoot, "DragonLoopBtn", rtType);
@@ -6792,28 +6974,45 @@ public static class SeqChapterTestUi
                 }
             });
             y -= 48f;
+        }
 
-            var dragonBtnB = CreateUiChild(_bodyRoot, "DragonLoopBtnB", rtType);
-            SetAnchoredTop(RequireRect(dragonBtnB, "dlbb"), 0f, y, 420f, 40f);
-            var dragonImgB = AddComp(dragonBtnB, "UnityEngine.UI.Image");
-            SetColor(dragonImgB, _dragonLoopActive ? 0.55f : 0.3f, _dragonLoopActive ? 0.24f : 0.3f, _dragonLoopActive ? 0.22f : 0.42f, 1f);
-            var dragonLabB = CreateUiChild(dragonBtnB, "L", rtType);
-            StretchFull(RequireRect(dragonLabB, "dllb"));
-            SetText(AddText(dragonLabB), _dragonLoopActive
-                ? ("停止龙族循环(第" + (_dragonLoopCount + 1) + "轮)")
-                : "龙族循环B(110/112/113)", 14);
-            BindButton(dragonBtnB, dragonImgB, () =>
+        if (TempMidAutumnEscort119)
+        {
+            if (_midAutumnLoopActive)
             {
-                if (_dragonLoopActive)
-                {
-                    StopDragonLoop();
-                }
-                else
-                {
-                    StartDragonLoopB();
-                }
-            });
-            y -= 48f;
+                var midBtn = CreateUiChild(_bodyRoot, "MidAutumnLoopBtn", rtType);
+                SetAnchoredTop(RequireRect(midBtn, "mab"), 0f, y, 420f, 40f);
+                var midImg = AddComp(midBtn, "UnityEngine.UI.Image");
+                SetColor(midImg, 0.62f, 0.32f, 0.12f, 1f);
+                var midLab = CreateUiChild(midBtn, "L", rtType);
+                StretchFull(RequireRect(midLab, "mal"));
+                var ed = _midAutumnGoralEdition ? "哥拉尔" : "阿凯";
+                SetText(AddText(midLab),
+                    "停止中秋" + ed + "版(第" + (_midAutumnLoopCount + 1) + "轮)", 14);
+                BindButton(midBtn, midImg, StopMidAutumnLoop);
+                y -= 48f;
+            }
+            else
+            {
+                var akBtn = CreateUiChild(_bodyRoot, "MidAutumnAkBtn", rtType);
+                SetAnchoredTop(RequireRect(akBtn, "maak"), -110f, y, 200f, 40f);
+                var akImg = AddComp(akBtn, "UnityEngine.UI.Image");
+                SetColor(akImg, 0.42f, 0.28f, 0.18f, 1f);
+                var akLab = CreateUiChild(akBtn, "L", rtType);
+                StretchFull(RequireRect(akLab, "maakl"));
+                SetText(AddText(akLab), "中秋阿凯版", 14);
+                BindButton(akBtn, akImg, () => StartMidAutumnLoop(false));
+
+                var goBtn = CreateUiChild(_bodyRoot, "MidAutumnGoBtn", rtType);
+                SetAnchoredTop(RequireRect(goBtn, "mago"), 110f, y, 200f, 40f);
+                var goImg = AddComp(goBtn, "UnityEngine.UI.Image");
+                SetColor(goImg, 0.28f, 0.36f, 0.48f, 1f);
+                var goLab = CreateUiChild(goBtn, "L", rtType);
+                StretchFull(RequireRect(goLab, "magol"));
+                SetText(AddText(goLab), "中秋哥拉尔版", 14);
+                BindButton(goBtn, goImg, () => StartMidAutumnLoop(true));
+                y -= 48f;
+            }
         }
 
         if (_escortAlertRinging)
@@ -7620,6 +7819,7 @@ public static class SeqChapterTestUi
     /// <summary>龙1/2 特例：丢弃所有队员背包中的黑之记忆/白之记忆。</summary>
     private static void DropTeamMemoryItems()
     {
+        StopTaskNavigation(false);
         var uids = CollectTeamOrMultiUids();
         if (uids.Count == 0)
         {
@@ -7653,6 +7853,7 @@ public static class SeqChapterTestUi
             return false;
         }
 
+        StopTaskNavigation(false);
         foreach (var keyword in keywords)
         {
             if (TryUseMemoryItem(cap, keyword))
@@ -7665,7 +7866,7 @@ public static class SeqChapterTestUi
         return false;
     }
 
-    private static bool TryUseMemoryItem(string uid, string keyword)
+    private static bool TryUseMemoryItem(string uid, string keyword, bool requireUseFlag = true)
     {
         try
         {
@@ -7713,15 +7914,20 @@ public static class SeqChapterTestUi
                     continue;
                 }
 
-                var useFlag = Convert.ToInt32(GetMember(item, "useFlag") ?? 0);
-                if (useFlag != 1)
+                if (requireUseFlag)
                 {
-                    continue;
+                    var useFlag = Convert.ToInt32(GetMember(item, "useFlag") ?? 0);
+                    if (useFlag != 1)
+                    {
+                        continue;
+                    }
                 }
 
                 var data = GetMember(item, "data");
                 var name = Convert.ToString(GetMember(data, "Name") ?? "") ?? "";
-                if (name.IndexOf(keyword, StringComparison.Ordinal) < 0)
+                var secret = Convert.ToString(GetMember(data, "Secretname") ?? "") ?? "";
+                if (name.IndexOf(keyword, StringComparison.Ordinal) < 0
+                    && secret.IndexOf(keyword, StringComparison.Ordinal) < 0)
                 {
                     continue;
                 }
@@ -7742,7 +7948,8 @@ public static class SeqChapterTestUi
                     use.Invoke(itemMgr, new object[] { x, y, i, uid });
                 }
 
-                WriteLog("dragon use memory uid=" + uid + " kw=" + keyword + " idx=" + i + " name=" + name);
+                WriteLog("use bag item uid=" + uid + " kw=" + keyword + " idx=" + i
+                         + " name=" + name + " secret=" + secret);
                 return true;
             }
 
@@ -7936,6 +8143,8 @@ public static class SeqChapterTestUi
     /// </summary>
     private static bool StoreLevelOnePetsForFull()
     {
+        // 存宠前停官方导航，避免寻路与银行操作抢控制
+        StopTaskNavigation(false);
         var uids = CollectTeamOrMultiUids();
         if (uids.Count == 0)
         {
@@ -8152,7 +8361,35 @@ public static class SeqChapterTestUi
             else
             {
                 state = "护航中 #" + _escortMissionId + " " + GetEscortMissionTitleWithStep();
-                if (_escortFinishWaitMs > 0)
+                if (_escortWaitItem)
+                {
+                    state += string.IsNullOrEmpty(_escortWaitItemName)
+                        ? "（遇敌中，等待任务道具…）"
+                        : ("（遇敌中，等待获得" + _escortWaitItemName + "…）");
+                }
+                else if (_escort119TicketBankPending)
+                {
+                    var n = _escort119TicketBankUids.Count;
+                    var i = _escort119TicketBankUidIndex + 1;
+                    if (i < 1)
+                    {
+                        i = 1;
+                    }
+
+                    if (n > 0 && i > n)
+                    {
+                        i = n;
+                    }
+
+                    state += "（存兑换券 " + i + "/" + (n > 0 ? n : 1)
+                             + " 连续失败 " + _escort119TicketBankFailStreak
+                             + "/" + EscortTicketBankMaxFails + "）";
+                }
+                else if (IsCurrentEscortEncounterFarm())
+                {
+                    state += "（前往遇敌点…）";
+                }
+                else if (_escortFinishWaitMs > 0)
                 {
                     state += IsDialoguePanelOpen() ? "（收尾点弹窗…）" : "（收尾确认中…）";
                 }
@@ -8183,10 +8420,11 @@ public static class SeqChapterTestUi
                + "\n对话自动点: " + _dialogueAutoClicks + " 次"
                + "\n静止计时: " + idleSec + "s / 5s"
                + "\n本步骤恢复: " + _escortRecoverAttempts + " / " + EscortMaxRecoverFails
-               + "（换步骤重置）"
+               + "（换步骤重置；卡楼梯：挪格后点任务）"
                + "\n" + GetEscortSpecialNote()
                + (_dragonLoopActive ? "\n龙族循环: 已循环 " + _dragonLoopCount + " 轮" : "")
-               + (_stuckResumePending ? "\n卡楼梯：已随机移动，续航中…" : "");
+               + (_midAutumnLoopActive ? "\n中秋循环: 已循环 " + _midAutumnLoopCount + " 轮" : "")
+               + (_stuckResumePending ? "\n卡楼梯：恢复动作进行中…" : "");
     }
 
     /// <summary>
@@ -8203,7 +8441,14 @@ public static class SeqChapterTestUi
 
         if (!IsDragonMission(id))
         {
-            return "特殊处理: 无（未识别为龙族任务） #" + id;
+            if (id == MoonRabbitMissionId)
+            {
+                return "特殊处理: 中秋#119 "
+                       + (_midAutumnGoralEdition ? "哥拉尔版(回登入点、不用赤凤之翼)" : "阿凯版(回登入点+赤凤之翼)")
+                       + "；步骤7洞窟传送；步骤5布朗山；仅15000先取消回程再走15001；最后一步存兑换券";
+            }
+
+            return "特殊处理: 无 #" + id;
         }
 
         if (id == 110 || id == 111)
@@ -8370,7 +8615,9 @@ public static class SeqChapterTestUi
             _escortAwaitingReadyMs = 0;
             _escortFinishWaitMs = 0;
             _escortRecoverAttempts = 0;
-            _stuckResumePending = false;
+            ResetEscortStuckState();
+            _escortLastFloor = int.MinValue;
+            _escortMapChangeAtMs = 0;
             _dialogueAutoClicks = 0;
             _prevRunTaskId = GetRunTaskId();
             WriteLog("escort queue start count=" + _escortQueue.Count + " idx=" + startIdx);
@@ -8396,7 +8643,7 @@ public static class SeqChapterTestUi
         }
 
         _escortPaused = true;
-        _stuckResumePending = false;
+        ClearEscortStuckPending();
         _escortAwaitingReadyMs = 0;
         if (_escortBetweenTasksWaitMs > 0)
         {
@@ -8412,6 +8659,7 @@ public static class SeqChapterTestUi
             _escortPauseReason = tipMsg ?? "已暂停";
         }
 
+        StopEscortEncounterWait("pause", false);
         StopTaskNavigation();
         WriteLog("escort pause id=" + _escortMissionId + " idx=" + _escortQueueIndex
                  + " recoverFails=" + _escortRecoverAttempts + " tip=" + tipMsg
@@ -8591,7 +8839,7 @@ public static class SeqChapterTestUi
         StopEscortAlertRing();
         // 用户点「继续」：清零本步骤恢复计数，重新开始卡楼梯检测
         _escortRecoverAttempts = 0;
-        _stuckResumePending = false;
+        ResetEscortStuckState();
         _escortFinishWaitMs = 0;
         _escortAwaitingReadyMs = 0;
         _lastActivityMs = NowMs();
@@ -8647,6 +8895,8 @@ public static class SeqChapterTestUi
         _escortBetweenTasksWaitMs = 0;
         _escortRecoverAttempts = 0;
         _escortLastStepNum = -1;
+        ResetMoonRabbitEscortFlags();
+        StopEscortEncounterWait("begin", false);
         _lastActivityMs = NowMs();
         if (TryGetPlayerXY(out var x, out var y))
         {
@@ -8675,6 +8925,31 @@ public static class SeqChapterTestUi
                 }
 
                 WriteLog("dragon use memory none id=" + _escortMissionId + "（无可使用道具，继续点任务）");
+            }
+        }
+
+        if (TempMidAutumnEscort119 && _escortMissionId == MoonRabbitMissionId)
+        {
+            try
+            {
+                var sn = GetEscortMissionStepNum();
+                _escortLastStepNum = sn;
+                if (TryStartMoonRabbitStepSpecial(sn, "begin")
+                    || TryStartMoonRabbitBrownTeleport(sn, "begin")
+                    || TryStartMoonRabbitReefTeleport(sn, "begin")
+                    || TryStartMoonRabbitLastStepBank(sn, "begin"))
+                {
+                    _escortAwaitingReadyMs = 0;
+                    _escortLastDiag = "";
+                    WriteLog("escort begin idx=" + index + " id=" + _escortMissionId
+                             + " title=" + _escortMissionTitle + " 119-special step=" + sn);
+                    Tip("任务护航：(" + (index + 1) + "/" + _escortQueue.Count + ") #" + _escortMissionId);
+                    return true;
+                }
+            }
+            catch
+            {
+                // ignore，走普通点任务
             }
         }
 
@@ -8749,6 +9024,7 @@ public static class SeqChapterTestUi
     {
         var doneId = _escortMissionId;
         WriteLog("escort done missionId=" + doneId + " idx=" + _escortQueueIndex);
+        StopEscortEncounterWait("mission-done", false);
         StopTaskNavigation();
         _stuckResumePending = false;
         _escortFinishWaitMs = 0;
@@ -8760,6 +9036,35 @@ public static class SeqChapterTestUi
         var next = _escortQueueIndex + 1;
         if (next >= _escortQueue.Count)
         {
+            if (TempMidAutumnEscort119 && _midAutumnLoopActive)
+            {
+                if (!EnsureCaptainHasWingOrStopLoop("mission-complete"))
+                {
+                    return;
+                }
+
+                _midAutumnLoopCount++;
+                ResetMoonRabbitEscortFlags();
+                EnqueueMidAutumnMission();
+                _escortQueueIndex = 0;
+                _escortBetweenTasksWaitMs = NowMs();
+                Tip("中秋循环：第 " + _midAutumnLoopCount + " 轮完成，5 秒后继续");
+                WriteLog("mid-autumn loop next round count=" + _midAutumnLoopCount);
+                if (_visible && _tab == TabEscort)
+                {
+                    try
+                    {
+                        RebuildEscortTab();
+                    }
+                    catch
+                    {
+                        // ignore
+                    }
+                }
+
+                return;
+            }
+
             FinishEscortQueue("队列护航完毕");
             return;
         }
@@ -8800,6 +9105,8 @@ public static class SeqChapterTestUi
         _escortRecoverAttempts = 0;
         _stuckResumePending = false;
         _escortFinishWaitMs = 0;
+        ResetMoonRabbitEscortFlags();
+        StopEscortEncounterWait("cleanup", false);
         _escortQueue.Clear();
         _prevRunTaskId = GetRunTaskId();
         if (stopNav && wasActive)
@@ -8910,6 +9217,12 @@ public static class SeqChapterTestUi
             WriteLog("dragon loop stop via cancel count=" + _dragonLoopCount);
         }
 
+        if (_midAutumnLoopActive)
+        {
+            WriteLog("mid-autumn loop stop via cancel count=" + _midAutumnLoopCount);
+            _midAutumnLoopActive = false;
+        }
+
         // 用记忆等待标志无条件清理（普通护航龙3/4 也可能置位）
         _dragonUseMemoryPending = false;
 
@@ -8931,6 +9244,8 @@ public static class SeqChapterTestUi
         _escortRecoverAttempts = 0;
         _stuckResumePending = false;
         _escortFinishWaitMs = 0;
+        ResetMoonRabbitEscortFlags();
+        StopEscortEncounterWait("cancel", false);
         _escortQueue.Clear();
         _prevRunTaskId = GetRunTaskId();
         if (stopNav && wasActive)
@@ -8964,10 +9279,112 @@ public static class SeqChapterTestUi
         StartDragonLoopCore(DragonMissionIds, "A");
     }
 
-    /// <summary>启动龙族循环 B 线（110/112/113）。</summary>
-    private static void StartDragonLoopB()
+    /// <summary>启动中秋 #119 循环。goralEdition=true 哥拉尔版（不用赤凤之翼）。</summary>
+    private static void StartMidAutumnLoop(bool goralEdition)
     {
-        StartDragonLoopCore(DragonMissionIdsB, "B");
+        try
+        {
+            if (!TempMidAutumnEscort119)
+            {
+                Tip("中秋循环未启用");
+                return;
+            }
+
+            if (_midAutumnLoopActive)
+            {
+                var ed = _midAutumnGoralEdition ? "哥拉尔" : "阿凯";
+                Tip("中秋循环：已在运行中（" + ed + "版 第 " + (_midAutumnLoopCount + 1) + " 轮）");
+                return;
+            }
+
+            if (_dragonLoopActive)
+            {
+                StopDragonLoop();
+            }
+            else if (_escortActive || _escortPicking || _escortQueue.Count > 0)
+            {
+                CancelEscort(true, "已切换到中秋循环");
+            }
+
+            if (!goralEdition && !CaptainHasMoonRabbitWing())
+            {
+                Tip("中秋阿凯版：队长背包没有赤凤之翼");
+                WriteLog("mid-autumn loop abort no 赤凤之翼");
+                return;
+            }
+
+            _midAutumnGoralEdition = goralEdition;
+            _midAutumnLoopActive = true;
+            _midAutumnLoopCount = 0;
+            EnqueueMidAutumnMission();
+            WriteLog("mid-autumn loop start id=" + MoonRabbitMissionId
+                     + " edition=" + (goralEdition ? "goral" : "akai"));
+            Tip(goralEdition
+                ? "中秋哥拉尔版：开始月宫救兔（不用赤凤之翼）"
+                : "中秋阿凯版：开始月宫救兔");
+            StartEscortQueue();
+            if (_visible && _tab == TabEscort)
+            {
+                try
+                {
+                    RebuildEscortTab();
+                }
+                catch
+                {
+                    // ignore
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            WriteLog("StartMidAutumnLoop EX: " + RootMessage(ex));
+            Tip("中秋循环：启动失败");
+            _midAutumnLoopActive = false;
+        }
+    }
+
+    private static void StopMidAutumnLoop()
+    {
+        if (!_midAutumnLoopActive)
+        {
+            return;
+        }
+
+        var n = _midAutumnLoopCount;
+        var ed = _midAutumnGoralEdition ? "哥拉尔" : "阿凯";
+        _midAutumnLoopActive = false;
+        WriteLog("mid-autumn loop manual stop count=" + n + " edition=" + ed);
+        CancelEscort(true, "中秋" + ed + "版已停止（共 " + n + " 轮）");
+    }
+
+    private static void EnqueueMidAutumnMission()
+    {
+        var title = "月宫救兔";
+        try
+        {
+            var mission = GetMissionDataById(MoonRabbitMissionId);
+            if (mission != null)
+            {
+                var t = Convert.ToString(GetMember(mission, "title") ?? "") ?? "";
+                if (!string.IsNullOrEmpty(t))
+                {
+                    title = t;
+                }
+            }
+        }
+        catch
+        {
+            // ignore
+        }
+
+        _escortQueue.Clear();
+        _escortQueue.Add(new EscortCandidate
+        {
+            Id = MoonRabbitMissionId,
+            Title = title,
+            Status = "循环"
+        });
+        _escortQueueIndex = 0;
     }
 
     /// <summary>启动龙族循环（重置龙4 → 判断可接 → 顺序执行任务集，循环直到宠物位满/手动停）。</summary>
@@ -8982,7 +9399,7 @@ public static class SeqChapterTestUi
             }
 
             // 若普通护航在跑，先停
-            if (_escortActive)
+            if (_escortActive || _midAutumnLoopActive)
             {
                 CancelEscort(true, "已切换到龙族循环");
             }
@@ -9141,7 +9558,7 @@ public static class SeqChapterTestUi
             _escortBetweenTasksWaitMs = 0;
             _escortAwaitingReadyMs = 0;
             _escortRecoverAttempts = 0;
-            _stuckResumePending = false;
+            ResetEscortStuckState();
             _escortFinishWaitMs = 0;
             _escortLastStepNum = -1;
             _lastActivityMs = now;
@@ -9215,12 +9632,18 @@ public static class SeqChapterTestUi
 
     private static void TickEscort()
     {
-        if (IsEscapeDown() && (_escortPicking || _escortActive || _escortPaused || _dragonLoopActive))
+        if (IsEscapeDown() && (_escortPicking || _escortActive || _escortPaused
+            || _dragonLoopActive || _midAutumnLoopActive))
         {
-            // 龙族循环激活时 ESC 直接停止循环
             if (_dragonLoopActive)
             {
                 StopDragonLoop();
+                return;
+            }
+
+            if (_midAutumnLoopActive)
+            {
+                StopMidAutumnLoop();
                 return;
             }
 
@@ -9262,7 +9685,13 @@ public static class SeqChapterTestUi
         }
 
         var now = NowMs();
-        TryAutoPickDialogue();
+        var skipMoonRabbitLastDialogue = TempMidAutumnEscort119 && _midAutumnLoopActive
+            && _escortMissionId == MoonRabbitMissionId
+            && (_escort119TicketBankPending || GetEscortMissionStepNum() == MoonRabbitLastStep);
+        if (!skipMoonRabbitLastDialogue)
+        {
+            TryAutoPickDialogue();
+        }
 
         // 龙3/4 使用记忆后等待服务器处理，再点任务
         if (_dragonUseMemoryPending)
@@ -9279,6 +9708,144 @@ public static class SeqChapterTestUi
             }
 
             return;
+        }
+
+        if (TempMidAutumnEscort119 && _escortLoginGatePending)
+        {
+            // 回登入点后立刻掐掉任务导航；切到阿凯鲁法后若仍在寻路，会继续点回城去哥拉尔。
+            StopTaskNavigation(false);
+            if (now - _escortLoginGateAtMs < EscortLoginGateWaitMs)
+            {
+                return;
+            }
+
+            _escortLoginGatePending = false;
+            if (_escort119PendingAfterGateStep == MoonRabbitLoginGateStep2)
+            {
+                // 哥拉尔版：登入点已在哥拉尔，回登入点后直接点任务，不用赤凤之翼
+                if (_midAutumnGoralEdition)
+                {
+                    if (!ClickEscortTaskNav("119-after-logingate-goral"))
+                    {
+                        PauseEscortOnConditionFail("119-after-logingate-goral");
+                    }
+
+                    return;
+                }
+
+                StopTaskNavigation();
+                if (UseCaptainBagItem(MoonRabbitWingKeyword, false))
+                {
+                    _escortUseItemPending = true;
+                    _escortUseItemAtMs = now;
+                    ResetWingWizardState();
+                    WriteLog("119 use 赤凤之翼 after login-gate");
+                    return;
+                }
+
+                Tip("任务护航：队长背包没有赤凤之翼");
+                _escortLastDiag = "队长背包没有赤凤之翼";
+                PauseEscortOnConditionFail("119-red-phoenix-wing");
+                return;
+            }
+
+            if (!ClickEscortTaskNav("119-after-logingate"))
+            {
+                PauseEscortOnConditionFail("119-after-logingate");
+            }
+
+            return;
+        }
+
+        if (TempMidAutumnEscort119 && _escortUseItemPending)
+        {
+            var wingWait = TickWingWizardProgress(_escortUseItemAtMs);
+            if (wingWait == 0)
+            {
+                _escortLastDiag = "赤凤之翼弹窗（下一步/确定）";
+                return;
+            }
+
+            _escortUseItemPending = false;
+            _escortLastDiag = "";
+            if (wingWait < 0)
+            {
+                Tip("任务护航：赤凤之翼弹窗未点完");
+                PauseEscortOnConditionFail("119-wing-wizard-timeout");
+                return;
+            }
+
+            if (wingWait == 2)
+            {
+                WriteLog("119 wing wizard never opened, continue task");
+            }
+
+            if (!ClickEscortTaskNav("119-after-use-item"))
+            {
+                PauseEscortOnConditionFail("119-after-use-item");
+            }
+
+            return;
+        }
+
+        if (TempMidAutumnEscort119 && _escortHangupTeleportPending)
+        {
+            var arrived = false;
+            try
+            {
+                int floor;
+                string floorName;
+                int mapResId;
+                if (TryGetCurrentMapInfo(out floor, out floorName, out mapResId)
+                    && _escortHangupTeleportExpectFloor != 0)
+                {
+                    arrived = floor == _escortHangupTeleportExpectFloor;
+                }
+            }
+            catch
+            {
+                // ignore
+            }
+
+            if (!arrived && now - _escortHangupTeleportAtMs < EscortHangupTeleportWaitMs)
+            {
+                return;
+            }
+
+            _escortHangupTeleportPending = false;
+            _escortHangupTeleportExpectFloor = 0;
+            if (!ClickEscortTaskNav("119-after-hangup-teleport"))
+            {
+                PauseEscortOnConditionFail("119-after-hangup-teleport");
+            }
+
+            return;
+        }
+
+        if (TempMidAutumnEscort119 && _escort119TicketBankPending)
+        {
+            TickMoonRabbitTicketBank(now);
+            return;
+        }
+
+        if (TempMidAutumnEscort119 && _escortMissionId == MoonRabbitMissionId
+            && !_escortHangupTeleportPending && !_escortLoginGatePending && !_escortUseItemPending
+            && !_escort119TicketBankPending)
+        {
+            try
+            {
+                var sn = GetEscortMissionStepNum();
+                if (TryStartMoonRabbitBrownTeleport(sn, "tick")
+                    || TryStartMoonRabbitReefTeleport(sn, "tick")
+                    || TryStartMoonRabbitLastStepBank(sn, "tick"))
+                {
+                    return;
+                }
+            }
+            catch
+            {
+                // ignore
+            }
         }
 
         // 任务间 5 秒间隔
@@ -9352,7 +9919,8 @@ public static class SeqChapterTestUi
         // 任务已完成：有弹窗则继续点到消失；无弹窗再等一小段，然后进队间隔
         if (IsMissionEnded(_escortMissionId))
         {
-            _stuckResumePending = false;
+            StopEscortEncounterWait("mission-ended", false);
+            ClearEscortStuckPending();
             _escortRecoverAttempts = 0;
             if (dialogueOpen)
             {
@@ -9396,76 +9964,205 @@ public static class SeqChapterTestUi
                 _lastPosX = x;
                 _lastPosY = y;
                 _lastActivityMs = now;
-                // 有位移只刷新静止计时；本步骤恢复次数不因位移清零，换步骤才重置
+                // 有位移只刷新静止计时；不重置卡图阶段（任务导航走动也会触发位移）。
+                // 换步骤 / 手动继续 才 ResetEscortStuckState。
             }
+        }
+
+        // 切图：只刷新静止计时。续航由官方完成；119 在 15000(22,33) 续不上走特例。
+        if (TryGetCurrentMapInfo(out var curFloor, out _, out _))
+        {
+            if (_escortLastFloor == int.MinValue)
+            {
+                _escortLastFloor = curFloor;
+            }
+            else if (curFloor != _escortLastFloor)
+            {
+                WriteLog("escort floor change " + _escortLastFloor + "->" + curFloor
+                         + " id=" + _escortMissionId);
+                _escortLastFloor = curFloor;
+                _escortMapChangeAtMs = now;
+                _lastActivityMs = now;
+                ClearEscortStuckPending();
+                // 15000 挪格特例：整步只做一次，离图不重置 Done
+                if (_escort119WarpUnstickPhase != 0 && curFloor != MoonRabbitWarpStuckFloor)
+                {
+                    _escort119WarpUnstickPhase = 0;
+                }
+            }
+        }
+
+        // 中秋 #119 仅此一处导航特例：15000(22,33)
+        if (TryTickMoonRabbitWarpUnstick(now))
+        {
+            return;
+        }
+
+        // 切图后短 settle：等官方自己续上（切图已刷过静止计时，这里不再刷）
+        if (_escortMapChangeAtMs > 0 && now - _escortMapChangeAtMs < EscortMapChangeSettleMs)
+        {
+            return;
         }
 
         // 子任务步骤变化（missionStepNum 改变）→ 本步骤恢复计数清零，重新开始卡楼梯检测
         var stepNum = GetEscortMissionStepNum();
         if (stepNum >= 0 && stepNum != _escortLastStepNum)
         {
-            if (_escortLastStepNum >= 0 && _escortRecoverAttempts > 0)
+            var prevStep = _escortLastStepNum;
+            if (prevStep >= 0 && _escortRecoverAttempts > 0)
             {
                 WriteLog("escort step changed id=" + _escortMissionId
-                         + " step=" + stepNum + " (was " + _escortLastStepNum + ")"
+                         + " step=" + stepNum + " (was " + prevStep + ")"
                          + " recover reset");
             }
 
             _escortLastStepNum = stepNum;
             _escortRecoverAttempts = 0;
+            ResetEscortStuckState();
+            _escort119WarpUnstickDone = false;
+            _escort119WarpUnstickPhase = 0;
+            _escort119WarpUnstickClicks = 0;
             _lastActivityMs = now;
-            _stuckResumePending = false;
+
+            if (TempMidAutumnEscort119 && _escortMissionId == MoonRabbitMissionId && prevStep >= 0)
+            {
+                if (TryStartMoonRabbitStepSpecial(stepNum, "step-change")
+                    || TryStartMoonRabbitBrownTeleport(stepNum, "step-change")
+                    || TryStartMoonRabbitReefTeleport(stepNum, "step-change")
+                    || TryStartMoonRabbitLastStepBank(stepNum, "step-change"))
+                {
+                    WriteLog("119 special on step-change " + prevStep + "->" + stepNum);
+                    return;
+                }
+            }
+
+            if (_escortWaitItem && prevStep >= 0 && stepNum != _escortWaitAtStepNum)
+            {
+                StopEscortEncounterWait("step-changed", true);
+                if (!ClickEscortTaskNav("encounter-step-done"))
+                {
+                    PauseEscortOnConditionFail("encounter-step-done");
+                }
+
+                return;
+            }
         }
 
         if (inBattle)
         {
-            _stuckResumePending = false;
+            if (_escortWaitItem)
+            {
+                _escortWasInBattle = true;
+            }
+
+            ClearEscortStuckPending();
             return;
+        }
+
+        if (_escortWaitItem)
+        {
+            if (_escortWasInBattle)
+            {
+                _escortWasInBattle = false;
+                if (EscortEncounterHasTargetItem() || CanEscortLeaveEncounterWait())
+                {
+                    StopEscortEncounterWait("battle-got-item", true);
+                    if (!ClickEscortTaskNav("encounter-done"))
+                    {
+                        PauseEscortOnConditionFail("encounter-done");
+                    }
+
+                    return;
+                }
+            }
+
+            EnsureEscortEncounterOn();
+            _lastActivityMs = now;
+            return;
+        }
+
+        if (IsCurrentEscortEncounterFarm())
+        {
+            if (IsAtEscortEncounterDest())
+            {
+                EnterEscortEncounterWait();
+                return;
+            }
         }
 
         if (_stuckResumePending)
         {
-            if (now - _stuckMoveAtMs >= StuckResumeDelayMs)
-            {
-                _stuckResumePending = false;
-                _lastActivityMs = now;
-                if (!ClickEscortTaskNav("stuck-resume"))
-                {
-                    PauseEscortOnConditionFail("stuck-resume");
-                }
-            }
-
+            TickEscortStuckPending(now);
             return;
         }
 
         if (now - _lastActivityMs >= StuckIdleMs)
         {
-            _escortRecoverAttempts++;
-            WriteLog("escort stuck idle missionId=" + _escortMissionId
-                     + " stepRecover=" + _escortRecoverAttempts + "/" + EscortMaxRecoverFails);
-            if (_escortRecoverAttempts >= EscortMaxRecoverFails)
+            // 15000 上卡楼梯会 RunTask(400) 绕回芙蕾雅；中秋该图只走特例/手点
+            if (TempMidAutumnEscort119 && _escortMissionId == MoonRabbitMissionId
+                && TryGetCurrentMapInfo(out var stuckFloor, out _, out _)
+                && stuckFloor == MoonRabbitWarpStuckFloor)
             {
-                _escortPauseReason = "本步骤累计" + EscortMaxRecoverFails + "次尝试恢复失败";
-                PauseEscort(_escortPauseReason + "，已暂停，请手动处理", true);
                 return;
             }
 
-            if (TryRandomStepOne())
+            BeginEscortStuckRecovery(now);
+        }
+    }
+
+    private static void ResetEscortStuckState()
+    {
+        _stuckResumePending = false;
+    }
+
+    private static void ClearEscortStuckPending()
+    {
+        _stuckResumePending = false;
+    }
+
+    /// <summary>卡楼梯：随机挪 1 格后点任务（与改 15000 特例之前一致）。</summary>
+    private static void BeginEscortStuckRecovery(long now)
+    {
+        _escortRecoverAttempts++;
+        WriteLog("escort stuck idle missionId=" + _escortMissionId
+                 + " stepRecover=" + _escortRecoverAttempts + "/" + EscortMaxRecoverFails);
+        if (_escortRecoverAttempts >= EscortMaxRecoverFails)
+        {
+            _escortPauseReason = "本步骤累计" + EscortMaxRecoverFails + "次尝试恢复失败";
+            PauseEscort(_escortPauseReason + "，已暂停，请手动处理", true);
+            return;
+        }
+
+        if (TryRandomStepOne())
+        {
+            _stuckMoveAtMs = now;
+            _stuckResumePending = true;
+            _lastActivityMs = now;
+            Tip("任务护航：卡楼梯，挪格后重点任务（本步骤 "
+                + _escortRecoverAttempts + "/" + EscortMaxRecoverFails + "）");
+        }
+        else
+        {
+            _lastActivityMs = now;
+            if (!ClickEscortTaskNav("stuck-resume-fallback"))
             {
-                _stuckMoveAtMs = now;
-                _stuckResumePending = true;
-                _lastActivityMs = now;
-                Tip("任务护航：卡楼梯，挪格后重点任务（本步骤 "
-                    + _escortRecoverAttempts + "/" + EscortMaxRecoverFails + "）");
+                PauseEscortOnConditionFail("stuck-resume-fallback");
             }
-            else
-            {
-                _lastActivityMs = now;
-                if (!ClickEscortTaskNav("stuck-resume-fallback"))
-                {
-                    PauseEscortOnConditionFail("stuck-resume-fallback");
-                }
-            }
+        }
+    }
+
+    private static void TickEscortStuckPending(long now)
+    {
+        if (now - _stuckMoveAtMs < StuckResumeDelayMs)
+        {
+            return;
+        }
+
+        _stuckResumePending = false;
+        _lastActivityMs = now;
+        if (!ClickEscortTaskNav("stuck-resume"))
+        {
+            PauseEscortOnConditionFail("stuck-resume");
         }
     }
 
@@ -9631,7 +10328,7 @@ public static class SeqChapterTestUi
 
                 common.Invoke(mission, null);
                 var flag = Convert.ToBoolean(GetMember(mission, "missionStepFlag") ?? false);
-                if (flag && MissionHasMovePoints(mission))
+                if (flag && (MissionHasMovePoints(mission) || IsEncounterFarmStep(GetMissionStepConfig(mission))))
                 {
                     return true;
                 }
@@ -10509,10 +11206,47 @@ public static class SeqChapterTestUi
         }
     }
 
-    private static void StopTaskNavigation()
+    /// <summary>
+    /// 停官方任务导航（CancelTaskPathfinding + StopMove）。
+    /// 用道具 / 存包 / 回登入点 / 挂机传送 / 暂停护航 等必须走这里。
+    /// 卡图「只点任务续航」不要用本方法（会抹掉切图后续航），改用 <see cref="StopWalkOnly"/>。
+    /// </summary>
+    private static void StopTaskNavigation(bool writeLog = true)
     {
         try
         {
+            var tm = GetManagerInstance("TaskManager");
+            if (tm != null)
+            {
+                try
+                {
+                    var cancel = tm.GetType().GetMethod(
+                        "CancelTaskPathfinding",
+                        BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                    cancel?.Invoke(tm, null);
+                }
+                catch
+                {
+                    // ignore
+                }
+
+                try
+                {
+                    SetProp(tm, "RunTaskId", -1);
+                }
+                catch
+                {
+                    try
+                    {
+                        SetMember(tm, "RunTaskId", -1);
+                    }
+                    catch
+                    {
+                        // ignore
+                    }
+                }
+            }
+
             var pm = GetManagerInstance("PlayerManager");
             var walk = GetProp(pm, "walkSystem") ?? GetMember(pm, "walkSystem");
             if (walk == null)
@@ -10559,29 +11293,10 @@ public static class SeqChapterTestUi
             }
 
             stop.Invoke(walk, args);
-
-            // 清 RunTaskId，避免状态残留
-            var tm = GetManagerInstance("TaskManager");
-            if (tm != null)
+            if (writeLog)
             {
-                try
-                {
-                    SetProp(tm, "RunTaskId", -1);
-                }
-                catch
-                {
-                    try
-                    {
-                        SetMember(tm, "RunTaskId", -1);
-                    }
-                    catch
-                    {
-                        // ignore
-                    }
-                }
+                WriteLog("escort StopMove ok");
             }
-
-            WriteLog("escort StopMove ok");
         }
         catch (Exception ex)
         {
@@ -10589,8 +11304,8 @@ public static class SeqChapterTestUi
         }
     }
 
-    /// <summary>随机 X±1 或 Y±1 走一格（卡楼梯解卡）。</summary>
-    private static bool TryRandomStepOne()
+    /// <summary>走到指定格（卡楼梯解卡 / 走回原格）。</summary>
+    private static bool TryWalkTo(int tx, int ty)
     {
         try
         {
@@ -10599,10 +11314,10 @@ public static class SeqChapterTestUi
                 return false;
             }
 
-            var axisX = _rng.Next(2) == 0;
-            var delta = _rng.Next(2) == 0 ? -1 : 1;
-            var tx = axisX ? x + delta : x;
-            var ty = axisX ? y : y + delta;
+            if (x == tx && y == ty)
+            {
+                return true;
+            }
 
             var pm = GetManagerInstance("PlayerManager");
             var walk = GetProp(pm, "walkSystem") ?? GetMember(pm, "walkSystem");
@@ -10679,8 +11394,31 @@ public static class SeqChapterTestUi
             }
 
             moveTo.Invoke(walk, args);
-            WriteLog("escort random step (" + x + "," + y + ")->(" + tx + "," + ty + ")");
+            WriteLog("escort walk (" + x + "," + y + ")->(" + tx + "," + ty + ")");
             return true;
+        }
+        catch (Exception ex)
+        {
+            WriteLog("TryWalkTo EX: " + RootMessage(ex));
+            return false;
+        }
+    }
+
+    /// <summary>随机 X±1 或 Y±1 走一格（卡楼梯解卡）。</summary>
+    private static bool TryRandomStepOne()
+    {
+        try
+        {
+            if (!TryGetPlayerXY(out var x, out var y))
+            {
+                return false;
+            }
+
+            var axisX = _rng.Next(2) == 0;
+            var delta = _rng.Next(2) == 0 ? -1 : 1;
+            var tx = axisX ? x + delta : x;
+            var ty = axisX ? y : y + delta;
+            return TryWalkTo(tx, ty);
         }
         catch (Exception ex)
         {
@@ -10690,8 +11428,2105 @@ public static class SeqChapterTestUi
     }
 
     /// <summary>
-    /// 模拟右侧任务点击：Com_TaskItem.OnClickTask
-    /// → AutoWarpIndex=0 → TaskManager.RunTask(mission) → MissionSystem.TaskMoveTo 导航。
+    /// 遇敌/打怪获取道具步骤：到达目的地后开原地遇敌，战斗结束检查道具后再关遇敌继续。
+    /// </summary>
+    private static string StripRichText(string s)
+    {
+        if (string.IsNullOrEmpty(s))
+        {
+            return "";
+        }
+
+        var sb = new System.Text.StringBuilder(s.Length);
+        for (var i = 0; i < s.Length; i++)
+        {
+            if (s[i] == '<')
+            {
+                var j = s.IndexOf('>', i);
+                if (j >= 0)
+                {
+                    i = j;
+                    continue;
+                }
+            }
+
+            if (s[i] == '\\' && i + 1 < s.Length && (s[i + 1] == 'n' || s[i + 1] == 'N'))
+            {
+                sb.Append(' ');
+                i++;
+                continue;
+            }
+
+            sb.Append(s[i]);
+        }
+
+        return sb.ToString();
+    }
+
+    private static string MainStepDescribe(object step)
+    {
+        var desc = StripRichText(Convert.ToString(GetMember(step, "Describe") ?? GetProp(step, "Describe") ?? "") ?? "");
+        var tipAt = desc.IndexOf("小贴士", StringComparison.Ordinal);
+        if (tipAt > 0)
+        {
+            desc = desc.Substring(0, tipAt);
+        }
+
+        return desc.Trim();
+    }
+
+    private static object GetMissionStepConfig(object mission)
+    {
+        if (mission == null)
+        {
+            return null;
+        }
+
+        try
+        {
+            var m = mission.GetType().GetMethod(
+                "GetStepConfig",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            var cfg = m?.Invoke(mission, null);
+            if (cfg != null)
+            {
+                return cfg;
+            }
+        }
+        catch
+        {
+            // fallback below
+        }
+
+        try
+        {
+            var miss = GetMember(mission, "MissStepData") as System.Collections.IDictionary;
+            var stepNum = Convert.ToInt32(GetMember(mission, "missionStepNum") ?? -1);
+            if (miss == null || !miss.Contains(stepNum))
+            {
+                return null;
+            }
+
+            var list = miss[stepNum] as System.Collections.IList;
+            if (list == null || list.Count == 0)
+            {
+                return null;
+            }
+
+            // 同一步多变体时取最后一个（与任务步骤队列先取末项一致）
+            return list[list.Count - 1];
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>是否「遇敌/击败获取道具」类步骤（原地挂机，不是点 NPC 挑战）。</summary>
+    private static bool IsEncounterFarmStep(object step)
+    {
+        if (step == null)
+        {
+            return false;
+        }
+
+        var desc = MainStepDescribe(step);
+        if (desc.IndexOf("遇敌", StringComparison.Ordinal) >= 0)
+        {
+            return true;
+        }
+
+        try
+        {
+            var hints = GetMember(step, "Hints") as System.Collections.IList;
+            if (hints != null)
+            {
+                foreach (var h in hints)
+                {
+                    var s = Convert.ToString(h) ?? "";
+                    if (s.IndexOf("开启原地遇敌", StringComparison.Ordinal) >= 0)
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+        catch
+        {
+            // ignore
+        }
+
+        if (desc.IndexOf("获得", StringComparison.Ordinal) >= 0
+            && desc.IndexOf("交谈", StringComparison.Ordinal) < 0
+            && (desc.IndexOf("击败", StringComparison.Ordinal) >= 0
+                || desc.IndexOf("击杀", StringComparison.Ordinal) >= 0
+                || desc.IndexOf("打倒", StringComparison.Ordinal) >= 0))
+        {
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool IsCurrentEscortEncounterFarm()
+    {
+        try
+        {
+            var mission = GetMissionDataById(_escortMissionId);
+            if (mission == null)
+            {
+                return false;
+            }
+
+            var common = mission.GetType().GetMethod(
+                "CommonSetMissionStep",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            common?.Invoke(mission, null);
+            return IsEncounterFarmStep(GetMissionStepConfig(mission));
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>遇敌步骤导航点：scriptData.movePoint 最后一项（与 ClickEscortTaskNav 一致）。MapPoint 为 x=地图 y=X z=Y。</summary>
+    private static bool TryGetEscortEncounterDest(out int mapFloor, out int x, out int y)
+    {
+        mapFloor = 0;
+        x = 0;
+        y = 0;
+        try
+        {
+            var mission = GetMissionDataById(_escortMissionId);
+            if (mission == null)
+            {
+                return false;
+            }
+
+            var script = GetProp(mission, "scriptData") ?? GetMember(mission, "scriptData");
+            var move = GetMember(script, "movePoint") as IList;
+            if (move == null || move.Count == 0)
+            {
+                return false;
+            }
+
+            var v3 = move[move.Count - 1];
+            mapFloor = Convert.ToInt32(GetMember(v3, "x") ?? GetProp(v3, "x") ?? 0);
+            x = Convert.ToInt32(GetMember(v3, "y") ?? GetProp(v3, "y") ?? 0);
+            y = Convert.ToInt32(GetMember(v3, "z") ?? GetProp(v3, "z") ?? 0);
+            if (mapFloor == -999)
+            {
+                int floor;
+                string floorName;
+                int mapResId;
+                TryGetCurrentMapInfo(out floor, out floorName, out mapResId);
+                mapFloor = floor;
+            }
+
+            return mapFloor != 0;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool IsAtEscortEncounterDest()
+    {
+        int destFloor;
+        int destX;
+        int destY;
+        if (!TryGetEscortEncounterDest(out destFloor, out destX, out destY))
+        {
+            return true;
+        }
+
+        int floor;
+        string floorName;
+        int mapResId;
+        if (!TryGetCurrentMapInfo(out floor, out floorName, out mapResId) || floor != destFloor)
+        {
+            return false;
+        }
+
+        int px;
+        int py;
+        if (!TryGetPlayerXY(out px, out py))
+        {
+            return false;
+        }
+
+        var dx = px - destX;
+        var dy = py - destY;
+        if (dx < 0)
+        {
+            dx = -dx;
+        }
+
+        if (dy < 0)
+        {
+            dy = -dy;
+        }
+
+        return dx <= EscortEncounterArriveNear && dy <= EscortEncounterArriveNear;
+    }
+
+    private static string ParseObtainItemName(object step)
+    {
+        var desc = MainStepDescribe(step);
+        var i = desc.LastIndexOf("获得", StringComparison.Ordinal);
+        if (i < 0)
+        {
+            return "";
+        }
+
+        var rest = desc.Substring(i + 2).Trim();
+        var cutChars = new[] { '，', '。', '；', '、', ' ', '\t', ',', '.', ';', '通', '可', '后' };
+        var cut = rest.Length;
+        for (var k = 0; k < rest.Length; k++)
+        {
+            for (var c = 0; c < cutChars.Length; c++)
+            {
+                if (rest[k] == cutChars[c])
+                {
+                    cut = k;
+                    k = rest.Length;
+                    break;
+                }
+            }
+        }
+
+        if (cut < rest.Length)
+        {
+            rest = rest.Substring(0, cut);
+        }
+
+        return rest.Trim();
+    }
+
+    private static int CountBagItemByName(string name)
+    {
+        if (string.IsNullOrEmpty(name))
+        {
+            return 0;
+        }
+
+        try
+        {
+            var uid = Convert.ToString(GetStaticMember("PlayerDataHolder", "MainPlayerUid") ?? "") ?? "";
+            var getItems = FindType("PlayerDataHolder")?.GetMethod(
+                "GetItemDatasFromUid",
+                BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic);
+            var itemList = getItems?.Invoke(null, new object[] { uid }) as System.Collections.IEnumerable;
+            if (itemList == null)
+            {
+                return 0;
+            }
+
+            var n = 0;
+            foreach (var it in itemList)
+            {
+                try
+                {
+                    if (Convert.ToInt32(GetMember(it, "useFlag") ?? 0) != 1)
+                    {
+                        continue;
+                    }
+
+                    var data = GetMember(it, "data") ?? GetProp(it, "data");
+                    var itemName = Convert.ToString(GetMember(data, "Name") ?? GetProp(data, "Name") ?? "") ?? "";
+                    if (itemName.IndexOf(name, StringComparison.Ordinal) < 0)
+                    {
+                        continue;
+                    }
+
+                    n += Convert.ToInt32(GetMember(data, "Pile") ?? GetProp(data, "Pile") ?? 1);
+                }
+                catch
+                {
+                    // ignore
+                }
+            }
+
+            return n;
+        }
+        catch
+        {
+            return 0;
+        }
+    }
+
+    private static bool EscortEncounterHasTargetItem()
+    {
+        return !string.IsNullOrEmpty(_escortWaitItemName) && CountBagItemByName(_escortWaitItemName) > 0;
+    }
+
+    private static bool CanEscortLeaveEncounterWait()
+    {
+        if (IsMissionEnded(_escortMissionId))
+        {
+            return true;
+        }
+
+        var stepNum = GetEscortMissionStepNum();
+        if (stepNum >= 0 && _escortWaitAtStepNum >= 0 && stepNum != _escortWaitAtStepNum)
+        {
+            return true;
+        }
+
+        if (EscortEncounterHasTargetItem())
+        {
+            return true;
+        }
+
+        return !IsCurrentEscortEncounterFarm();
+    }
+
+    private static int GetEncounterStatus()
+    {
+        try
+        {
+            var pd = GetStaticMember("PlayerDataHolder", "playerData");
+            return Convert.ToInt32(GetMember(pd, "encounterStatus") ?? 0);
+        }
+        catch
+        {
+            return 0;
+        }
+    }
+
+    private static void ResetMoonRabbitEscortFlags()
+    {
+        _escortLoginGatePending = false;
+        _escortLoginGateAtMs = 0;
+        _escortUseItemPending = false;
+        _escortUseItemAtMs = 0;
+        ResetWingWizardState();
+        _escort119GateDone2 = false;
+        _escort119TeleportDone5 = false;
+        _escort119TeleportDone7 = false;
+        _escortHangupTeleportPending = false;
+        _escortHangupTeleportAtMs = 0;
+        _escortHangupTeleportExpectFloor = 0;
+        _escort119TicketBankDone = false;
+        _escort119TicketBankPending = false;
+        _escort119TicketBankAtMs = 0;
+        _escort119LastStepSinceMs = 0;
+        _escort119TicketBankUids.Clear();
+        _escort119TicketBankUidIndex = 0;
+        _escort119TicketBankFailStreak = 0;
+        _escort119TicketBankAwaitConfirm = false;
+        _escort119TicketBankAnyStored = false;
+        _escort119PendingAfterGateStep = -1;
+        _escort119WarpUnstickPhase = 0;
+        _escort119WarpUnstickAtMs = 0;
+        _escort119WarpUnstickClicks = 0;
+        _escort119WarpUnstickDone = false;
+    }
+
+    /// <summary>
+    /// 中秋 #119 唯一导航特例：15000(22,33)。
+    /// 右侧点任务不是「取消再启动」，而是 AutoWarpIndex=0（走向 400）。
+    /// 护航遇敌步却从表尾 100 开，切图后还握着回芙蕾雅，直接导航迈不开步。
+    /// </summary>
+    private static bool TryTickMoonRabbitWarpUnstick(long now)
+    {
+        if (!TempMidAutumnEscort119 || _escortMissionId != MoonRabbitMissionId)
+        {
+            return false;
+        }
+
+        int floor;
+        string floorName;
+        int mapResId;
+        if (!TryGetCurrentMapInfo(out floor, out floorName, out mapResId))
+        {
+            return false;
+        }
+
+        if (floor != MoonRabbitWarpStuckFloor)
+        {
+            if (!_escort119WarpUnstickDone
+                && (_escort119WarpUnstickPhase != 0 || _escort119WarpUnstickClicks > 0))
+            {
+                WriteLog("119 warp-unstick done left floor=" + floor
+                         + " clicks=" + _escort119WarpUnstickClicks);
+                _escort119WarpUnstickPhase = 0;
+                _escort119WarpUnstickClicks = 0;
+                _escort119WarpUnstickDone = true;
+            }
+
+            return false;
+        }
+
+        if (_escort119WarpUnstickDone)
+        {
+            return false;
+        }
+
+        int px;
+        int py;
+        if (!TryGetPlayerXY(out px, out py))
+        {
+            return false;
+        }
+
+        var atStuck = px == MoonRabbitWarpStuckX && py == MoonRabbitWarpStuckY;
+        if (_escort119WarpUnstickClicks > 0 && !atStuck)
+        {
+            WriteLog("119 warp-unstick done left tile (" + px + "," + py + ")"
+                     + " clicks=" + _escort119WarpUnstickClicks);
+            _escort119WarpUnstickPhase = 0;
+            _escort119WarpUnstickClicks = 0;
+            _escort119WarpUnstickDone = true;
+            return false;
+        }
+
+        if (_escort119WarpUnstickPhase == 1)
+        {
+            if (!atStuck)
+            {
+                _escort119WarpUnstickPhase = 0;
+                _escort119WarpUnstickClicks = 0;
+                _escort119WarpUnstickDone = true;
+                return false;
+            }
+
+            if (now - _escort119WarpUnstickAtMs < MoonRabbitWarpUnstickRetryMs)
+            {
+                return true;
+            }
+
+            if (_escort119WarpUnstickClicks >= MoonRabbitWarpUnstickMaxClicks)
+            {
+                _escort119WarpUnstickPhase = 0;
+                _escort119WarpUnstickDone = true;
+                return false;
+            }
+
+            return ClickMoonRabbitWarpRestart(now, "second-after-2s");
+        }
+
+        if (_escortMapChangeAtMs > 0
+            && now - _escortMapChangeAtMs < MoonRabbitWarpUnstickSettleMs)
+        {
+            return false;
+        }
+
+        if (IsMapLoading())
+        {
+            return true;
+        }
+
+        if (!atStuck)
+        {
+            return false;
+        }
+
+        return ClickMoonRabbitWarpRestart(now, "first");
+    }
+
+    /// <summary>15000：取消回芙蕾雅的任务导航，再走正向下一张。</summary>
+    private static bool ClickMoonRabbitWarpRestart(long now, string tag)
+    {
+        _escort119WarpUnstickClicks++;
+        var to15001 = _escort119WarpUnstickClicks <= 1;
+        var floor = to15001 ? MoonRabbitWarpNextFloor : MoonRabbitWarpGoalFloor;
+        var x = to15001 ? MoonRabbitWarpNextX : MoonRabbitWarpGoalX;
+        var y = to15001 ? MoonRabbitWarpNextY : MoonRabbitWarpGoalY;
+        WriteLog("119 warp-unstick cancel+nav #" + _escort119WarpUnstickClicks + " tag=" + tag
+                 + " dest=(" + floor + "," + x + "," + y + ")");
+        Tip(to15001
+            ? "任务护航：过图卡住，取消回程改走下层"
+            : "任务护航：再导航去星月噬灵者");
+        ClearEscortStuckPending();
+        StopTaskNavigation(false);
+        ClearTaskPathSameIndexStopGuard();
+        ForceEscortAutoWarpIndexZero();
+        _escort119WarpUnstickPhase = 1;
+        _escort119WarpUnstickAtMs = now;
+        _lastActivityMs = now;
+        if (!TryNavigateTo(floor, x, y, out var how))
+        {
+            WriteLog("119 warp-unstick nav fail how=" + how);
+            PauseEscortOnConditionFail("119-warp-restart");
+        }
+        else
+        {
+            WriteLog("119 warp-unstick nav ok how=" + how);
+        }
+
+        return true;
+    }
+
+    /// <summary>侧栏手点是 AutoWarpIndex=0（去 400）。写回字段，避免官方续航再走表尾 100。</summary>
+    private static void ForceEscortAutoWarpIndexZero()
+    {
+        try
+        {
+            var mission = GetSidebarTaskMissionData(_escortMissionId) ?? GetMissionDataById(_escortMissionId);
+            if (mission == null)
+            {
+                WriteLog("119 ForceAutoWarpIndex miss");
+                return;
+            }
+
+            var before = GetMember(mission, "AutoWarpIndex") ?? GetProp(mission, "AutoWarpIndex");
+            var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+            for (var t = mission.GetType(); t != null && t != typeof(object); t = t.BaseType)
+            {
+                foreach (var p in t.GetProperties(flags))
+                {
+                    if (p.Name != "AutoWarpIndex" || !p.CanWrite)
+                    {
+                        continue;
+                    }
+
+                    try
+                    {
+                        p.SetValue(mission, Convert.ChangeType(0, p.PropertyType), null);
+                    }
+                    catch
+                    {
+                        // next
+                    }
+                }
+
+                foreach (var f in t.GetFields(flags))
+                {
+                    if (f.Name != "AutoWarpIndex" && f.Name.IndexOf("AutoWarp", StringComparison.Ordinal) < 0)
+                    {
+                        continue;
+                    }
+
+                    try
+                    {
+                        f.SetValue(mission, Convert.ChangeType(0, f.FieldType));
+                    }
+                    catch
+                    {
+                        // next
+                    }
+                }
+            }
+
+            var after = GetMember(mission, "AutoWarpIndex") ?? GetProp(mission, "AutoWarpIndex");
+            WriteLog("119 ForceAutoWarpIndex before=" + before + " after=" + after);
+        }
+        catch (Exception ex)
+        {
+            WriteLog("119 ForceAutoWarpIndex EX " + RootMessage(ex));
+        }
+    }
+
+    /// <summary>侧栏手点：优先用 Com_TaskItem.m_Info，只 AutoWarpIndex=0 + RunTask。</summary>
+    private static bool ClickEscortTaskLikeMouse()
+    {
+        try
+        {
+            var mapLoading = IsMapLoading();
+            var mission = GetSidebarTaskMissionData(_escortMissionId) ?? GetMissionDataById(_escortMissionId);
+            if (mission == null)
+            {
+                WriteLog("ClickEscortTaskLikeMouse miss id=" + _escortMissionId);
+                return false;
+            }
+
+            var src = GetSidebarTaskMissionData(_escortMissionId) != null ? "sidebar" : "holder";
+            WriteLog("ClickEscortTaskLikeMouse src=" + src
+                     + " mapLoading=" + mapLoading
+                     + " " + FormatMissionNavDebug(mission));
+
+            if (mapLoading)
+            {
+                WriteLog("ClickEscortTaskLikeMouse skip, MapLoading");
+                return true;
+            }
+
+            try
+            {
+                SetProp(mission, "AutoWarpIndex", 0);
+            }
+            catch
+            {
+                SetMember(mission, "AutoWarpIndex", 0);
+            }
+
+            if (!InvokeTaskManagerRunTask(mission, out var how))
+            {
+                WriteLog("ClickEscortTaskLikeMouse invoke fail id=" + _escortMissionId);
+                return false;
+            }
+
+            _prevRunTaskId = GetRunTaskId();
+            WriteLog("ClickEscortTaskLikeMouse ok id=" + _escortMissionId
+                     + " how=" + how
+                     + " runId=" + _prevRunTaskId
+                     + " " + FormatMissionNavDebug(mission));
+            return true;
+        }
+        catch (Exception ex)
+        {
+            WriteLog("ClickEscortTaskLikeMouse EX: " + RootMessage(ex));
+            return false;
+        }
+    }
+
+    private static object GetSidebarTaskMissionData(int missionId)
+    {
+        try
+        {
+            var panel = GetUiPanel("MissionSidebarPanel");
+            if (panel == null)
+            {
+                return null;
+            }
+
+            var comTask = GetMember(panel, "m_Com_Task") ?? GetProp(panel, "m_Com_Task");
+            if (comTask == null)
+            {
+                return null;
+            }
+
+            var pool = GetMember(comTask, "m_BtnPool") ?? GetProp(comTask, "m_BtnPool");
+            if (pool is System.Collections.IDictionary dict)
+            {
+                foreach (var item in dict.Values)
+                {
+                    var info = GetMember(item, "m_Info") ?? GetProp(item, "m_Info");
+                    if (info == null)
+                    {
+                        continue;
+                    }
+
+                    var id = Convert.ToInt32(GetMember(info, "id") ?? GetProp(info, "id") ?? 0);
+                    if (id == missionId)
+                    {
+                        return info;
+                    }
+                }
+            }
+
+            var infos = GetMember(comTask, "m_Infos") ?? GetProp(comTask, "m_Infos");
+            if (infos is System.Collections.IList list)
+            {
+                foreach (var info in list)
+                {
+                    if (info == null)
+                    {
+                        continue;
+                    }
+
+                    var id = Convert.ToInt32(GetMember(info, "id") ?? GetProp(info, "id") ?? 0);
+                    if (id == missionId)
+                    {
+                        return info;
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            WriteLog("GetSidebarTaskMissionData EX " + RootMessage(ex));
+        }
+
+        return null;
+    }
+
+    private static string FormatMissionNavDebug(object mission)
+    {
+        try
+        {
+            var aw = GetMember(mission, "AutoWarpIndex") ?? GetProp(mission, "AutoWarpIndex") ?? "?";
+            var step = GetMember(mission, "missionStepNum") ?? GetProp(mission, "missionStepNum") ?? "?";
+            var tp = GetProp(mission, "TargetPoint") ?? GetMember(mission, "TargetPoint");
+            var tpDump = DumpObjectMembers(tp);
+            var mp0 = "";
+            try
+            {
+                var script = GetProp(mission, "scriptData") ?? GetMember(mission, "scriptData");
+                var move = GetMember(script, "movePoint") as System.Collections.IList;
+                if (move != null && move.Count > 0)
+                {
+                    var v3 = move[0];
+                    mp0 = " move0=("
+                          + (GetMember(v3, "x") ?? GetProp(v3, "x")) + ","
+                          + (GetMember(v3, "y") ?? GetProp(v3, "y")) + ","
+                          + (GetMember(v3, "z") ?? GetProp(v3, "z")) + ")";
+                }
+            }
+            catch
+            {
+                mp0 = "";
+            }
+
+            return "step=" + step + " warp=" + aw + " TargetPoint{" + tpDump + "}" + mp0;
+        }
+        catch (Exception ex)
+        {
+            return "debugEX=" + RootMessage(ex);
+        }
+    }
+
+    private static string DumpObjectMembers(object obj)
+    {
+        if (obj == null)
+        {
+            return "null";
+        }
+
+        var sb = new System.Text.StringBuilder();
+        try
+        {
+            var t = obj.GetType();
+            foreach (var f in t.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+            {
+                if (sb.Length > 0)
+                {
+                    sb.Append(',');
+                }
+
+                try
+                {
+                    sb.Append(f.Name).Append('=').Append(f.GetValue(obj));
+                }
+                catch
+                {
+                    sb.Append(f.Name).Append("=?");
+                }
+            }
+
+            foreach (var p in t.GetProperties(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+            {
+                if (p.GetIndexParameters().Length > 0 || !p.CanRead)
+                {
+                    continue;
+                }
+
+                if (sb.Length > 0)
+                {
+                    sb.Append(',');
+                }
+
+                try
+                {
+                    sb.Append(p.Name).Append('=').Append(p.GetValue(obj, null));
+                }
+                catch
+                {
+                    sb.Append(p.Name).Append("=?");
+                }
+            }
+        }
+        catch
+        {
+            sb.Append(obj);
+        }
+
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// 清掉 TaskManager 的 sameIndex 停止守卫。
+    /// 切图续航失败后首次 RunTask/手点常只清守卫不寻路；第二次才真正走——我们主动清掉避免「没反应」。
+    /// </summary>
+    private static void ClearTaskPathSameIndexStopGuard()
+    {
+        try
+        {
+            var tm = GetManagerInstance("TaskManager");
+            if (tm == null)
+            {
+                return;
+            }
+
+            var m = tm.GetType().GetMethod(
+                "ClearTaskPathStopIfSameIndex",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            if (m != null)
+            {
+                m.Invoke(tm, null);
+                WriteLog("ClearTaskPathStopIfSameIndex ok");
+                return;
+            }
+
+            // 反射方法名失败时直接写字段
+            try
+            {
+                SetMember(tm, "m_TaskPathStopIfSameTaskId", -1);
+                SetMember(tm, "m_TaskPathStopIfSameStep", -1);
+                SetMember(tm, "m_TaskPathStopIfSameIndex", -1);
+                WriteLog("ClearTaskPathStopIfSameIndex via fields");
+            }
+            catch (Exception ex2)
+            {
+                WriteLog("ClearTaskPathStopIfSameIndex fields EX " + RootMessage(ex2));
+            }
+        }
+        catch (Exception ex)
+        {
+            WriteLog("ClearTaskPathSameIndexStopGuard EX " + RootMessage(ex));
+        }
+    }
+
+    /// <summary>
+    /// 官方任务导航是否仍在进行：寻路中 / 等切图续航 / 地图加载中。
+    /// 为 true 时护航不得判卡图、不得再 RunTask（会清 m_TaskPathResumePending）。
+    /// </summary>
+    private static bool IsOfficialTaskPathBusy()
+    {
+        try
+        {
+            if (IsMapLoading())
+            {
+                return true;
+            }
+
+            var tm = GetManagerInstance("TaskManager");
+            if (tm == null)
+            {
+                return false;
+            }
+
+            var pathing = Convert.ToBoolean(
+                GetMember(tm, "m_IsTaskPathfindingActive")
+                ?? GetProp(tm, "m_IsTaskPathfindingActive")
+                ?? false);
+            var resume = Convert.ToBoolean(
+                GetMember(tm, "m_TaskPathResumePending")
+                ?? GetProp(tm, "m_TaskPathResumePending")
+                ?? false);
+            var waitNpc = Convert.ToBoolean(
+                GetMember(tm, "m_TaskPathWaitingNpcMapChange")
+                ?? GetProp(tm, "m_TaskPathWaitingNpcMapChange")
+                ?? false);
+            return pathing || resume || waitNpc;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool IsMapLoading()
+    {
+        try
+        {
+            var t = FindType("MapManager");
+            if (t == null)
+            {
+                return false;
+            }
+
+            var p = t.GetProperty(
+                "MapLoading", BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic);
+            if (p != null)
+            {
+                return Convert.ToBoolean(p.GetValue(null, null) ?? false);
+            }
+
+            var f = t.GetField(
+                "MapLoading", BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic);
+            return f != null && Convert.ToBoolean(f.GetValue(null) ?? false);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool IsLocalCaptain()
+    {
+        try
+        {
+            var main = Convert.ToString(GetStaticMember("PlayerDataHolder", "MainPlayerUid") ?? "") ?? "";
+            var cap = GetCaptainUid();
+            return !string.IsNullOrEmpty(main) && !string.IsNullOrEmpty(cap)
+                   && string.Equals(main, cap, StringComparison.Ordinal);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// 中秋 #119：步骤 2 开始时队长回登入点。
+    /// 阿凯版：切图后再用赤凤之翼；哥拉尔版：登入点已在哥拉尔，回点后直接点任务。
+    /// </summary>
+    private static bool TryStartMoonRabbitStepSpecial(int stepNum, string reason)
+    {
+        if (!TempMidAutumnEscort119 || _escortMissionId != MoonRabbitMissionId)
+        {
+            return false;
+        }
+
+        if (stepNum != MoonRabbitLoginGateStep2 || _escort119GateDone2)
+        {
+            return false;
+        }
+
+        if (!TrySendEscortLoginGate())
+        {
+            return false;
+        }
+
+        _escort119GateDone2 = true;
+        _escort119PendingAfterGateStep = stepNum;
+        _escortLoginGatePending = true;
+        _escortLoginGateAtMs = NowMs();
+        WriteLog("119 login-gate " + reason + " step=" + stepNum
+                 + " edition=" + (_midAutumnGoralEdition ? "goral" : "akai"));
+        return true;
+    }
+
+    /// <summary>
+    /// 中秋 #119 步骤 5 挑战暗影巡卫：开始前挂机传送「布朗山」（SendMisc Id=6），到图后再点任务导航。
+    /// 已在布朗山则跳过。战斗中不标记完成，出战后重试。
+    /// </summary>
+    private static bool TryStartMoonRabbitBrownTeleport(int stepNum, string reason)
+    {
+        if (!TempMidAutumnEscort119 || _escortMissionId != MoonRabbitMissionId)
+        {
+            return false;
+        }
+
+        if (stepNum != MoonRabbitBrownMountainStep || _escort119TeleportDone5 || _escortHangupTeleportPending)
+        {
+            return false;
+        }
+
+        if (!IsLocalCaptain())
+        {
+            return false;
+        }
+
+        if (IsOnMoonRabbitBrownMountain())
+        {
+            _escort119TeleportDone5 = true;
+            WriteLog("119 hangup-teleport brown skip already-there reason=" + reason);
+            return false;
+        }
+
+        try
+        {
+            if (Convert.ToBoolean(GetStaticMember("BattleDataHolder", "IsInBattle") ?? false))
+            {
+                WriteLog("119 hangup-teleport brown wait in-battle");
+                return false;
+            }
+        }
+        catch
+        {
+            // ignore
+        }
+
+        if (!TrySendHangupTeleport(MoonRabbitBrownMountainTeleportId))
+        {
+            return false;
+        }
+
+        _escort119TeleportDone5 = true;
+        _escortHangupTeleportPending = true;
+        _escortHangupTeleportAtMs = NowMs();
+        _escortHangupTeleportExpectFloor = MoonRabbitBrownMountainFloor;
+        Tip("任务护航：已传送布朗山");
+        WriteLog("119 hangup-teleport brown " + reason + " id=" + MoonRabbitBrownMountainTeleportId);
+        return true;
+    }
+
+    private static bool IsOnMoonRabbitBrownMountain()
+    {
+        try
+        {
+            int floor;
+            string floorName;
+            int mapResId;
+            return TryGetCurrentMapInfo(out floor, out floorName, out mapResId)
+                   && floor == MoonRabbitBrownMountainFloor;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// 中秋 #119 步骤 7 调查星月落痕·礁石：开始前挂机传送「奇怪的洞窟怪」（SendMisc Id=2）。
+    /// 已在洞窟内或已靠近礁石则跳过。战斗中不标记完成，出战后重试。
+    /// </summary>
+    private static bool TryStartMoonRabbitReefTeleport(int stepNum, string reason)
+    {
+        if (!TempMidAutumnEscort119 || _escortMissionId != MoonRabbitMissionId)
+        {
+            return false;
+        }
+
+        if (stepNum != MoonRabbitReefStep || _escort119TeleportDone7 || _escortHangupTeleportPending)
+        {
+            return false;
+        }
+
+        if (!IsLocalCaptain())
+        {
+            return false;
+        }
+
+        if (IsNearMoonRabbitReefOrCave())
+        {
+            _escort119TeleportDone7 = true;
+            WriteLog("119 hangup-teleport skip already-near reason=" + reason);
+            return false;
+        }
+
+        try
+        {
+            if (Convert.ToBoolean(GetStaticMember("BattleDataHolder", "IsInBattle") ?? false))
+            {
+                WriteLog("119 hangup-teleport wait in-battle");
+                return false;
+            }
+        }
+        catch
+        {
+            // ignore
+        }
+
+        if (!TrySendHangupTeleport(MoonRabbitHangupTeleportId))
+        {
+            return false;
+        }
+
+        _escort119TeleportDone7 = true;
+        _escortHangupTeleportPending = true;
+        _escortHangupTeleportAtMs = NowMs();
+        _escortHangupTeleportExpectFloor = MoonRabbitHangupTeleportFloor;
+        Tip("任务护航：已传送奇怪的洞窟怪");
+        WriteLog("119 hangup-teleport " + reason + " id=" + MoonRabbitHangupTeleportId);
+        return true;
+    }
+
+    private static bool IsNearMoonRabbitReefOrCave()
+    {
+        try
+        {
+            int floor;
+            string floorName;
+            int mapResId;
+            if (TryGetCurrentMapInfo(out floor, out floorName, out mapResId)
+                && floor == MoonRabbitHangupTeleportFloor)
+            {
+                return true;
+            }
+
+            if (floor == MoonRabbitReefMapFloor && TryGetPlayerXY(out var x, out var y))
+            {
+                var dx = x - MoonRabbitReefX;
+                var dy = y - MoonRabbitReefY;
+                return dx * dx + dy * dy <= MoonRabbitReefNearDist * MoonRabbitReefNearDist;
+            }
+        }
+        catch
+        {
+            // ignore
+        }
+
+        return false;
+    }
+
+    /// <summary>挂机导航「传送前往」：TaskManager.SendMisc(id)，Type=挂机传送。</summary>
+    private static bool TrySendHangupTeleport(int navId)
+    {
+        if (!IsLocalCaptain() || navId <= 0)
+        {
+            return false;
+        }
+
+        try
+        {
+            if (GetEncounterStatus() != 0)
+            {
+                TrySendEscortAutoBattle("停止挂机");
+            }
+
+            StopTaskNavigation();
+            var tm = GetManagerInstance("TaskManager");
+            var cancel = tm?.GetType().GetMethod(
+                "CancelTaskPathfinding",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            cancel?.Invoke(tm, null);
+
+            var send = tm?.GetType().GetMethod(
+                "SendMisc",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+                null,
+                new[] { typeof(int) },
+                null);
+            if (send == null)
+            {
+                send = tm?.GetType().GetMethod(
+                    "SendMisc",
+                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            }
+
+            if (send == null)
+            {
+                WriteLog("119 SendMisc method miss");
+                return false;
+            }
+
+            send.Invoke(tm, new object[] { navId });
+            return true;
+        }
+        catch (Exception ex)
+        {
+            WriteLog("119 SendMisc EX " + RootMessage(ex));
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// 中秋循环最后一步：停导航，全员把七夕礼盒兑换券存账号银行。任务会回到第一步，直接开下一轮。
+    /// </summary>
+    private static bool TryStartMoonRabbitLastStepBank(int stepNum, string reason)
+    {
+        if (!TempMidAutumnEscort119 || !_midAutumnLoopActive || _escortMissionId != MoonRabbitMissionId)
+        {
+            return false;
+        }
+
+        if (stepNum != MoonRabbitLastStep || _escort119TicketBankDone || _escort119TicketBankPending)
+        {
+            return false;
+        }
+
+        if (!IsLocalCaptain())
+        {
+            return false;
+        }
+
+        StopTaskNavigation();
+        try
+        {
+            if (Convert.ToBoolean(GetStaticMember("BattleDataHolder", "IsInBattle") ?? false))
+            {
+                WriteLog("119 ticket-bank wait in-battle");
+                return true;
+            }
+        }
+        catch
+        {
+            // ignore
+        }
+
+        FillMoonRabbitBankUids();
+        _escort119TicketBankUidIndex = 0;
+        _escort119TicketBankFailStreak = 0;
+        _escort119TicketBankAwaitConfirm = false;
+        _escort119TicketBankAnyStored = false;
+        _escort119TicketBankDone = true;
+        _escort119TicketBankPending = true;
+        _escort119TicketBankAtMs = 0;
+        _escortLastDiag = "分账号存兑换券";
+        WriteLog("119 ticket-bank start " + reason + " n=" + _escort119TicketBankUids.Count);
+        return true;
+    }
+
+    private static void FillMoonRabbitBankUids()
+    {
+        _escort119TicketBankUids.Clear();
+        var uids = CollectTeamOrMultiUids();
+        if (uids.Count == 0)
+        {
+            var cap = GetCaptainUid();
+            if (!string.IsNullOrEmpty(cap))
+            {
+                uids.Add(cap);
+            }
+        }
+
+        for (var i = 0; i < uids.Count; i++)
+        {
+            var uid = uids[i];
+            if (!string.IsNullOrEmpty(uid) && !_escort119TicketBankUids.Contains(uid))
+            {
+                _escort119TicketBankUids.Add(uid);
+            }
+        }
+    }
+
+    private static bool AnyMoonRabbitUidHasTickets()
+    {
+        for (var i = 0; i < _escort119TicketBankUids.Count; i++)
+        {
+            if (CountBagItemByKeyword(_escort119TicketBankUids[i], MoonRabbitTicketKeyword) > 0)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static void AbortMoonRabbitTicketBank(string tip, string reason, bool stopLoop)
+    {
+        _escort119TicketBankPending = false;
+        _escortLastDiag = tip;
+        WriteLog("119 ticket-bank abort " + reason + " fail=" + _escort119TicketBankFailStreak
+                 + " stopLoop=" + stopLoop);
+        if (stopLoop)
+        {
+            _midAutumnLoopActive = false;
+            CancelEscort(true, tip);
+            return;
+        }
+
+        PauseEscortOnConditionFail(reason);
+    }
+
+    private static void FinishMoonRabbitTicketBankNextRound(long now)
+    {
+        _escort119TicketBankPending = false;
+        if (!EnsureCaptainHasWingOrStopLoop("after-ticket-bank"))
+        {
+            return;
+        }
+
+        _midAutumnLoopCount++;
+        ResetMoonRabbitEscortFlags();
+        _escortLastStepNum = GetEscortMissionStepNum();
+        _lastActivityMs = now;
+        Tip("中秋循环：已存兑换券，进入第 " + (_midAutumnLoopCount + 1) + " 轮");
+        WriteLog("119 ticket-bank next-round count=" + _midAutumnLoopCount + " step=" + _escortLastStepNum);
+        if (!ClickEscortTaskNav("119-after-ticket-bank"))
+        {
+            PauseEscortOnConditionFail("119-after-ticket-bank");
+        }
+
+        if (_visible && _tab == TabEscort)
+        {
+            try
+            {
+                RebuildEscortTab();
+            }
+            catch
+            {
+                // ignore
+            }
+        }
+    }
+
+    private static void TickMoonRabbitTicketBank(long now)
+    {
+        StopTaskNavigation(false);
+        try
+        {
+            if (Convert.ToBoolean(GetStaticMember("BattleDataHolder", "IsInBattle") ?? false))
+            {
+                return;
+            }
+        }
+        catch
+        {
+            // ignore
+        }
+
+        if (_escort119TicketBankUids.Count == 0)
+        {
+            FillMoonRabbitBankUids();
+        }
+
+        if (_escort119TicketBankUids.Count == 0)
+        {
+            if (_escort119LastStepSinceMs == 0)
+            {
+                _escort119LastStepSinceMs = now;
+            }
+
+            if (now - _escort119LastStepSinceMs >= EscortTicketMissingWaitMs)
+            {
+                AbortMoonRabbitTicketBank("未找到可存券账号", "119-ticket-no-uid", false);
+            }
+
+            return;
+        }
+
+        if (_escort119TicketBankUidIndex < _escort119TicketBankUids.Count)
+        {
+            var uid = _escort119TicketBankUids[_escort119TicketBankUidIndex];
+            var left = CountBagItemByKeyword(uid, MoonRabbitTicketKeyword);
+            _escortLastDiag = "存兑换券 " + (_escort119TicketBankUidIndex + 1)
+                              + "/" + _escort119TicketBankUids.Count
+                              + " 余" + left
+                              + " 失败" + _escort119TicketBankFailStreak + "/" + EscortTicketBankMaxFails;
+
+            if (_escort119TicketBankAwaitConfirm)
+            {
+                if (now - _escort119TicketBankAtMs < EscortTicketBankAccountGapMs)
+                {
+                    return;
+                }
+
+                if (left <= 0)
+                {
+                    _escort119TicketBankFailStreak = 0;
+                    _escort119TicketBankAwaitConfirm = false;
+                    _escort119TicketBankUidIndex++;
+                    _escort119TicketBankAtMs = now;
+                    WriteLog("119 ticket-bank empty uid=" + uid
+                             + " idx=" + _escort119TicketBankUidIndex
+                             + "/" + _escort119TicketBankUids.Count);
+                    if (_escort119TicketBankUidIndex >= _escort119TicketBankUids.Count
+                        && _escort119TicketBankAnyStored)
+                    {
+                        Tip("中秋循环：全员兑换券已存入账号银行");
+                    }
+
+                    return;
+                }
+
+                _escort119TicketBankFailStreak++;
+                WriteLog("119 ticket-bank still-have uid=" + uid + " left=" + left
+                         + " fail=" + _escort119TicketBankFailStreak);
+                if (_escort119TicketBankFailStreak >= EscortTicketBankMaxFails)
+                {
+                    AbortMoonRabbitTicketBank("存兑换券连续失败5次，已停止", "119-ticket-fail5", true);
+                    return;
+                }
+
+                _escort119TicketBankAwaitConfirm = false;
+            }
+
+            if (_escort119TicketBankAtMs > 0
+                && now - _escort119TicketBankAtMs < EscortTicketBankAccountGapMs)
+            {
+                return;
+            }
+
+            if (left <= 0)
+            {
+                _escort119TicketBankFailStreak = 0;
+                _escort119TicketBankUidIndex++;
+                _escort119TicketBankAtMs = now;
+                if (_escort119TicketBankUidIndex >= _escort119TicketBankUids.Count
+                    && _escort119TicketBankAnyStored)
+                {
+                    Tip("中秋循环：全员兑换券已存入账号银行");
+                }
+
+                return;
+            }
+
+            var sent = StoreBagItemsToAccountBank(uid, MoonRabbitTicketKeyword);
+            _escort119TicketBankAtMs = now;
+            if (!sent)
+            {
+                _escort119TicketBankAwaitConfirm = false;
+                _escort119TicketBankFailStreak++;
+                WriteLog("119 ticket-bank send-fail uid=" + uid
+                         + " fail=" + _escort119TicketBankFailStreak);
+                if (_escort119TicketBankFailStreak >= EscortTicketBankMaxFails)
+                {
+                    AbortMoonRabbitTicketBank("存兑换券连续失败5次，已停止", "119-ticket-send-fail5", true);
+                }
+
+                return;
+            }
+
+            _escort119TicketBankAnyStored = true;
+            _escort119TicketBankAwaitConfirm = true;
+            WriteLog("119 ticket-bank sent uid=" + uid + " left=" + left);
+            return;
+        }
+
+        if (AnyMoonRabbitUidHasTickets())
+        {
+            for (var i = 0; i < _escort119TicketBankUids.Count; i++)
+            {
+                if (CountBagItemByKeyword(_escort119TicketBankUids[i], MoonRabbitTicketKeyword) > 0)
+                {
+                    _escort119TicketBankUidIndex = i;
+                    _escort119TicketBankAwaitConfirm = false;
+                    WriteLog("119 ticket-bank rescan still uid=" + _escort119TicketBankUids[i]);
+                    break;
+                }
+            }
+
+            return;
+        }
+
+        if (!_escort119TicketBankAnyStored)
+        {
+            if (_escort119LastStepSinceMs == 0)
+            {
+                _escort119LastStepSinceMs = now;
+            }
+
+            if (now - _escort119LastStepSinceMs >= EscortTicketMissingWaitMs)
+            {
+                _escort119TicketBankDone = false;
+                AbortMoonRabbitTicketBank("未找到七夕礼盒兑换券", "119-ticket-missing", false);
+                return;
+            }
+
+            _escort119TicketBankUidIndex = 0;
+            _escort119TicketBankAwaitConfirm = false;
+            if (_escort119TicketBankAtMs == 0)
+            {
+                _escort119TicketBankAtMs = now;
+            }
+
+            return;
+        }
+
+        var stepNow = GetEscortMissionStepNum();
+        var rolledBack = stepNow >= 0 && stepNow != MoonRabbitLastStep;
+        if (!rolledBack)
+        {
+            if (_escort119TicketBankAtMs == 0)
+            {
+                _escort119TicketBankAtMs = now;
+                Tip("中秋循环：全员兑换券已存入账号银行");
+            }
+
+            if (now - _escort119TicketBankAtMs < EscortTicketBankWaitMs * 2)
+            {
+                return;
+            }
+
+            AbortMoonRabbitTicketBank("存券后任务未回到第一步", "119-ticket-bank-no-rollback", false);
+            return;
+        }
+
+        FinishMoonRabbitTicketBankNextRound(now);
+    }
+
+    private static bool EnsureCaptainHasWingOrStopLoop(string reason)
+    {
+        if (_midAutumnGoralEdition)
+        {
+            return true;
+        }
+
+        if (CaptainHasMoonRabbitWing())
+        {
+            return true;
+        }
+
+        Tip("中秋阿凯版：队长背包没有赤凤之翼");
+        WriteLog("119 wing missing " + reason);
+        StopMidAutumnLoop();
+        return false;
+    }
+
+    private static bool CaptainHasMoonRabbitWing()
+    {
+        var uid = GetCaptainUid();
+        if (string.IsNullOrEmpty(uid))
+        {
+            uid = Convert.ToString(GetStaticMember("PlayerDataHolder", "MainPlayerUid") ?? "") ?? "";
+        }
+
+        return CountBagItemByKeyword(uid, MoonRabbitWingKeyword) > 0;
+    }
+
+    private static int CountBagItemByKeyword(string uid, string keyword)
+    {
+        if (string.IsNullOrEmpty(uid) || string.IsNullOrEmpty(keyword))
+        {
+            return 0;
+        }
+
+        try
+        {
+            var getItems = FindType("PlayerDataHolder")?.GetMethod(
+                "GetItemDatasFromUid", BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic);
+            var items = getItems?.Invoke(null, new object[] { uid }) as IList;
+            if (items == null)
+            {
+                return 0;
+            }
+
+            var n = 0;
+            for (var i = 0; i < items.Count; i++)
+            {
+                var item = items[i];
+                if (item == null || Convert.ToInt32(GetMember(item, "useFlag") ?? 0) != 1)
+                {
+                    continue;
+                }
+
+                if (!ItemDataMatchesKeyword(GetMember(item, "data"), keyword))
+                {
+                    continue;
+                }
+
+                var data = GetMember(item, "data");
+                n += Convert.ToInt32(GetMember(data, "Pile") ?? GetProp(data, "Pile") ?? 1);
+            }
+
+            return n;
+        }
+        catch
+        {
+            return 0;
+        }
+    }
+
+    private static bool ItemDataMatchesKeyword(object data, string keyword)
+    {
+        if (data == null || string.IsNullOrEmpty(keyword))
+        {
+            return false;
+        }
+
+        var name = Convert.ToString(GetMember(data, "Name") ?? "") ?? "";
+        var secret = Convert.ToString(GetMember(data, "Secretname") ?? "") ?? "";
+        return name.IndexOf(keyword, StringComparison.Ordinal) >= 0
+               || secret.IndexOf(keyword, StringComparison.Ordinal) >= 0;
+    }
+
+    private static bool StoreBagItemsToAccountBank(string uid, string keyword)
+    {
+        if (string.IsNullOrEmpty(uid) || string.IsNullOrEmpty(keyword))
+        {
+            return false;
+        }
+
+        // 存包与任务导航互斥，必须 Cancel 官方寻路
+        StopTaskNavigation(false);
+        try
+        {
+            var getItems = FindType("PlayerDataHolder")?.GetMethod(
+                "GetItemDatasFromUid", BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic);
+            var items = getItems?.Invoke(null, new object[] { uid }) as IList;
+            if (items == null)
+            {
+                return false;
+            }
+
+            var indexes = new List<int>();
+            for (var i = 8; i < items.Count; i++)
+            {
+                var item = items[i];
+                if (item == null || Convert.ToInt32(GetMember(item, "useFlag") ?? 0) != 1)
+                {
+                    continue;
+                }
+
+                var data = GetMember(item, "data");
+                if (!ItemDataMatchesKeyword(data, keyword))
+                {
+                    continue;
+                }
+
+                var idx = Convert.ToInt32(GetMember(data, "Index") ?? i);
+                if (!indexes.Contains(idx))
+                {
+                    indexes.Add(idx);
+                }
+            }
+
+            if (indexes.Count == 0)
+            {
+                return false;
+            }
+
+            TryOpenRemoteAccountItemBank(uid);
+            if (!TrySendAccountBankPutItems(uid, indexes))
+            {
+                return false;
+            }
+
+            WriteLog("119 store tickets uid=" + uid + " n=" + indexes.Count);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            WriteLog("119 store tickets EX uid=" + uid + " " + RootMessage(ex));
+            return false;
+        }
+    }
+
+    private static object ResolveAccountBankType()
+    {
+        try
+        {
+            var t = FindType("BANK_TYPE");
+            if (t == null || !t.IsEnum)
+            {
+                return null;
+            }
+
+            try
+            {
+                return Enum.Parse(t, "ACCOUNT_BANK", ignoreCase: true);
+            }
+            catch
+            {
+                // fall through
+            }
+
+            foreach (var name in Enum.GetNames(t))
+            {
+                if (name.IndexOf("ACCOUNT", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    return Enum.Parse(t, name);
+                }
+            }
+        }
+        catch
+        {
+            // ignore
+        }
+
+        return null;
+    }
+
+    private static void TryOpenRemoteAccountItemBank(string uid)
+    {
+        try
+        {
+            var roleMgr = GetManagerInstance("RoleManager");
+            if (roleMgr != null)
+            {
+                SetMember(roleMgr, "OpenBankFromBag", true);
+            }
+
+            var actMgr = GetManagerInstance("ActivityManager");
+            if (actMgr == null)
+            {
+                return;
+            }
+
+            MethodInfo send = null;
+            foreach (var m in actMgr.GetType().GetMethods(
+                         BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+            {
+                if (m.Name != "SendActivity")
+                {
+                    continue;
+                }
+
+                var ps = m.GetParameters();
+                if (ps.Length == 4
+                    && ps[0].ParameterType == typeof(string)
+                    && ps[1].ParameterType == typeof(string))
+                {
+                    send = m;
+                    break;
+                }
+
+                if (send == null && ps.Length >= 2 && ps[0].ParameterType == typeof(string))
+                {
+                    send = m;
+                }
+            }
+
+            if (send == null)
+            {
+                return;
+            }
+
+            var ps2 = send.GetParameters();
+            if (ps2.Length >= 4)
+            {
+                send.Invoke(actMgr, new object[] { MoonRabbitAccountBankActivity, uid, 0, 19 });
+            }
+            else if (ps2.Length == 3)
+            {
+                send.Invoke(actMgr, new object[] { MoonRabbitAccountBankActivity, uid, 0 });
+            }
+            else if (ps2.Length == 2)
+            {
+                send.Invoke(actMgr, new object[] { MoonRabbitAccountBankActivity, uid });
+            }
+        }
+        catch
+        {
+            // 打不开远程仓也不阻断后续「存道具」尝试
+        }
+    }
+
+    private static bool TrySendAccountBankPutItems(string uid, List<int> indexList)
+    {
+        var roleMgr = GetManagerInstance("RoleManager");
+        var bankType = ResolveAccountBankType();
+        if (roleMgr == null || bankType == null || indexList == null || indexList.Count == 0)
+        {
+            return false;
+        }
+
+        MethodInfo sendBank = null;
+        foreach (var m in roleMgr.GetType().GetMethods(
+                     BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+        {
+            if (m.Name != "SendBankMessage")
+            {
+                continue;
+            }
+
+            var ps = m.GetParameters();
+            if (ps.Length >= 4 && ps.Length <= 6)
+            {
+                sendBank = m;
+                break;
+            }
+        }
+
+        if (sendBank == null)
+        {
+            WriteLog("119 SendBankMessage method miss");
+            return false;
+        }
+
+        var ps2 = sendBank.GetParameters();
+        object[] args;
+        if (ps2.Length >= 6)
+        {
+            args = new object[] { bankType, uid, "存道具", 0, 0, indexList };
+        }
+        else if (ps2.Length == 5)
+        {
+            args = new object[] { bankType, uid, "存道具", 0, 0 };
+        }
+        else
+        {
+            args = new object[] { bankType, uid, "存道具" };
+        }
+
+        sendBank.Invoke(roleMgr, args);
+        return true;
+    }
+
+    private static bool UseCaptainBagItem(string keyword, bool requireUseFlag)
+    {
+        if (string.IsNullOrEmpty(keyword) || !IsLocalCaptain())
+        {
+            return false;
+        }
+
+        StopTaskNavigation(false);
+
+        var cap = GetCaptainUid();
+        if (string.IsNullOrEmpty(cap))
+        {
+            return false;
+        }
+
+        if (TryUseMemoryItem(cap, keyword, requireUseFlag))
+        {
+            Tip("任务护航：已使用队长的" + keyword);
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool IsWingWizardPending()
+    {
+        return _escortUseItemPending || _scriptWingTestPending;
+    }
+
+    private static void ResetWingWizardState()
+    {
+        _escortWingWizardSeen = false;
+        _escortWingWizardClosedAtMs = 0;
+        _escortWingNextClicks = 0;
+        _escortWingPickedDest = false;
+    }
+
+    /// <returns>0=仍在等, 1=弹窗已关, 2=一直没弹窗, -1=点窗超时</returns>
+    private static int TickWingWizardProgress(long startedAtMs)
+    {
+        StopTaskNavigation(false);
+        var now = NowMs();
+        if (IsDialoguePanelOpen())
+        {
+            _escortWingWizardSeen = true;
+            _escortWingWizardClosedAtMs = 0;
+            return now - startedAtMs >= EscortWingWizardTimeoutMs ? -1 : 0;
+        }
+
+        if (!_escortWingWizardSeen)
+        {
+            return now - startedAtMs < EscortWingWizardAppearMs ? 0 : 2;
+        }
+
+        if (_escortWingWizardClosedAtMs == 0)
+        {
+            _escortWingWizardClosedAtMs = now;
+            WriteLog("wing wizard closed, settle");
+        }
+
+        return now - _escortWingWizardClosedAtMs < EscortWingWizardSettleMs ? 0 : 1;
+    }
+
+    private static void RefreshScriptTabIfVisible()
+    {
+        if (!_visible || _tab != TabScript)
+        {
+            return;
+        }
+
+        try
+        {
+            ClearBody();
+            BuildScriptBody();
+            RefreshTabButtonLabels();
+        }
+        catch
+        {
+            // ignore
+        }
+    }
+
+    private static void RunScriptWingTest()
+    {
+        if (_scriptWingTestPending)
+        {
+            _scriptWingTestPending = false;
+            Tip("已取消赤凤之翼测试");
+            WriteLog("script wing test cancel");
+            RefreshScriptTabIfVisible();
+            return;
+        }
+
+        if (_escortUseItemPending)
+        {
+            Tip("护航正在用赤凤之翼，请稍后再测");
+            return;
+        }
+
+        if (_escortActive && !_escortPaused)
+        {
+            Tip("请先暂停任务护航再测赤凤之翼");
+            return;
+        }
+
+        try
+        {
+            if (Convert.ToBoolean(GetStaticMember("BattleDataHolder", "IsInBattle") ?? false))
+            {
+                Tip("战斗中不能使用赤凤之翼");
+                return;
+            }
+        }
+        catch
+        {
+            // ignore
+        }
+
+        var uid = Convert.ToString(GetStaticMember("PlayerDataHolder", "MainPlayerUid") ?? "") ?? "";
+        if (string.IsNullOrEmpty(uid))
+        {
+            Tip("当前角色无效，无法使用赤凤之翼");
+            return;
+        }
+
+        StopTaskNavigation(false);
+        if (!TryUseMemoryItem(uid, MoonRabbitWingKeyword, false))
+        {
+            Tip("背包没有赤凤之翼");
+            WriteLog("script wing test no item uid=" + uid);
+            return;
+        }
+
+        ResetWingWizardState();
+        _scriptWingTestPending = true;
+        _scriptWingTestAtMs = NowMs();
+        WriteLog("script wing test start uid=" + uid);
+        RefreshScriptTabIfVisible();
+    }
+
+    private static void TickScriptWingTest()
+    {
+        if (!_scriptWingTestPending)
+        {
+            return;
+        }
+
+        TryAutoPickDialogue();
+        var wait = TickWingWizardProgress(_scriptWingTestAtMs);
+        if (wait == 0)
+        {
+            return;
+        }
+
+        _scriptWingTestPending = false;
+        if (wait == 1)
+        {
+            Tip("赤凤之翼使用成功");
+            WriteLog("script wing test ok");
+        }
+        else if (wait == 2)
+        {
+            Tip("赤凤之翼未弹出窗口");
+            WriteLog("script wing test no window");
+        }
+        else
+        {
+            Tip("赤凤之翼弹窗未点完");
+            WriteLog("script wing test timeout");
+        }
+
+        RefreshScriptTabIfVisible();
+    }
+
+    private static bool TrySendEscortLoginGate()
+    {
+        if (!IsLocalCaptain())
+        {
+            return false;
+        }
+
+        try
+        {
+            if (Convert.ToBoolean(GetStaticMember("BattleDataHolder", "IsInBattle") ?? false))
+            {
+                WriteLog("119 SendLoginGate skip in-battle");
+                return false;
+            }
+
+            var login = GetManagerInstance("LoginManager");
+            var send = login?.GetType().GetMethod(
+                "SendLoginGate",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+                null,
+                Type.EmptyTypes,
+                null);
+            if (send == null)
+            {
+                send = login?.GetType().GetMethod(
+                    "SendLoginGate",
+                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            }
+
+            if (send == null)
+            {
+                WriteLog("119 SendLoginGate method miss");
+                return false;
+            }
+
+            StopTaskNavigation(false);
+            send.Invoke(login, null);
+            StopTaskNavigation();
+            Tip("任务护航：队长已回登入点");
+            WriteLog("119 SendLoginGate ok step=" + _escortLastStepNum);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            WriteLog("119 SendLoginGate EX " + RootMessage(ex));
+            return false;
+        }
+    }
+
+    private static void TrySendEscortAutoBattle(string action)
+    {
+        try
+        {
+            var uid = GetCaptainUid();
+            if (string.IsNullOrEmpty(uid))
+            {
+                return;
+            }
+
+            if (action == "停止挂机" && GetEncounterStatus() == 0)
+            {
+                return;
+            }
+
+            var roleMgr = GetManagerInstance("RoleManager");
+            var send = roleMgr?.GetType().GetMethod(
+                "SendAutoBattle",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+                null,
+                new[] { typeof(string), typeof(string) },
+                null);
+            send?.Invoke(roleMgr, new object[] { action, uid });
+        }
+        catch
+        {
+            // ignore
+        }
+    }
+
+    private static void EnsureEscortEncounterOn()
+    {
+        if (GetEncounterStatus() != 0)
+        {
+            _escortStartedEncounter = true;
+            return;
+        }
+
+        TrySendEscortAutoBattle("开始挂机");
+        _escortStartedEncounter = true;
+    }
+
+    private static void EnterEscortEncounterWait()
+    {
+        if (_escortWaitItem)
+        {
+            EnsureEscortEncounterOn();
+            return;
+        }
+
+        _escortWaitItem = true;
+        _escortWaitAtStepNum = GetEscortMissionStepNum();
+        _escortWasInBattle = false;
+        try
+        {
+            var mission = GetMissionDataById(_escortMissionId);
+            _escortWaitItemName = ParseObtainItemName(GetMissionStepConfig(mission));
+        }
+        catch
+        {
+            _escortWaitItemName = "";
+        }
+
+        EnsureEscortEncounterOn();
+        WriteLog("escort encounter wait id=" + _escortMissionId
+                 + " step=" + _escortWaitAtStepNum
+                 + " item=" + _escortWaitItemName);
+        Tip(string.IsNullOrEmpty(_escortWaitItemName)
+            ? "任务护航：已开启遇敌，等待任务道具"
+            : ("任务护航：已开启遇敌，等待获得" + _escortWaitItemName));
+    }
+
+    private static void StopEscortEncounterWait(string reason, bool tipContinue)
+    {
+        var wasWait = _escortWaitItem || _escortStartedEncounter;
+        if (_escortStartedEncounter || (_escortWaitItem && GetEncounterStatus() != 0))
+        {
+            TrySendEscortAutoBattle("停止挂机");
+        }
+
+        _escortWaitItem = false;
+        _escortStartedEncounter = false;
+        _escortWasInBattle = false;
+        _escortWaitAtStepNum = -1;
+        if (!wasWait)
+        {
+            _escortWaitItemName = "";
+            return;
+        }
+
+        WriteLog("escort encounter stop reason=" + reason + " item=" + _escortWaitItemName);
+        if (tipContinue)
+        {
+            Tip(string.IsNullOrEmpty(_escortWaitItemName)
+                ? "任务护航：遇敌已关闭，继续任务"
+                : ("任务护航：已获得" + _escortWaitItemName + "，继续任务"));
+        }
+
+        _escortWaitItemName = "";
+    }
+
+    /// <summary>
+    /// 模拟右侧任务点击：AutoWarpIndex=0 + TaskManager.RunTask（与改 15000 特例之前一致）。
+    /// 卡楼梯：先 StopTaskNavigation 再点任务。遇敌无寻路点则进挂机等待。
     /// </summary>
     private static bool ClickEscortTaskNav(string reason)
     {
@@ -10728,6 +13563,16 @@ public static class SeqChapterTestUi
             }
 
             var hasMove = MissionHasMovePoints(mission);
+            var encounterFarm = IsEncounterFarmStep(GetMissionStepConfig(mission));
+            if (encounterFarm && !hasMove)
+            {
+                _escortLastDiag = "";
+                WriteLog("ClickEscortTaskNav encounter-wait no move id=" + _escortMissionId
+                         + " reason=" + reason);
+                EnterEscortEncounterWait();
+                return true;
+            }
+
             if (!prepOk || !stepFlag || !hasMove)
             {
                 var diag = DiagnoseEscortStepFail(mission);
@@ -10752,7 +13597,18 @@ public static class SeqChapterTestUi
 
             _escortLastDiag = "";
 
-            // 未开始的也标成进行中，贴近 StartWayThMissionStepByID / 侧栏可点状态
+            try
+            {
+                var common = mission.GetType().GetMethod(
+                    "CommonSetMissionStep",
+                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                common?.Invoke(mission, null);
+            }
+            catch
+            {
+                // ignore
+            }
+
             try
             {
                 var st = Convert.ToString(GetMember(mission, "taskstatus") ?? "") ?? "";
@@ -10770,22 +13626,49 @@ public static class SeqChapterTestUi
                 // ignore
             }
 
-            // OnClickTask: AutoWarpIndex = 0
+            var warpIndex = 0;
+            if (encounterFarm)
+            {
+                try
+                {
+                    var script = GetProp(mission, "scriptData") ?? GetMember(mission, "scriptData");
+                    var move = GetMember(script, "movePoint") as System.Collections.IList;
+                    if (move != null && move.Count > 0)
+                    {
+                        warpIndex = move.Count - 1;
+                    }
+                }
+                catch
+                {
+                    warpIndex = 0;
+                }
+            }
+
             try
             {
-                SetProp(mission, "AutoWarpIndex", 0);
+                SetProp(mission, "AutoWarpIndex", warpIndex);
             }
             catch
             {
-                SetMember(mission, "AutoWarpIndex", 0);
+                SetMember(mission, "AutoWarpIndex", warpIndex);
             }
 
             var moveCount = 0;
+            var warpFloor = 0;
+            var warpX = 0;
+            var warpY = 0;
             try
             {
                 var script = GetProp(mission, "scriptData") ?? GetMember(mission, "scriptData");
-                var move = GetMember(script, "movePoint") as System.Collections.ICollection;
+                var move = GetMember(script, "movePoint") as System.Collections.IList;
                 moveCount = move != null ? move.Count : 0;
+                if (move != null && warpIndex >= 0 && warpIndex < move.Count)
+                {
+                    var v3 = move[warpIndex];
+                    warpFloor = Convert.ToInt32(GetMember(v3, "x") ?? GetProp(v3, "x") ?? 0);
+                    warpX = Convert.ToInt32(GetMember(v3, "y") ?? GetProp(v3, "y") ?? 0);
+                    warpY = Convert.ToInt32(GetMember(v3, "z") ?? GetProp(v3, "z") ?? 0);
+                }
             }
             catch
             {
@@ -10803,7 +13686,6 @@ public static class SeqChapterTestUi
             _prevRunTaskId = GetRunTaskId();
             _lastActivityMs = NowMs();
 
-            // OnClickTask: Tip(stepStartHint)
             try
             {
                 var script = GetProp(mission, "scriptData") ?? GetMember(mission, "scriptData");
@@ -10822,12 +13704,158 @@ public static class SeqChapterTestUi
                      + " reason=" + reason
                      + " how=" + invokeHow
                      + " runId=" + _prevRunTaskId
-                     + " movePoints=" + moveCount);
+                     + " movePoints=" + moveCount
+                     + " warpIndex=" + warpIndex
+                     + " dest=(" + warpFloor + "," + warpX + "," + warpY + ")");
             return true;
         }
         catch (Exception ex)
         {
             WriteLog("ClickEscortTaskNav EX: " + RootMessage(ex));
+            return false;
+        }
+    }
+
+    /// <summary>清掉 MissionData.TargetPoint，避免 RunTask 仍走向切图前缓存点。</summary>
+    private static void ClearMissionTargetPoint(object mission)
+    {
+        if (mission == null)
+        {
+            return;
+        }
+
+        try
+        {
+            var mpType = FindType("MapPoint");
+            if (mpType == null)
+            {
+                return;
+            }
+
+            var empty = Activator.CreateInstance(mpType);
+            try
+            {
+                SetProp(mission, "TargetPoint", empty);
+            }
+            catch
+            {
+                SetMember(mission, "TargetPoint", empty);
+            }
+        }
+        catch (Exception ex)
+        {
+            WriteLog("ClearMissionTargetPoint EX " + RootMessage(ex));
+        }
+    }
+
+    /// <summary>
+    /// 只停走路，不 CancelTaskPathfinding。
+    /// 仅用于卡图恢复里「挪格前/点任务前」避免随机 MoveTo 与任务导航抢控制；
+    /// 用道具、存包、传送等一律用 <see cref="StopTaskNavigation"/>。
+    /// </summary>
+    private static void StopWalkOnly()
+    {
+        try
+        {
+            var pm = GetManagerInstance("PlayerManager");
+            var walk = GetProp(pm, "walkSystem") ?? GetMember(pm, "walkSystem");
+            if (walk == null)
+            {
+                return;
+            }
+
+            MethodInfo stop = null;
+            foreach (var m in walk.GetType().GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+            {
+                if (m.Name != "StopMove")
+                {
+                    continue;
+                }
+
+                stop = m;
+                break;
+            }
+
+            if (stop == null)
+            {
+                return;
+            }
+
+            var ps = stop.GetParameters();
+            var args = new object[ps.Length];
+            for (var i = 0; i < ps.Length; i++)
+            {
+                if (ps[i].ParameterType == typeof(bool))
+                {
+                    args[i] = true;
+                }
+                else if (ps[i].ParameterType.IsEnum || ps[i].ParameterType.IsValueType)
+                {
+                    args[i] = Activator.CreateInstance(ps[i].ParameterType);
+                }
+                else
+                {
+                    args[i] = null;
+                }
+            }
+
+            stop.Invoke(walk, args);
+        }
+        catch
+        {
+            // ignore
+        }
+    }
+
+    /// <summary>官方切图后续航：TaskManager.TryResumeTaskPathAfterMapLoad。</summary>
+    private static bool TryResumeEscortTaskPathAfterMap(string reason)
+    {
+        try
+        {
+            var tm = GetManagerInstance("TaskManager");
+            if (tm == null)
+            {
+                return false;
+            }
+
+            var pending = false;
+            try
+            {
+                pending = Convert.ToBoolean(
+                    GetMember(tm, "m_TaskPathResumePending")
+                    ?? GetProp(tm, "m_TaskPathResumePending")
+                    ?? false);
+            }
+            catch
+            {
+                pending = false;
+            }
+
+            if (!pending)
+            {
+                return false;
+            }
+
+            var m = tm.GetType().GetMethod(
+                "TryResumeTaskPathAfterMapLoad",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            if (m == null)
+            {
+                return false;
+            }
+
+            var ok = Convert.ToBoolean(m.Invoke(tm, null) ?? false);
+            if (ok)
+            {
+                _lastActivityMs = NowMs();
+                WriteLog("escort TryResumeTaskPathAfterMapLoad ok reason=" + reason);
+            }
+
+            return ok;
+        }
+        catch (Exception ex)
+        {
+            WriteLog("TryResumeEscortTaskPathAfterMap EX " + RootMessage(ex));
             return false;
         }
     }
@@ -11236,8 +14264,17 @@ public static class SeqChapterTestUi
 
         try
         {
-            // 输入框+取消/发送（自动任务已填）：碰到就点发送，不看 MessageBox 文案
-            if (TryClickNpcInputDialogSend())
+            if (!IsWingWizardPending() && TryClickNpcChatPanelSend())
+            {
+                _lastDialogueClickMs = now;
+                _dialogueAutoClicks++;
+                WriteLog("autoDialogue NPCChatPanel send");
+                return;
+            }
+
+            // 输入框+取消/发送（ChangeName / WindowsMessage LINEINPUT）
+            // 赤凤之翼分页窗也带确定+取消，不能走这条「直接点确定」捷径。
+            if (!IsWingWizardPending() && TryClickNpcInputDialogSend())
             {
                 _lastDialogueClickMs = now;
                 _dialogueAutoClicks++;
@@ -11271,9 +14308,10 @@ public static class SeqChapterTestUi
 
             var windowTypeObj = GetMember(wmdb, "windowType");
             var windowType = Convert.ToInt32(windowTypeObj ?? 0);
-            var isLineInput = IsLineInputWindowType(windowTypeObj, windowType)
-                              || HasWindowsMessageInputField()
-                              || WmdbHasSendAndCancel(wmdb);
+            var isLineInput = !IsWingWizardPending()
+                              && (IsLineInputWindowType(windowTypeObj, windowType)
+                                  || HasWindowsMessageInputField()
+                                  || WmdbHasSendAndCancel(wmdb));
 
             // 输入框对话：优先点 UI「发送」
             if (isLineInput && TryClickWindowsMessageSendButton())
@@ -11291,49 +14329,9 @@ public static class SeqChapterTestUi
                 return;
             }
 
-            int pickValue = -1;
-            string pickName = null;
-            int fallbackValue = -1;
-            string fallbackName = null;
-            for (var i = 0; i < buttonData.Length && i < 9; i++)
-            {
-                var btn = buttonData.GetValue(i);
-                if (btn == null)
-                {
-                    continue;
-                }
-
-                var name = (Convert.ToString(GetMember(btn, "name") ?? "") ?? "").Trim();
-                var value = Convert.ToInt32(GetMember(btn, "value") ?? -1);
-                if (string.IsNullOrEmpty(name) || value < 0)
-                {
-                    continue;
-                }
-
-                if (IsDialogueCancelName(name))
-                {
-                    continue;
-                }
-
-                if (IsDialogueSendName(name))
-                {
-                    pickValue = value;
-                    pickName = name;
-                    break;
-                }
-
-                if (fallbackValue < 0)
-                {
-                    fallbackValue = value;
-                    fallbackName = name;
-                }
-            }
-
-            if (pickValue < 0)
-            {
-                pickValue = fallbackValue;
-                pickName = fallbackName;
-            }
+            int pickValue;
+            string pickName;
+            PickDialogueButton(buttonData, out pickValue, out pickName);
 
             if (pickValue < 0)
             {
@@ -11460,6 +14458,150 @@ public static class SeqChapterTestUi
         return n == "发送" || n == "确定" || n == "确认" || n == "提交";
     }
 
+    private static bool IsDialogueNextName(string name)
+    {
+        var n = NormalizeDialogueBtnName(name);
+        return n == "下一步" || n == "下一页";
+    }
+
+    /// <summary>
+    /// 赤凤之翼一类分页窗：buttonType 是 value|name|value|name（服务端下发）。
+    /// 确定若排在下一步前面，先点确定会提前关窗。有哥拉尔选项则先点它。
+    /// </summary>
+    private static void PickDialogueButton(Array buttonData, out int pickValue, out string pickName)
+    {
+        pickValue = -1;
+        pickName = null;
+        var preferWing = IsWingWizardPending();
+        int nextValue = -1;
+        string nextName = null;
+        int sendValue = -1;
+        string sendName = null;
+        int destValue = -1;
+        string destName = null;
+        int fallbackValue = -1;
+        string fallbackName = null;
+        string dump = preferWing ? "" : null;
+
+        for (var i = 0; i < buttonData.Length && i < 9; i++)
+        {
+            var btn = buttonData.GetValue(i);
+            if (btn == null)
+            {
+                continue;
+            }
+
+            var name = (Convert.ToString(GetMember(btn, "name") ?? "") ?? "").Trim();
+            var value = Convert.ToInt32(GetMember(btn, "value") ?? -1);
+            if (string.IsNullOrEmpty(name) || value < 0)
+            {
+                continue;
+            }
+
+            if (dump != null)
+            {
+                if (dump.Length > 0)
+                {
+                    dump += ",";
+                }
+
+                dump += name + "=" + value;
+            }
+
+            if (IsDialogueCancelName(name))
+            {
+                continue;
+            }
+
+            if (preferWing
+                && name.IndexOf(MoonRabbitWingDestKeyword, StringComparison.Ordinal) >= 0)
+            {
+                destValue = value;
+                destName = name;
+                continue;
+            }
+
+            if (IsDialogueNextName(name) || value == WindowButtonNextValue)
+            {
+                nextValue = value;
+                nextName = name;
+                continue;
+            }
+
+            if (IsDialogueSendName(name) || value == 1 || value == 4)
+            {
+                sendValue = value;
+                sendName = name;
+                continue;
+            }
+
+            if (fallbackValue < 0)
+            {
+                fallbackValue = value;
+                fallbackName = name;
+            }
+        }
+
+        if (preferWing && dump != null)
+        {
+            WriteLog("wing wizard buttons " + dump
+                     + " nextClicks=" + _escortWingNextClicks
+                     + " pickedDest=" + _escortWingPickedDest);
+        }
+
+        if (preferWing && destValue >= 0 && !_escortWingPickedDest)
+        {
+            pickValue = destValue;
+            pickName = destName;
+            _escortWingPickedDest = true;
+            return;
+        }
+
+        if (preferWing && nextValue >= 0 && !_escortWingPickedDest
+            && _escortWingNextClicks < EscortWingMaxNextClicks)
+        {
+            pickValue = nextValue;
+            pickName = nextName;
+            _escortWingNextClicks++;
+            return;
+        }
+
+        if (preferWing && sendValue >= 0)
+        {
+            pickValue = sendValue;
+            pickName = sendName;
+            return;
+        }
+
+        if (!preferWing && sendValue >= 0)
+        {
+            pickValue = sendValue;
+            pickName = sendName;
+            return;
+        }
+
+        if (!preferWing && nextValue >= 0)
+        {
+            pickValue = nextValue;
+            pickName = nextName;
+            return;
+        }
+
+        pickValue = fallbackValue;
+        pickName = fallbackName;
+        if (pickValue < 0 && sendValue >= 0)
+        {
+            pickValue = sendValue;
+            pickName = sendName;
+        }
+
+        if (pickValue < 0 && nextValue >= 0)
+        {
+            pickValue = nextValue;
+            pickName = nextName;
+        }
+    }
+
     private static bool IsLineInputWindowType(object windowTypeObj, int windowType)
     {
         // WINDOW_MESSAGETYPE_MESSAGEANDLINEINPUT=1, WIDEMESSAGEANDLINEINPUT=11
@@ -11536,10 +14678,72 @@ public static class SeqChapterTestUi
     }
 
     /// <summary>
+    /// 任务自动寻路到 NPC 且 scriptData.codePhrase 非空时打开：
+    /// NPCChatPanel（输入框已填口令 + 发送/取消）。点发送 → ChatManager.SendTalk。
+    /// </summary>
+    private static bool TryClickNpcChatPanelSend()
+    {
+        try
+        {
+            var panel = GetUiPanel("NPCChatPanel");
+            if (panel == null || !IsUnityObjectActive(panel))
+            {
+                return false;
+            }
+
+            var send = GetMember(panel, "m_Btn_Send");
+            var cancel = GetMember(panel, "m_Btn_Cancel");
+            if (send == null || !IsUnityObjectActive(send))
+            {
+                return false;
+            }
+
+            // 取消按钮存在即视为「输入框对话」形态（与护航任务口令一致）
+            if (cancel != null && !IsUnityObjectActive(cancel))
+            {
+                // 仍尝试点发送：部分皮肤可能藏取消
+            }
+
+            // 优先调面板 SendMessage（与按钮 onClick 一致，带上输入框文本）
+            try
+            {
+                var mi = panel.GetType().GetMethod(
+                    "SendMessage",
+                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+                    null,
+                    Type.EmptyTypes,
+                    null);
+                if (mi != null)
+                {
+                    mi.Invoke(panel, null);
+                    return true;
+                }
+            }
+            catch (Exception ex)
+            {
+                WriteLog("NPCChatPanel.SendMessage EX: " + RootMessage(ex));
+            }
+
+            return InvokeButtonClick(send);
+        }
+        catch (Exception ex)
+        {
+            WriteLog("TryClickNpcChatPanelSend EX: " + RootMessage(ex));
+        }
+
+        return false;
+    }
+
+    /// <summary>
     /// 碰到「输入框 + 取消/发送」就点发送（不看 MessageBox 文案）。
     /// </summary>
     private static bool TryClickNpcInputDialogSend()
     {
+        if (TryClickNpcChatPanelSend())
+        {
+            return true;
+        }
+
         // ChangeNamePanel：输入 + 取消 + 提交 → 有内容就点提交
         try
         {
@@ -11572,7 +14776,7 @@ public static class SeqChapterTestUi
         // UI_WindowsMessage：LINEINPUT / 有输入框 / 发送+取消
         try
         {
-            if (!IsDialoguePanelOpen())
+            if (!IsWindowsMessagePanelOpen())
             {
                 return false;
             }
@@ -11807,6 +15011,24 @@ public static class SeqChapterTestUi
     }
 
     private static bool IsDialoguePanelOpen()
+    {
+        try
+        {
+            var chat = GetUiPanel("NPCChatPanel");
+            if (chat != null && IsUnityObjectActive(chat))
+            {
+                return true;
+            }
+        }
+        catch
+        {
+            // ignore
+        }
+
+        return IsWindowsMessagePanelOpen();
+    }
+
+    private static bool IsWindowsMessagePanelOpen()
     {
         try
         {

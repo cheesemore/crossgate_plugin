@@ -17,6 +17,7 @@ internal static class MapSprintSpeedIlPatcher
         string? source = null;
         string? output = null;
         var scale = 8f;
+        var restore = false;
 
         for (var i = 0; i < args.Length; i++)
         {
@@ -31,23 +32,34 @@ internal static class MapSprintSpeedIlPatcher
                 case "--scale" when i + 1 < args.Length:
                     scale = ParseScale(args[++i]);
                     break;
+                case "--restore":
+                    restore = true;
+                    break;
             }
         }
 
         if (string.IsNullOrWhiteSpace(source))
         {
             Console.WriteLine("用法: HotfixPatcher map-sprint-speed-patch --hotfix <hotfix> --output <out> [--scale 8|10|12]");
+            Console.WriteLine("      HotfixPatcher map-sprint-speed-patch --hotfix <file> --restore");
             return 1;
         }
 
         output ??= source;
         try
         {
+            if (restore)
+            {
+                Restore(source, output);
+                Console.WriteLine("[OK] 地图 Sprint 跑速已还原为官方 6: " + output);
+                return 0;
+            }
+
             Apply(source, output, scale);
             Console.WriteLine("[OK] 地图 Sprint 跑速补丁已写入: " + output);
             return 0;
         }
-        catch (InvalidOperationException ex) when (ex.Message.Contains("可能已打过"))
+        catch (InvalidOperationException ex) when (ex.Message.Contains("可能已打过") || ex.Message.Contains("已经是官方"))
         {
             Console.WriteLine("[SKIP] " + ex.Message);
             return 0;
@@ -96,6 +108,56 @@ internal static class MapSprintSpeedIlPatcher
         HotfixSize.EnsureUnchanged(data, expectedSize);
         File.WriteAllBytes(outputPath, data);
         Console.WriteLine($"[PATCH] Sprint 基础跑速 {OriginalRunScale} -> {runScale}（WALK 4 不变，仍叠加坐骑/月卡）");
+        Console.WriteLine($"[OK] 文件大小不变: {data.Length} 字节");
+    }
+
+    /// <summary>把 set_Running 的 RUN 8/10/12 还原为官方 6f（WALK 4 不动）。</summary>
+    public static void Restore(string sourcePath, string outputPath)
+    {
+        var origBytes = File.ReadAllBytes(sourcePath);
+        var expectedSize = HotfixSize.Require(origBytes);
+        var data = (byte[])origBytes.Clone();
+
+        var resolver = new DefaultAssemblyResolver();
+        foreach (var stubDir in Program.ResolveRefStubDirsPublic())
+        {
+            resolver.AddSearchDirectory(stubDir);
+        }
+
+        using var asm = AssemblyDefinition.ReadAssembly(sourcePath, new ReaderParameters
+        {
+            AssemblyResolver = resolver,
+            InMemory = true,
+        });
+
+        var entity = asm.MainModule.Types.First(t => t.Name == "CharacterEntity");
+        var setRunning = entity.Methods.First(m => m.Name == "set_Running" && m.HasBody);
+        var body = ReadMethodBodyFromPe(origBytes, setRunning.RVA);
+
+        if (ContainsLdcR4(body, OriginalRunScale))
+        {
+            throw new InvalidOperationException("地图 Sprint 跑速已经是官方 6，无需还原");
+        }
+
+        var restored = false;
+        foreach (var scale in AllowedScales)
+        {
+            if (ContainsLdcR4(body, scale) && ReplaceFirstLdcR4(body, scale, OriginalRunScale))
+            {
+                restored = true;
+                Console.WriteLine($"[PATCH] Sprint 基础跑速 {scale} -> {OriginalRunScale}（已去掉移速补丁）");
+                break;
+            }
+        }
+
+        if (!restored)
+        {
+            throw new InvalidOperationException("未找到 set_Running 的 Sprint 跑速常量（8/10/12），无法还原");
+        }
+
+        BinaryPeWriter.ReplaceMethodBody(data, setRunning.RVA, body, body);
+        HotfixSize.EnsureUnchanged(data, expectedSize);
+        File.WriteAllBytes(outputPath, data);
         Console.WriteLine($"[OK] 文件大小不变: {data.Length} 字节");
     }
 

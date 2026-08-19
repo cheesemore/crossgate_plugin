@@ -44,7 +44,7 @@ DEFAULT_COMBO_KWARGS = {
     "newbie_gift_code": True,
     "boss_key_fps": True,  # 切后台 / 老板键隐藏 → 30 FPS
     "wiki_fps": False,
-    "wiki_test_ui": True,  # 百科 → 助手面板
+    "wiki_test_ui": True,  # 百科 → 助手面板（含中秋 #119 临时护航特例，等用户下令再移除）
     "battle_appear": False,  # 进战形象钩子：总是部署（游戏内可开），勾选=打补丁后默认开启形象
     "kill_timescale_report": True,  # 默认拦截倍速检测上报（即使加速关也掐断 Check/SendTimeScaleWarning）
     "inject_bridge": True,  # 注入精简多开桥接（登录/拉多控/一键召唤，供新序章多开器直接驱动；默认开启）
