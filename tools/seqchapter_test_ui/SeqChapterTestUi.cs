@@ -229,6 +229,12 @@ public static class SeqChapterTestUi
     private const int MoonRabbitWarpGoalFloor = 400;
     private const int MoonRabbitWarpGoalX = 247;
     private const int MoonRabbitWarpGoalY = 581;
+    /// <summary>步骤 2 怨念囚灵魔：倒序表头，真正目的地（表尾 2000 是法兰）。</summary>
+    private const int MoonRabbitStep2GoalFloor = 47005;
+    private const int MoonRabbitStep2GoalX = 52;
+    private const int MoonRabbitStep2GoalY = 56;
+    /// <summary>赤凤之翼关窗时所在地图；用来等飞到哥拉尔再导航。</summary>
+    private static int _escortWingFromFloor;
     private const long MoonRabbitWarpUnstickSettleMs = 1500;
     /// <summary>第一次导航后固定隔 2 秒再试一次。</summary>
     private const long MoonRabbitWarpUnstickRetryMs = 2000;
@@ -9722,10 +9728,13 @@ public static class SeqChapterTestUi
             _escortLoginGatePending = false;
             if (_escort119PendingAfterGateStep == MoonRabbitLoginGateStep2)
             {
-                // 哥拉尔版：登入点已在哥拉尔，回登入点后直接点任务，不用赤凤之翼
+                // 哥拉尔版：登入点已在哥拉尔，回登入点后正向去 47005，不要 RunTask（会沿倒序表退回法兰）
                 if (_midAutumnGoralEdition)
                 {
-                    if (!ClickEscortTaskNav("119-after-logingate-goral"))
+                    if (!RestartMoonRabbitForwardNav(
+                            "119-after-logingate-goral",
+                            MoonRabbitStep2GoalFloor, MoonRabbitStep2GoalX, MoonRabbitStep2GoalY,
+                            "任务护航：已到哥拉尔，改走怨念囚灵魔"))
                     {
                         PauseEscortOnConditionFail("119-after-logingate-goral");
                     }
@@ -9766,10 +9775,10 @@ public static class SeqChapterTestUi
                 return;
             }
 
-            _escortUseItemPending = false;
-            _escortLastDiag = "";
             if (wingWait < 0)
             {
+                _escortUseItemPending = false;
+                _escortLastDiag = "";
                 Tip("任务护航：赤凤之翼弹窗未点完");
                 PauseEscortOnConditionFail("119-wing-wizard-timeout");
                 return;
@@ -9779,8 +9788,34 @@ public static class SeqChapterTestUi
             {
                 WriteLog("119 wing wizard never opened, continue task");
             }
+            else
+            {
+                if (IsMapLoading())
+                {
+                    _escortLastDiag = "赤凤之翼切图中";
+                    return;
+                }
 
-            if (!ClickEscortTaskNav("119-after-use-item"))
+                int floor;
+                string floorName;
+                int mapResId;
+                if (_escortWingFromFloor != 0
+                    && TryGetCurrentMapInfo(out floor, out floorName, out mapResId)
+                    && floor == _escortWingFromFloor
+                    && now - _escortWingWizardClosedAtMs < 8000)
+                {
+                    _escortLastDiag = "赤凤之翼切图中";
+                    return;
+                }
+            }
+
+            _escortUseItemPending = false;
+            _escortLastDiag = "";
+            // 飞到哥拉尔后禁止 RunTask：倒序表 TargetCannotReach 会 +1 一直退到 2000 法兰
+            if (!RestartMoonRabbitForwardNav(
+                    "119-after-use-item",
+                    MoonRabbitStep2GoalFloor, MoonRabbitStep2GoalX, MoonRabbitStep2GoalY,
+                    "任务护航：已到哥拉尔，改走怨念囚灵魔"))
             {
                 PauseEscortOnConditionFail("119-after-use-item");
             }
@@ -12020,6 +12055,34 @@ public static class SeqChapterTestUi
         }
     }
 
+    /// <summary>
+    /// 取消官方任务导航后，直接 GeneralPointMoveTo 正向目的地。
+    /// Cancel 不会清 MissionData.AutoWarpIndex；再 RunTask 会按倒序表 +1 退回出发点。
+    /// </summary>
+    private static bool RestartMoonRabbitForwardNav(string reason, int floor, int x, int y, string tip)
+    {
+        WriteLog("119 forward-nav " + reason + " dest=(" + floor + "," + x + "," + y + ")");
+        if (!string.IsNullOrEmpty(tip))
+        {
+            Tip(tip);
+        }
+
+        ClearEscortStuckPending();
+        StopTaskNavigation(false);
+        ClearTaskPathSameIndexStopGuard();
+        ForceEscortAutoWarpIndexZero();
+        _lastActivityMs = NowMs();
+        string how;
+        if (!TryNavigateTo(floor, x, y, out how))
+        {
+            WriteLog("119 forward-nav fail " + reason + " how=" + how);
+            return false;
+        }
+
+        WriteLog("119 forward-nav ok " + reason + " how=" + how);
+        return true;
+    }
+
     /// <summary>侧栏手点：优先用 Com_TaskItem.m_Info，只 AutoWarpIndex=0 + RunTask。</summary>
     private static bool ClickEscortTaskLikeMouse()
     {
@@ -13235,6 +13298,7 @@ public static class SeqChapterTestUi
         _escortWingWizardClosedAtMs = 0;
         _escortWingNextClicks = 0;
         _escortWingPickedDest = false;
+        _escortWingFromFloor = 0;
     }
 
     /// <returns>0=仍在等, 1=弹窗已关, 2=一直没弹窗, -1=点窗超时</returns>
@@ -13257,7 +13321,23 @@ public static class SeqChapterTestUi
         if (_escortWingWizardClosedAtMs == 0)
         {
             _escortWingWizardClosedAtMs = now;
-            WriteLog("wing wizard closed, settle");
+            _escortWingFromFloor = 0;
+            try
+            {
+                int floor;
+                string floorName;
+                int mapResId;
+                if (TryGetCurrentMapInfo(out floor, out floorName, out mapResId))
+                {
+                    _escortWingFromFloor = floor;
+                }
+            }
+            catch
+            {
+                // ignore
+            }
+
+            WriteLog("wing wizard closed, settle fromFloor=" + _escortWingFromFloor);
         }
 
         return now - _escortWingWizardClosedAtMs < EscortWingWizardSettleMs ? 0 : 1;
