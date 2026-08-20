@@ -36,4 +36,5 @@
 ## 协议复用
 
 权威速查：`tools/常用反射方法速查.md`  
-反编译只读：`tools/hotfix_ilspy/`（大文件，按需 Grep，勿整文件灌进上下文）
+反编译只读：`tools/hotfix_ilspy/`（大文件，按需 Grep，勿整文件灌进上下文）  
+卡图 / 传送落地后官方往回城走：彻底清路径 → 等 2 秒 → `AutoWarpIndex=0` + `RunTask`（见 `.cursor/rules/seqchapter-official-nav-reset.mdc`）。不要自己发明中间跳。

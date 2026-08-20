@@ -3333,7 +3333,7 @@ public static class SeqChapterHelperBridge
         if (lssType != null && iMessageType != null)
         {
             send = netMgr.GetType().GetMethod(
-                "SendMessage",
+            "SendMessage",
                 BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
                 null,
                 new[] { lssType, iMessageType },
@@ -4460,8 +4460,8 @@ public static class SeqChapterHelperBridge
         {
             // NetManager 可能被 Destroy 后 Instance 重建；缓存失效会导致 SendMessage NRE
             if (!string.Equals(managerName, "NetManager", StringComparison.Ordinal))
-            {
-                return cached;
+        {
+            return cached;
             }
         }
 

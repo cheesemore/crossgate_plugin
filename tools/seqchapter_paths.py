@@ -1,26 +1,33 @@
 # -*- coding: utf-8 -*-
 """序章目录约定（勿与 crossgate_cursor / 青春魔力混淆）。
 
-| 角色 | 路径 | 说明 |
+建议布局（相对盘符根，名称固定；盘符可不同）：
+
+| 角色 | 建议路径 | 说明 |
 |---|---|---|
-| 干净只读源 | E:\\crosscopy\\魔力宝贝：序章 | 提取配置/对照用，**禁止写入** |
-| 工作目录 | E:\\cross\\魔力宝贝：序章 | 插件 / hotfix / 工具产物 |
-| 抓宠目录 | E:\\cross抓宠\\魔力宝贝：序章 | 抓宠专用实例 |
+| 干净只读源 | ``<盘符>/crosscopy/魔力宝贝：序章`` | 提取配置/对照，**禁止写入** |
+| 工作目录 | 本仓库根（含 ``cg37.exe`` / ``cg37_Data``） | 插件 / hotfix / 工具产物 |
+| 抓宠目录 | ``<盘符>/cross抓宠/魔力宝贝：序章`` | 抓宠专用实例（可选） |
+
+也可用环境变量覆盖：``SEQCHAPTER_WORK`` / ``SEQCHAPTER_CLEAN`` / ``SEQCHAPTER_CATCH``。
 
 「启动 cross」= 启动工作目录的 cg37.exe，不是 crossgate_cursor\\cross.exe。
 """
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
-DRIVE = Path("E:/")
+# 本文件在 tools/ 下 → 仓库/游戏根
+_REPO = Path(__file__).resolve().parent.parent
+_CROSS_DIR = _REPO.parent
+_BASE = _CROSS_DIR.parent
 
 
 def _find_game_under(parent: Path) -> Path:
     """在 parent 下找含 cg37.exe 或 cg37_Data 的游戏根。"""
     if not parent.is_dir():
         raise FileNotFoundError(f"目录不存在: {parent}")
-    # 直接就是游戏根
     if (parent / "cg37.exe").is_file() or (parent / "cg37_Data").is_dir():
         return parent.resolve()
     for child in sorted(parent.iterdir()):
@@ -31,13 +38,56 @@ def _find_game_under(parent: Path) -> Path:
     raise FileNotFoundError(f"在 {parent} 下找不到序章游戏目录")
 
 
-# 干净备份：只读提取源
-CLEAN_ROOT = _find_game_under(DRIVE / "crosscopy")
-# 工作目录：插件与工具写入这里
-WORK_ROOT = _find_game_under(DRIVE / "cross")
+def _try_find_game_under(parent: Path) -> Path | None:
+    try:
+        return _find_game_under(parent)
+    except FileNotFoundError:
+        return None
+
+
+def _resolve_named_root(env_key: str, *candidates: Path) -> Path:
+    env = (os.environ.get(env_key) or "").strip()
+    if env:
+        p = Path(env)
+        if (p / "cg37.exe").is_file() or (p / "cg37_Data").is_dir():
+            return p.resolve()
+        found = _try_find_game_under(p)
+        if found is not None:
+            return found
+        raise FileNotFoundError(f"{env_key}={env} 不是有效序章游戏目录")
+    for c in candidates:
+        found = _try_find_game_under(c)
+        if found is not None:
+            return found
+    raise FileNotFoundError(
+        f"找不到序章目录（{env_key}）。已尝试: "
+        + ", ".join(str(c) for c in candidates)
+    )
+
+
+# 工作目录：优先本仓库（相对路径），再尝试同级名「cross」
+WORK_ROOT = _resolve_named_root(
+    "SEQCHAPTER_WORK",
+    _REPO,
+    _BASE / "cross",
+    Path("E:/cross"),
+)
+
+# 干净备份：只读提取源（著名目录名 crosscopy）
+CLEAN_ROOT = _resolve_named_root(
+    "SEQCHAPTER_CLEAN",
+    _BASE / "crosscopy",
+    _CROSS_DIR.parent / "crosscopy",
+    Path("E:/crosscopy"),
+)
+
 # 抓宠实例（可选）
 try:
-    CATCH_ROOT = _find_game_under(DRIVE / "cross抓宠")
+    CATCH_ROOT = _resolve_named_root(
+        "SEQCHAPTER_CATCH",
+        _BASE / "cross抓宠",
+        Path("E:/cross抓宠"),
+    )
 except FileNotFoundError:
     CATCH_ROOT = None
 

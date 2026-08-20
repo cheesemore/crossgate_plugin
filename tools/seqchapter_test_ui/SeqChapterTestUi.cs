@@ -168,6 +168,30 @@ public static class SeqChapterTestUi
     private static bool _escortStartedEncounter;
     /// <summary>等待道具期间上一拍是否在战斗（退战边沿）。</summary>
     private static bool _escortWasInBattle;
+    /// <summary>上一 tick 是否在战斗；用于退战边沿重置静止基线。</summary>
+    private static bool _escortPrevInBattle;
+    /// <summary>战斗页：PVE 清空 BattleCommandRunner 表现队列，RunProcess 空队列直接 OnCompleted。默认关。</summary>
+    private static bool _skipBattleAnim = false;
+    private static bool _skipBattleAnimFlushLogged;
+    private static long _skipBattleAnimLastDiagMs;
+    private static long _skipBattleAnimCmdSinceMs;
+    private static bool _skipBattleAnimManualDone;
+    private static long _skipBattleAnimAutoKickMs;
+    /// <summary>无法行动容错：按账号+回合去重。</summary>
+    private static string _battleUnableActFixKey = "";
+    private static bool _battleUnableActInjected;
+    private const int BpFlagPlayerMenuNon = 4;
+    private const int BpFlagPetMenuNon = 8;
+    private const int BpFlagPet = 0x20;
+    private const long BcUnableActMask = 0x2L | 0x20L | 0x40L; // 死亡 | 睡眠 | 石化
+    private const int FightProcessPlayerEnd = 1;
+    private const int FightProcessPetEnd = 2;
+    private const int FightProcessAllEnd = 3;
+    // BATTLE_TYPE：P_vs_P=2 WATCH=3 PVP_WATCH=9 REPLAY_BATTLE=10（跳过动画不处理）
+    private const int BattleTypePvp = 2;
+    private const int BattleTypeWatch = 3;
+    private const int BattleTypePvpWatch = 9;
+    private const int BattleTypeReplay = 10;
     /// <summary>遇敌步骤：必须先到达本步导航点附近才开遇敌（格）。</summary>
     private const int EscortEncounterArriveNear = 4;
     /// <summary>
@@ -182,13 +206,18 @@ public static class SeqChapterTestUi
     /// <summary>中秋 #119 步骤 2：回登入点后使用赤凤之翼，再等弹窗点完再点任务。</summary>
     private static bool _escortUseItemPending;
     private static long _escortUseItemAtMs;
+    /// <summary>掐掉缓存路径后，等 2 秒再官方点任务（或阿凯版先用羽毛）。</summary>
+    private static bool _escort119OfficialResumePending;
+    private static long _escort119OfficialResumeAtMs;
+    /// <summary>阿凯版第一次取消后：等 2 秒再用赤凤之翼，而不是点任务。</summary>
+    private static bool _escort119ResumeUseWing;
     private static bool _escortWingWizardSeen;
     private static long _escortWingWizardClosedAtMs;
     private static int _escortWingNextClicks;
     private static bool _escortWingPickedDest;
     /// <summary>赤凤之翼弹窗出现等待。服务端 LSSPROTO_WINDOWS 分页，可能晚半拍才开。</summary>
     private const long EscortWingWizardAppearMs = 4000;
-    private const long EscortWingWizardSettleMs = 1500;
+    private const long EscortWingWizardSettleMs = 2000;
     private const long EscortWingWizardTimeoutMs = 20000;
     private const int EscortWingMaxNextClicks = 12;
     private const int WindowButtonNextValue = 0x20;
@@ -217,8 +246,7 @@ public static class SeqChapterTestUi
     private const string MoonRabbitWingKeyword = "赤凤之翼";
     /// <summary>
     /// 中秋 #119：仅对 15000 (22,33) 做特例。
-    /// 遇敌步会把 AutoWarpIndex 设到表尾 100；切图后官方还握着「回芙蕾雅」。
-    /// 先取消这条回程，再导航 15001（正向下一张），不要 RunTask（失败会回退到 100）。
+    /// 彻底掐掉缓存路径，等 2 秒，再官方点任务（与哥拉尔羽毛落地相同）。
     /// </summary>
     private const int MoonRabbitWarpStuckFloor = 15000;
     private const int MoonRabbitWarpStuckX = 22;
@@ -233,6 +261,12 @@ public static class SeqChapterTestUi
     private const int MoonRabbitStep2GoalFloor = 47005;
     private const int MoonRabbitStep2GoalX = 52;
     private const int MoonRabbitStep2GoalY = 56;
+    /// <summary>赤凤之翼落到哥拉尔城。</summary>
+    private const int MoonRabbitGoralLandFloor = 43100;
+    /// <summary>从 43100 出发 GeneralPointMoveTo(47005) 的第一跳；在此停住就要再推一把。</summary>
+    private const int MoonRabbitGoralHopFloor = 43000;
+    /// <summary>翅膀落地后还在 43100/43000，需继续推向 47005。</summary>
+    private static bool _escort119GoralForwardPending;
     /// <summary>赤凤之翼关窗时所在地图；用来等飞到哥拉尔再导航。</summary>
     private static int _escortWingFromFloor;
     private const long MoonRabbitWarpUnstickSettleMs = 1500;
@@ -240,10 +274,7 @@ public static class SeqChapterTestUi
     private const long MoonRabbitWarpUnstickRetryMs = 2000;
     private const int MoonRabbitWarpUnstickMaxClicks = 2;
     /// <summary>0=无 1=已点过，等第二次。</summary>
-    private static int _escort119WarpUnstickPhase;
-    private static long _escort119WarpUnstickAtMs;
-    private static int _escort119WarpUnstickClicks;
-    private static bool _escort119WarpUnstickDone;
+    private static int _escort119WarpUnstickHandledStep = -1;
     /// <summary>最后一步（与月宫使者交谈，StepID=1）不交任务，改把兑换券存账号银行，任务会回到第一步。</summary>
     private const int MoonRabbitLastStep = 1;
     private const string MoonRabbitTicketKeyword = "七夕礼盒兑换券";
@@ -319,11 +350,17 @@ public static class SeqChapterTestUi
     private const string DragonTitleKeyword = "龙族纷争";
     /// <summary>存包腾位阶段已重试发包次数。</summary>
     private static int _dragonStoreRetries;
-    private const int DragonStoreMaxRetries = 3;
+    private const int DragonStoreMaxRetries = 5;
     /// <summary>存包后等待空位的复检次数（兼容银行回包滞后）。</summary>
     private static int _dragonStoreRechecks;
-    private const int DragonStoreMaxRechecks = 10;
-    private const long DragonStoreWaitMs = 2500;
+    private const int DragonStoreMaxRechecks = 18;
+    private const long DragonStoreWaitMs = 4500;
+    private const long DragonStoreRetryWaitMs = 3500;
+    /// <summary>本阶段已发出存宠包数（用于回包滞后时容错继续）。</summary>
+    private static int _dragonStoreSentCount;
+    /// <summary>存包前全队已占宠物格总数（用于检测是否已腾出位）。</summary>
+    private static int _dragonStoreBaselineUsed;
+    private const int DragonStoreForceContinueRechecks = 6;
     /// <summary>phase2 判断可接时，因重置回包可能滞后，允许重试等待的次数与间隔。</summary>
     private static int _dragonCheckRetries;
     private const int DragonCheckMaxRetries = 5;
@@ -445,6 +482,10 @@ public static class SeqChapterTestUi
     {
         try
         {
+            if (SkipBattleAnimDefaultEnabled())
+            {
+                _skipBattleAnim = true;
+            }
             EnsureLogBoot("static-ctor");
         }
         catch
@@ -562,10 +603,12 @@ public static class SeqChapterTestUi
             TickSuperAi();
             TickPetNamer();
             TickScriptWingTest();
+            TickSkipBattleAnim();
+            TickBattleUnableActFix();
         }
         catch (Exception ex)
         {
-            WriteLog("TickEscort/LingTang/SuperAi/WingTest EX: " + RootMessage(ex));
+            WriteLog("TickEscort/LingTang/SuperAi/WingTest/SkipAnim/UnableAct EX: " + RootMessage(ex));
         }
 
         if (!_visible)
@@ -3070,7 +3113,832 @@ public static class SeqChapterTestUi
             AddAreaExtractToggleRow(rtType, ref y);
         }
 
+        AddSkipBattleAnimToggleRow(rtType, ref y);
+
         WriteLog("BuildBattleBody done");
+    }
+
+    /// <summary>战斗页：PVE 清空表现队列（默认关；PVP/观战/录像不处理）。</summary>
+    private static void AddSkipBattleAnimToggleRow(Type rtType, ref float y)
+    {
+        y -= 10f;
+
+        var row = CreateUiChild(_bodyRoot, "SkipBattleAnimRow", rtType);
+        SetAnchoredTop(RequireRect(row, "sbar"), 0f, y, 500f, 32f);
+        var img = AddComp(row, "UnityEngine.UI.Image");
+        SetColor(img, 0.16f, 0.24f, 0.26f, 1f);
+        var lab = CreateUiChild(row, "L", rtType);
+        StretchFull(RequireRect(lab, "sbal"));
+        var text = AddText(lab);
+        SetText(text, (_skipBattleAnim ? "● " : "○ ") + "跳过动画（PVE：清空表现队列，直接等状态包）", 13);
+        BindButton(row, img, ToggleSkipBattleAnimFromUi);
+
+        y -= 34f;
+    }
+
+    private static void ToggleSkipBattleAnimFromUi()
+    {
+        _skipBattleAnim = !_skipBattleAnim;
+        _skipBattleAnimFlushLogged = false;
+        Tip(_skipBattleAnim ? "跳过动画已开启" : "跳过动画已关闭");
+        WriteLog("ToggleSkipBattleAnim=" + _skipBattleAnim);
+        if (_tab == TabBattle)
+        {
+            ClearBody();
+            BuildBattleBody();
+            RefreshTabButtonLabels();
+        }
+    }
+
+    /// <summary>清空 m_CmdQueue 让 RunProcess 自然 OnCompleted；不手动调 OnCompleted（防第二回合状态乱）。</summary>
+    private static void TickSkipBattleAnim()
+    {
+        if (!_skipBattleAnim)
+        {
+            _skipBattleAnimFlushLogged = false;
+            return;
+        }
+
+        try
+        {
+            if (!Convert.ToBoolean(GetStaticMember("BattleDataHolder", "IsInBattle") ?? false))
+            {
+                _skipBattleAnimFlushLogged = false;
+                return;
+            }
+
+            var mode = Convert.ToInt32(GetStaticMember("BattleDataHolder", "battleModeFlag") ?? 0);
+            if (mode == BattleTypePvp || mode == BattleTypeWatch || mode == BattleTypePvpWatch || mode == BattleTypeReplay)
+            {
+                return;
+            }
+
+            ForceBattleGlobalTimeScale(1f);
+            ForceBattleRolesReady();
+
+            var bm = GetManagerInstance("BattleManager");
+            if (bm == null)
+            {
+                return;
+            }
+
+            var cmdRunning = Convert.ToBoolean(GetMember(bm, "CmdRunningFlag") ?? false);
+            if (!cmdRunning)
+            {
+                _skipBattleAnimFlushLogged = false;
+                _skipBattleAnimCmdSinceMs = 0;
+                _skipBattleAnimManualDone = false;
+                TryKickAutoFightWhenStuck(bm);
+                MaybeLogSkipBattleDiag(bm);
+                return;
+            }
+
+            var now = NowMs();
+            _skipBattleAnimAutoKickMs = 0;
+
+            if (_skipBattleAnimCmdSinceMs <= 0)
+            {
+                _skipBattleAnimCmdSinceMs = now;
+            }
+
+            var qBefore = GetBattleCommandQueueCount();
+            FlushBattlePresentationQueue();
+
+            if (!_skipBattleAnimFlushLogged)
+            {
+                WriteLog("SkipAnim: flush cmdQ " + qBefore + "->" + GetBattleCommandQueueCount()
+                         + " statusQ=" + GetBattleStatusQueueCount());
+                _skipBattleAnimFlushLogged = true;
+            }
+
+            // RunProcess 未自然结束 → CmdRunning 一直 true，会挡住下一回合 ProcessCommand
+            if (!_skipBattleAnimManualDone
+                && now - _skipBattleAnimCmdSinceMs > 150
+                && Convert.ToBoolean(GetMember(bm, "CmdRunningFlag") ?? false))
+            {
+                WriteLog("SkipAnim: RunProcess 超时，补一次 OnCompleted");
+                ForceFinishPresentationRun(bm);
+                _skipBattleAnimManualDone = true;
+            }
+
+            MaybeLogSkipBattleDiag(bm);
+        }
+        catch (Exception ex)
+        {
+            WriteLog("TickSkipBattleAnim EX: " + RootMessage(ex));
+        }
+    }
+
+    private static void MaybeLogSkipBattleDiag(object bm)
+    {
+        var now = NowMs();
+        if (now - _skipBattleAnimLastDiagMs < 2000)
+        {
+            return;
+        }
+
+        _skipBattleAnimLastDiagMs = now;
+        try
+        {
+            var fight = Convert.ToInt32(GetMember(bm, "FightProcessFlag") ?? 0);
+            var acct = 0;
+            var acctList = GetStaticMember("BattleDataHolder", "AcountList") as ICollection;
+            if (acctList != null)
+            {
+                acct = acctList.Count;
+            }
+
+            WriteLog("SkipAnim diag: cmdRun=" + GetMember(bm, "CmdRunningFlag")
+                     + " gScale=" + GetBattleGlobalTimeScale()
+                     + " fight=" + fight + "(AllEnd=" + FightProcessAllEnd + ")"
+                     + " acctQ=" + acct
+                     + " actQ=" + GetBattleActionQueueCount()
+                     + " cmdQ=" + GetBattleCommandQueueCount()
+                     + " statusQ=" + GetBattleStatusQueueCount()
+                     + " rolesBad=" + CountBattleRolesNotReady());
+        }
+        catch
+        {
+            // ignore
+        }
+    }
+
+    /// <summary>只清 BattleCommandRunner 表现队列，让 RunProcess 空跑结束；不手动 OnCompleted。</summary>
+    private static void FlushBattlePresentationQueue()
+    {
+        var runner = GetBattleCommandRunner();
+        if (runner == null)
+        {
+            return;
+        }
+
+        runner.GetType().GetMethod("Stop",
+                BindingFlags.Public | BindingFlags.Instance, null, Type.EmptyTypes, null)
+            ?.Invoke(runner, null);
+        ClearReflectCollection(GetMember(runner, "m_CmdQueue"));
+        ClearReflectCollection(GetMember(runner, "m_LuanList"));
+        ClearReflectDictionary(GetMember(runner, "m_CurCmds"));
+    }
+
+    /// <summary>回合间 fight 未 AllEnd 且开自动战斗时，直接 DoAutoFight（不能调 AutoFight，会重置 3 秒倒计时）。</summary>
+    private static void TryKickAutoFightWhenStuck(object bm)
+    {
+        try
+        {
+            if (!Convert.ToBoolean(GetMember(bm, "IsAutoBattle") ?? false))
+            {
+                return;
+            }
+
+            var fight = Convert.ToInt32(GetMember(bm, "FightProcessFlag") ?? 0);
+            if (fight == FightProcessAllEnd)
+            {
+                return;
+            }
+
+            if (Convert.ToBoolean(GetMember(bm, "CmdRunningFlag") ?? false))
+            {
+                return;
+            }
+
+            // 无法行动：先注入 MENU_NON，再踢 DoAutoFight（走官方 idle 分支，勿直接攻击）
+            EnsureBattleUnableActMenuNon(bm);
+
+            var now = NowMs();
+            if (now - _skipBattleAnimAutoKickMs < 1500)
+            {
+                return;
+            }
+
+            _skipBattleAnimAutoKickMs = now;
+            var proc = TryGetBattleProcesser();
+            proc?.GetType().GetMethod("DoAutoFight",
+                    BindingFlags.NonPublic | BindingFlags.Instance, null, Type.EmptyTypes, null)
+                ?.Invoke(proc, null);
+            WriteLog("SkipAnim: kick DoAutoFight fight=" + fight
+                     + " acctQ=" + GetBattleAccountQueueCount());
+        }
+        catch
+        {
+            // ignore
+        }
+    }
+
+    /// <summary>
+    /// 五开自动战斗：队长/当前号死亡、石化、睡眠时官方 AutoFight_PlayerAction 只跳过死亡，
+    /// 石化仍会发攻击包，服务端不认 → BattleCmdQueue 空卡住。
+    /// 做法：提前把 BPFlag / BPFlagArray 打上 PLAYER/PET_MENU_NON，让官方 DoAutoFight 走 idle 分支。
+    /// </summary>
+    private static void TickBattleUnableActFix()
+    {
+        try
+        {
+            if (!Convert.ToBoolean(GetStaticMember("BattleDataHolder", "IsInBattle") ?? false))
+            {
+                _battleUnableActFixKey = "";
+                return;
+            }
+
+            var mode = Convert.ToInt32(GetStaticMember("BattleDataHolder", "battleModeFlag") ?? 0);
+            if (mode == BattleTypePvp || mode == BattleTypeWatch || mode == BattleTypePvpWatch || mode == BattleTypeReplay)
+            {
+                return;
+            }
+
+            var bm = GetManagerInstance("BattleManager");
+            if (bm == null || !Convert.ToBoolean(GetMember(bm, "IsAutoBattle") ?? false))
+            {
+                return;
+            }
+
+            // 表现中也预填 BPFlagArray，保证切到该号时 ChangeNextBattleRole 已带 MENU_NON
+            PrefillUnableActMenuNonForAllies();
+
+            if (Convert.ToBoolean(GetMember(bm, "CmdRunningFlag") ?? false))
+            {
+                return;
+            }
+
+            var proc = TryGetBattleProcesser();
+            var turn = Convert.ToInt32(GetMember(proc, "m_BattleSvTurnIndex") ?? 0);
+            var acct = Convert.ToString(GetStaticMember("BattleDataHolder", "CurrentAccount") ?? "") ?? "";
+            var fixKey = acct + "|" + turn;
+            if (!string.Equals(fixKey, _battleUnableActFixKey, StringComparison.Ordinal))
+            {
+                _battleUnableActFixKey = fixKey;
+                _battleUnableActInjected = false;
+            }
+
+            var fight = Convert.ToInt32(GetMember(bm, "FightProcessFlag") ?? 0);
+            var injected = EnsureBattleUnableActMenuNon(bm);
+            if (injected && !_battleUnableActInjected)
+            {
+                _battleUnableActInjected = true;
+                var playerRole = GetCurrentBattlePlayerRole();
+                WriteLog("UnableAct: inject MENU_NON uid=" + acct + " turn=" + turn
+                         + " bc=" + FormatBcStatus(GetBattleRoleStatus(playerRole))
+                         + " fight=" + fight);
+            }
+
+            // 尚未选完：注入后踢 DoAutoFight，走官方 SendPlayerIdleCommand / 宠物分支
+            if (fight != FightProcessAllEnd && injected)
+            {
+                proc?.GetType().GetMethod("DoAutoFight",
+                        BindingFlags.NonPublic | BindingFlags.Instance, null, Type.EmptyTypes, null)
+                    ?.Invoke(proc, null);
+            }
+        }
+        catch (Exception ex)
+        {
+            WriteLog("TickBattleUnableActFix EX: " + RootMessage(ex));
+        }
+    }
+
+    /// <summary>给全队无法行动的我方角色预写 BPFlagArray，抢在 ChangeNextBattleRole / DoAutoFight 之前。</summary>
+    private static void PrefillUnableActMenuNonForAllies()
+    {
+        try
+        {
+            var arrObj = GetStaticMember("BattleDataHolder", "BPFlagArray");
+            if (!(arrObj is Array arr) || arr.Length == 0)
+            {
+                return;
+            }
+
+            var brc = FindType("BattleRoleContainer");
+            var roleDic = brc?.GetField("BattleRoleDic", BindingFlags.Public | BindingFlags.Static)
+                ?.GetValue(null) as IDictionary;
+            var acctDic = brc?.GetField("AccountIndexDic", BindingFlags.Public | BindingFlags.Static)
+                ?.GetValue(null) as IDictionary;
+            if (roleDic == null || acctDic == null)
+            {
+                return;
+            }
+
+            var playerIdx = Convert.ToInt32(GetStaticMember("BattleDataHolder", "battlePlayerIndex") ?? -1);
+            foreach (DictionaryEntry kv in acctDic)
+            {
+                var idx = Convert.ToInt32(kv.Value ?? -1);
+                if (idx < 0 || idx >= arr.Length)
+                {
+                    continue;
+                }
+
+                var role = roleDic.Contains(idx) ? roleDic[idx] : null;
+                if (role == null)
+                {
+                    continue;
+                }
+
+                // 只处理我方（与当前操作角色同侧）
+                var mine = playerIdx < 0
+                    || (playerIdx < 10 && idx < 10)
+                    || (playerIdx >= 10 && idx >= 10);
+                if (!mine)
+                {
+                    continue;
+                }
+
+                var unable = Convert.ToBoolean(GetMember(role, "IsDead") ?? false)
+                             || (GetBattleRoleStatus(role) & BcUnableActMask) != 0;
+                if (!unable)
+                {
+                    continue;
+                }
+
+                var cur = Convert.ToInt32(arr.GetValue(idx) ?? 0);
+                var next = cur | BpFlagPlayerMenuNon;
+                object petRole = null;
+                if (roleDic.Contains(idx + 5))
+                {
+                    petRole = roleDic[idx + 5];
+                }
+                else if (roleDic.Contains(idx - 5))
+                {
+                    petRole = roleDic[idx - 5];
+                }
+                if (petRole != null
+                    && (Convert.ToBoolean(GetMember(petRole, "IsDead") ?? false)
+                        || (GetBattleRoleStatus(petRole) & BcUnableActMask) != 0))
+                {
+                    next |= BpFlagPetMenuNon;
+                }
+
+                if (next != cur)
+                {
+                    var elemType = arr.GetType().GetElementType();
+                    object boxed = elemType != null && elemType.IsEnum
+                        ? Enum.ToObject(elemType, next)
+                        : next;
+                    arr.SetValue(boxed, idx);
+                }
+            }
+        }
+        catch
+        {
+            // ignore
+        }
+    }
+
+    /// <summary>无法行动时注入 MENU_NON，返回是否对本账号注入了人物/宠物菜单禁止。</summary>
+    private static bool EnsureBattleUnableActMenuNon(object bm)
+    {
+        var playerRole = GetCurrentBattlePlayerRole();
+        var playerUnable = playerRole != null && IsBattleRoleUnableToAct(playerRole, true);
+        var petUnable = IsCurrentBattlePetUnableToAct(bm);
+        if (!playerUnable && !petUnable)
+        {
+            return false;
+        }
+
+        var bp = GetBattleBpFlag();
+        var next = bp;
+        if (playerUnable)
+        {
+            next |= BpFlagPlayerMenuNon;
+        }
+
+        if (petUnable)
+        {
+            next |= BpFlagPetMenuNon;
+        }
+
+        if (next != bp)
+        {
+            SetBattleBpFlag(next);
+        }
+
+        return playerUnable || petUnable;
+    }
+
+    private static int GetBattleBpFlag()
+    {
+        return Convert.ToInt32(GetStaticMember("BattleDataHolder", "BPFlag") ?? 0);
+    }
+
+    private static void SetBattleBpFlag(int bp)
+    {
+        try
+        {
+            var t = FindType("BattleDataHolder");
+            var p = t?.GetProperty("BPFlag", BindingFlags.Public | BindingFlags.Static);
+            if (p != null && p.CanWrite)
+            {
+                var enumType = p.PropertyType;
+                object boxed = Enum.ToObject(enumType, bp);
+                p.SetValue(null, boxed, null);
+                return;
+            }
+
+            var f = t?.GetField("BPFlag", BindingFlags.Public | BindingFlags.Static);
+            if (f != null)
+            {
+                object boxed = f.FieldType.IsEnum ? Enum.ToObject(f.FieldType, bp) : bp;
+                f.SetValue(null, boxed);
+            }
+        }
+        catch
+        {
+            // ignore
+        }
+    }
+
+    private static bool HasBpFlag(int bp, int flag)
+    {
+        return (bp & flag) != 0;
+    }
+
+    /// <summary>优先 Char.Bcflag（与超级AI一致），其次 RoleData.status。</summary>
+    private static long GetBattleRoleStatus(object role)
+    {
+        try
+        {
+            var roleData = GetMember(role, "RoleData");
+            if (roleData == null)
+            {
+                return 0;
+            }
+
+            var ch = GetMember(roleData, "Char");
+            if (ch != null)
+            {
+                var bc = Convert.ToInt64(GetMember(ch, "Bcflag") ?? 0L);
+                if (bc != 0)
+                {
+                    return bc;
+                }
+            }
+
+            return Convert.ToInt64(GetMember(roleData, "status") ?? 0L);
+        }
+        catch
+        {
+            return 0;
+        }
+    }
+
+    private static object GetCurrentBattlePlayerRole()
+    {
+        var idx = Convert.ToInt32(GetStaticMember("BattleDataHolder", "battlePlayerIndex") ?? -1);
+        if (idx < 0)
+        {
+            var bm = GetManagerInstance("BattleManager");
+            idx = Convert.ToInt32(GetMember(bm, "PlayerIndex") ?? -1);
+        }
+
+        if (idx < 0)
+        {
+            return null;
+        }
+
+        var brc = FindType("BattleRoleContainer");
+        var dic = brc?.GetField("BattleRoleDic", BindingFlags.Public | BindingFlags.Static)
+            ?.GetValue(null) as IDictionary;
+        return dic?[idx];
+    }
+
+    private static object GetCurrentBattlePetRole(object bm)
+    {
+        if (bm == null)
+        {
+            return null;
+        }
+
+        try
+        {
+            var petIdx = Convert.ToInt32(bm.GetType().GetMethod("GetBattlePetIndex", Type.EmptyTypes)
+                ?.Invoke(bm, null) ?? -1);
+            if (petIdx < 0)
+            {
+                return null;
+            }
+
+            var brc = FindType("BattleRoleContainer");
+            var dic = brc?.GetField("BattleRoleDic", BindingFlags.Public | BindingFlags.Static)
+                ?.GetValue(null) as IDictionary;
+            return dic?[petIdx];
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>死亡、睡眠、石化，或 BPFlag 已标记 MENU_NON。</summary>
+    private static bool IsBattleRoleUnableToAct(object role, bool isPlayer)
+    {
+        if (role == null)
+        {
+            return false;
+        }
+
+        if (Convert.ToBoolean(GetMember(role, "IsDead") ?? false))
+        {
+            return true;
+        }
+
+        if ((GetBattleRoleStatus(role) & BcUnableActMask) != 0)
+        {
+            return true;
+        }
+
+        var bp = GetBattleBpFlag();
+        if (isPlayer && HasBpFlag(bp, BpFlagPlayerMenuNon))
+        {
+            return true;
+        }
+
+        return !isPlayer && HasBpFlag(bp, BpFlagPetMenuNon);
+    }
+
+    private static bool IsCurrentBattlePetUnableToAct(object bm)
+    {
+        var bp = GetBattleBpFlag();
+        if (HasBpFlag(bp, BpFlagPetMenuNon))
+        {
+            return true;
+        }
+
+        var petRole = GetCurrentBattlePetRole(bm);
+        if (petRole == null)
+        {
+            return false;
+        }
+
+        return IsBattleRoleUnableToAct(petRole, false);
+    }
+
+    private static void ForceFinishPresentationRun(object bm)
+    {
+        FlushBattlePresentationQueue();
+        ForceBattleGlobalTimeScale(1f);
+
+        if (!Convert.ToBoolean(GetMember(bm, "CmdRunningFlag") ?? false))
+        {
+            return;
+        }
+
+        SetMember(bm, "CmdRunningFlag", false);
+        var proc = TryGetBattleProcesser();
+        proc?.GetType().GetMethod("CommandRunner_OnCompleted",
+                BindingFlags.NonPublic | BindingFlags.Instance, null, Type.EmptyTypes, null)
+            ?.Invoke(proc, null);
+    }
+
+    private static object GetBattleCommandRunner()
+    {
+        return GetMember(TryGetBattleProcesser(), "m_CommandRunner");
+    }
+
+    private static void ForceBattleRolesReady()
+    {
+        try
+        {
+            var brc = FindType("BattleRoleContainer");
+            brc?.GetMethod("AllRoleReturn", BindingFlags.Public | BindingFlags.Static, null, Type.EmptyTypes, null)
+                ?.Invoke(null, null);
+
+            var dic = brc?.GetField("BattleRoleDic", BindingFlags.Public | BindingFlags.Static)
+                ?.GetValue(null) as IDictionary;
+            if (dic != null)
+            {
+                foreach (DictionaryEntry kv in dic)
+                {
+                    var role = kv.Value;
+                    if (role == null)
+                    {
+                        continue;
+                    }
+
+                    SetMember(role, "IsInPosition", true);
+                    SetMember(role, "returnCompleted", true);
+                    SetMember(role, "NeedWaitDeadAction", false);
+                    role.GetType().GetMethod("SetTimeScale",
+                            BindingFlags.Public | BindingFlags.Instance, null, new[] { typeof(float) }, null)
+                        ?.Invoke(role, new object[] { 1f });
+                }
+            }
+
+            var mapType = FindType("MapManager");
+            var mono = FindType("MonoSingleton`1");
+            if (mapType != null && mono != null)
+            {
+                var closed = mono.MakeGenericType(mapType);
+                var map = closed.GetProperty("instance", BindingFlags.Public | BindingFlags.Static)
+                            ?.GetValue(null, null)
+                          ?? closed.GetField("instance", BindingFlags.Public | BindingFlags.Static)
+                              ?.GetValue(null);
+                SetMember(map, "backShining", false);
+            }
+        }
+        catch
+        {
+            // ignore
+        }
+    }
+
+    private static bool AnyBattleRoleNotReady()
+    {
+        return CountBattleRolesNotReady() > 0;
+    }
+
+    private static int CountBattleRolesNotReady()
+    {
+        var bad = 0;
+        try
+        {
+            var brc = FindType("BattleRoleContainer");
+            var dic = brc?.GetField("BattleRoleDic", BindingFlags.Public | BindingFlags.Static)
+                ?.GetValue(null) as IDictionary;
+            if (dic == null)
+            {
+                return 0;
+            }
+
+            foreach (DictionaryEntry kv in dic)
+            {
+                var role = kv.Value;
+                if (role == null)
+                {
+                    continue;
+                }
+
+                var dead = Convert.ToBoolean(GetMember(role, "IsDead") ?? false);
+                if (dead)
+                {
+                    continue;
+                }
+
+                if (!Convert.ToBoolean(GetMember(role, "IsInPosition") ?? true))
+                {
+                    bad++;
+                    continue;
+                }
+
+                if (!Convert.ToBoolean(GetMember(role, "returnCompleted") ?? true))
+                {
+                    bad++;
+                }
+            }
+        }
+        catch
+        {
+            // ignore
+        }
+
+        return bad;
+    }
+
+    private static int GetBattleActionQueueCount()
+    {
+        try
+        {
+            var proc = TryGetBattleProcesser();
+            var q = GetMember(proc, "BattleCmdQueue") as ICollection;
+            return q?.Count ?? 0;
+        }
+        catch
+        {
+            return 0;
+        }
+    }
+
+    private static int GetBattleCommandQueueCount()
+    {
+        try
+        {
+            var proc = TryGetBattleProcesser();
+            var runner = GetMember(proc, "m_CommandRunner");
+            var q = GetMember(runner, "m_CmdQueue") as ICollection;
+            return q?.Count ?? 0;
+        }
+        catch
+        {
+            return 0;
+        }
+    }
+
+    private static int GetBattleStatusQueueCount()
+    {
+        try
+        {
+            var proc = TryGetBattleProcesser();
+            var q = GetMember(proc, "BattleStatusQueue") as ICollection;
+            return q?.Count ?? 0;
+        }
+        catch
+        {
+            return 0;
+        }
+    }
+
+    private static int GetBattleAccountQueueCount()
+    {
+        try
+        {
+            var list = GetStaticMember("BattleDataHolder", "AcountList") as ICollection;
+            return list?.Count ?? 0;
+        }
+        catch
+        {
+            return 0;
+        }
+    }
+
+    private static void ClearReflectCollection(object collection)
+    {
+        try
+        {
+            collection?.GetType().GetMethod("Clear", Type.EmptyTypes)?.Invoke(collection, null);
+        }
+        catch
+        {
+            // ignore
+        }
+    }
+
+    private static void ClearReflectDictionary(object dictionary)
+    {
+        try
+        {
+            (dictionary as IDictionary)?.Clear();
+        }
+        catch
+        {
+            // ignore
+        }
+    }
+
+    private static float GetBattleGlobalTimeScale()
+    {
+        try
+        {
+            var brc = FindType("BattleRoleContainer");
+            var f = brc?.GetField("GlobalTimeScale", BindingFlags.Public | BindingFlags.Static);
+            return Convert.ToSingle(f?.GetValue(null) ?? 1f);
+        }
+        catch
+        {
+            return 1f;
+        }
+    }
+
+    private static void ForceBattleGlobalTimeScale(float scale)
+    {
+        try
+        {
+            var brc = FindType("BattleRoleContainer");
+            var m = brc?.GetMethod("SetAllRoleTimeScale",
+                BindingFlags.Public | BindingFlags.Static, null, new[] { typeof(float) }, null);
+            m?.Invoke(null, new object[] { scale });
+            // SetAllRoleTimeScale 会乘 BattleTimeScale；为 0 时 GlobalTimeScale 仍为 0，ProcessCommand 会卡死
+            var f = brc?.GetField("GlobalTimeScale", BindingFlags.Public | BindingFlags.Static);
+            if (f != null && Convert.ToSingle(f.GetValue(null) ?? 0f) <= 0f)
+            {
+                f.SetValue(null, scale);
+            }
+        }
+        catch
+        {
+            // ignore
+        }
+    }
+
+    private static void InvokeStopBattleCommand()
+    {
+        var proc = TryGetBattleProcesser();
+        if (proc == null)
+        {
+            return;
+        }
+
+        proc.GetType().GetMethod("StopBattleCommand",
+                BindingFlags.Public | BindingFlags.Instance, null, Type.EmptyTypes, null)
+            ?.Invoke(proc, null);
+    }
+
+    private static object TryGetBattleProcesser()
+    {
+        try
+        {
+            var gmType = FindType("GameManagerHotfix");
+            var mono = FindType("MonoSingleton`1");
+            if (gmType == null || mono == null)
+            {
+                return null;
+            }
+
+            var closed = mono.MakeGenericType(gmType);
+            var inst = closed.GetProperty("instance", BindingFlags.Public | BindingFlags.Static)
+                       ?.GetValue(null, null)
+                       ?? closed.GetField("instance", BindingFlags.Public | BindingFlags.Static)
+                           ?.GetValue(null);
+            return GetMember(inst, "battleProcesser");
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     /// <summary>战斗模式页：采集自动提取独立开关（单格满 999 自动提取到背包）。</summary>
@@ -7968,7 +8836,7 @@ public static class SeqChapterTestUi
         }
     }
 
-    /// <summary>检查每个队员是否都至少有 1 个宠物空位（宠物栏固定 5 槽）。</summary>
+    /// <summary>检查每个队员是否都至少有 1 个宠物空位（宠物栏最多 5 槽）。</summary>
     private static bool CheckAllPetSlotFree(out string failName)
     {
         failName = "";
@@ -7992,15 +8860,60 @@ public static class SeqChapterTestUi
 
         foreach (var uid in uids)
         {
+            if (!IsPetBarHasFreeSlot(getPets, uid, out var used, out var capSlots))
+            {
+                failName = uid;
+                WriteLog("dragon pet full uid=" + uid + " used=" + used + "/" + capSlots);
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static int CountTeamUsedPetSlots()
+    {
+        var total = 0;
+        var uids = CollectTeamOrMultiUids();
+        if (uids.Count == 0)
+        {
+            var cap = GetCaptainUid();
+            if (!string.IsNullOrEmpty(cap))
+            {
+                uids.Add(cap);
+            }
+        }
+
+        var getPets = FindType("PlayerDataHolder")?.GetMethod(
+            "GetPetDatasFromUid", BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic);
+        if (getPets == null)
+        {
+            return 0;
+        }
+
+        foreach (var uid in uids)
+        {
+            CountUsedPetSlots(getPets, uid, out var used, out _);
+            total += used;
+        }
+
+        return total;
+    }
+
+    private static void CountUsedPetSlots(MethodInfo getPets, string uid, out int used, out int capSlots)
+    {
+        used = 0;
+        capSlots = 5;
+        try
+        {
             var pets = getPets.Invoke(null, new object[] { uid }) as System.Collections.IList;
             if (pets == null)
             {
-                failName = uid;
-                return false;
+                return;
             }
 
-            var used = 0;
-            for (var i = 0; i < pets.Count; i++)
+            capSlots = Math.Max(1, Math.Min(5, pets.Count));
+            for (var i = 0; i < pets.Count && i < 5; i++)
             {
                 var p = pets[i];
                 if (p == null)
@@ -8008,22 +8921,120 @@ public static class SeqChapterTestUi
                     continue;
                 }
 
-                var useFlag = Convert.ToInt32(GetMember(p, "useFlag") ?? 0);
-                if (useFlag == 1)
+                if (Convert.ToInt32(GetMember(p, "useFlag") ?? 0) == 1)
+                {
+                    used++;
+                }
+            }
+        }
+        catch
+        {
+            // ignore
+        }
+    }
+
+    private static bool IsPetBarHasFreeSlot(MethodInfo getPetsMethod, string uid, out int used, out int capSlots)
+    {
+        used = 0;
+        capSlots = 5;
+        try
+        {
+            var pets = getPetsMethod.Invoke(null, new object[] { uid }) as System.Collections.IList;
+            if (pets == null)
+            {
+                return false;
+            }
+
+            capSlots = Math.Max(1, Math.Min(5, pets.Count));
+            for (var i = 0; i < pets.Count && i < 5; i++)
+            {
+                var p = pets[i];
+                if (p == null)
+                {
+                    continue;
+                }
+
+                if (Convert.ToInt32(GetMember(p, "useFlag") ?? 0) == 1)
                 {
                     used++;
                 }
             }
 
-            if (used >= pets.Count)
+            return used < capSlots;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool IsPetBarFull(System.Collections.IList pets)
+    {
+        if (pets == null || pets.Count == 0)
+        {
+            return false;
+        }
+
+        var used = 0;
+        var capSlots = Math.Max(1, Math.Min(5, pets.Count));
+        for (var i = 0; i < pets.Count && i < 5; i++)
+        {
+            var p = pets[i];
+            if (p == null)
             {
-                failName = uid;
-                WriteLog("dragon pet full uid=" + uid + " used=" + used + "/" + pets.Count);
-                return false;
+                continue;
+            }
+
+            if (Convert.ToInt32(GetMember(p, "useFlag") ?? 0) == 1)
+            {
+                used++;
             }
         }
 
-        return true;
+        return used >= capSlots;
+    }
+
+    /// <summary>存包后尝试关掉银行相关 UI，避免挡住后续点任务。</summary>
+    private static void TryDismissBankUiAfterStore()
+    {
+        try
+        {
+            var roleMgr = GetManagerInstance("RoleManager");
+            if (roleMgr != null)
+            {
+                SetMember(roleMgr, "OpenBankFromPet", false);
+            }
+
+            var uiType = FindType("UIManager");
+            var getPanel = uiType?.GetMethod("GetUIPanel", BindingFlags.Public | BindingFlags.Static);
+            if (getPanel == null || !getPanel.IsGenericMethodDefinition)
+            {
+                return;
+            }
+
+            foreach (var panelName in new[] { "BankPanel", "PetBankPanel", "RemoteBankPanel" })
+            {
+                var panelType = FindType(panelName);
+                if (panelType == null)
+                {
+                    continue;
+                }
+
+                var closed = getPanel.MakeGenericMethod(panelType);
+                var panel = closed.Invoke(null, null);
+                if (panel == null)
+                {
+                    continue;
+                }
+
+                panel.GetType().GetMethod("Close", BindingFlags.Public | BindingFlags.Instance, null, Type.EmptyTypes, null)
+                    ?.Invoke(panel, null);
+            }
+        }
+        catch
+        {
+            // ignore
+        }
     }
 
     /// <summary>收集指定账号的宠物列表。</summary>
@@ -8145,9 +9156,9 @@ public static class SeqChapterTestUi
     }
 
     /// <summary>
-    /// 对所有宠物栏满的队员，把 1 级休息宠存到银行。返回是否有成功发包（存在可存的 1 级宠）。
+    /// 对所有宠物栏满的队员，把 1 级休息宠存到银行。返回成功发包的宠物数量。
     /// </summary>
-    private static bool StoreLevelOnePetsForFull()
+    private static int StoreLevelOnePetsForFull()
     {
         // 存宠前停官方导航，避免寻路与银行操作抢控制
         StopTaskNavigation(false);
@@ -8165,19 +9176,19 @@ public static class SeqChapterTestUi
             "GetPetDatasFromUid", BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic);
         if (getPets == null)
         {
-            return false;
+            return 0;
         }
 
         var roleMgr = GetManagerInstance("RoleManager");
         if (roleMgr == null)
         {
-            return false;
+            return 0;
         }
 
         var bankType = ResolvePersonalBankType();
         if (bankType == null)
         {
-            return false;
+            return 0;
         }
 
         MethodInfo sendBank = null;
@@ -8199,10 +9210,10 @@ public static class SeqChapterTestUi
 
         if (sendBank == null)
         {
-            return false;
+            return 0;
         }
 
-        var anyStored = false;
+        var storedCount = 0;
         foreach (var uid in uids)
         {
             var pets = getPets.Invoke(null, new object[] { uid }) as System.Collections.IList;
@@ -8212,24 +9223,9 @@ public static class SeqChapterTestUi
             }
 
             // 只处理宠物栏满的账号
-            var used = 0;
-            for (var i = 0; i < pets.Count; i++)
+            if (!IsPetBarFull(pets))
             {
-                var p = pets[i];
-                if (p == null)
-                {
-                    continue;
-                }
-
-                if (Convert.ToInt32(GetMember(p, "useFlag") ?? 0) == 1)
-                {
-                    used++;
-                }
-            }
-
-            if (used < pets.Count)
-            {
-                continue; // 没满，跳过
+                continue;
             }
 
             // 收集 1 级休息宠（记录宠物对象，存后本地置 useFlag=0，贴合抓宠存包逻辑）
@@ -8298,7 +9294,7 @@ public static class SeqChapterTestUi
 
                     sendBank.Invoke(roleMgr, args);
                     SetMember(pet, "useFlag", 0);
-                    anyStored = true;
+                    storedCount++;
                     WriteLog("dragon store pet uid=" + uid + " idx=" + index);
                 }
                 catch (Exception ex)
@@ -8308,7 +9304,12 @@ public static class SeqChapterTestUi
             }
         }
 
-        return anyStored;
+        if (storedCount > 0)
+        {
+            TryDismissBankUiAfterStore();
+        }
+
+        return storedCount;
     }
 
     private static string FormatEscortStatus()
@@ -8416,15 +9417,24 @@ public static class SeqChapterTestUi
         }
 
         var idleSec = 0;
-        if (_escortActive && !_escortPaused && _lastActivityMs > 0 && _escortBetweenTasksWaitMs <= 0)
+        var idleLine = "";
+        if (_escortActive && !_escortPaused && _escortBetweenTasksWaitMs <= 0)
         {
-            idleSec = (int)((NowMs() - _lastActivityMs) / 1000);
+            if (Convert.ToBoolean(GetStaticMember("BattleDataHolder", "IsInBattle") ?? false))
+            {
+                idleLine = "\n静止计时: 战斗中";
+            }
+            else if (_lastActivityMs > 0)
+            {
+                idleSec = (int)((NowMs() - _lastActivityMs) / 1000);
+                idleLine = "\n静止计时: " + idleSec + "s / 5s";
+            }
         }
 
         return "状态: " + state
                + "\nRunTaskId: " + GetRunTaskId()
                + "\n对话自动点: " + _dialogueAutoClicks + " 次"
-               + "\n静止计时: " + idleSec + "s / 5s"
+               + idleLine
                + "\n本步骤恢复: " + _escortRecoverAttempts + " / " + EscortMaxRecoverFails
                + "（换步骤重置；卡楼梯：挪格后点任务）"
                + "\n" + GetEscortSpecialNote()
@@ -8903,6 +9913,7 @@ public static class SeqChapterTestUi
         _escortLastStepNum = -1;
         ResetMoonRabbitEscortFlags();
         StopEscortEncounterWait("begin", false);
+        _escortPrevInBattle = false;
         _lastActivityMs = NowMs();
         if (TryGetPlayerXY(out var x, out var y))
         {
@@ -9139,11 +10150,14 @@ public static class SeqChapterTestUi
                 // 宠物位满：尝试存 1 级宠到银行腾位，等空位后再继续循环
                 _dragonStoreRetries = 0;
                 _dragonStoreRechecks = 0;
-                var stored = StoreLevelOnePetsForFull();
-                if (stored)
+                _dragonStoreBaselineUsed = CountTeamUsedPetSlots();
+                _dragonStoreSentCount = StoreLevelOnePetsForFull();
+                if (_dragonStoreSentCount > 0)
                 {
-                    WriteLog("dragon loop store pets: count=" + _dragonLoopCount);
-                    Tip("龙族循环：宠物位满，正在存1级宠物到银行…");
+                    WriteLog("dragon loop store pets: count=" + _dragonLoopCount
+                             + " sent=" + _dragonStoreSentCount
+                             + " baselineUsed=" + _dragonStoreBaselineUsed);
+                    Tip("龙族循环：宠物位满，已存 " + _dragonStoreSentCount + " 只1级宠，等待银行确认…");
                     _dragonPhase = 4;
                     _dragonPhaseAtMs = NowMs();
                 }
@@ -9252,6 +10266,7 @@ public static class SeqChapterTestUi
         _escortFinishWaitMs = 0;
         ResetMoonRabbitEscortFlags();
         StopEscortEncounterWait("cancel", false);
+        _escortPrevInBattle = false;
         _escortQueue.Clear();
         _prevRunTaskId = GetRunTaskId();
         if (stopNav && wasActive)
@@ -9419,6 +10434,8 @@ public static class SeqChapterTestUi
             _dragonCheckRetries = 0;
             _dragonStoreRetries = 0;
             _dragonStoreRechecks = 0;
+            _dragonStoreSentCount = 0;
+            _dragonStoreBaselineUsed = 0;
             WriteLog("dragon loop start line=" + line);
             Tip("龙族循环" + line + "线：开始，先重置龙族纷争4…");
             ResetDragon4ForAll();
@@ -9475,6 +10492,8 @@ public static class SeqChapterTestUi
         _dragonCheckRetries = 0;
         _dragonStoreRetries = 0;
         _dragonStoreRechecks = 0;
+        _dragonStoreSentCount = 0;
+        _dragonStoreBaselineUsed = 0;
         _dragonUseMemoryPending = false;
         ResetDragon4ForAll();
         TryRebuildEscortTab();
@@ -9590,45 +10609,68 @@ public static class SeqChapterTestUi
         if (_dragonPhase == 4)
         {
             // 存包腾位：等银行回包 → 全员有空位则继续循环；否则再存/再等，不因一次复检失败就停
-            if (now - _dragonPhaseAtMs < DragonStoreWaitMs)
+            var waitMs = _dragonStoreRetries > 0 ? DragonStoreRetryWaitMs : DragonStoreWaitMs;
+            if (now - _dragonPhaseAtMs < waitMs)
             {
                 return;
             }
 
+            var usedNow = CountTeamUsedPetSlots();
             if (CheckAllPetSlotFree(out var failUid2))
             {
-                WriteLog("dragon loop store ok, next round count=" + _dragonLoopCount + " recheck=" + _dragonStoreRechecks);
+                WriteLog("dragon loop store ok, next round count=" + _dragonLoopCount
+                         + " recheck=" + _dragonStoreRechecks + " used=" + usedNow);
                 BeginDragonNextRound("龙族循环：存包完成，全员有空位，继续循环…");
+                return;
+            }
+
+            if (_dragonStoreSentCount > 0 && usedNow < _dragonStoreBaselineUsed)
+            {
+                WriteLog("dragon loop store improved used " + _dragonStoreBaselineUsed + "->" + usedNow
+                         + " sent=" + _dragonStoreSentCount);
+                BeginDragonNextRound("龙族循环：存包已生效，继续循环…");
                 return;
             }
 
             _dragonStoreRechecks++;
 
-            // 仍满：优先再发一次存宠；发不出也不立刻停，继续等空位（回包滞后）
             if (_dragonStoreRetries < DragonStoreMaxRetries)
             {
-                var stored = StoreLevelOnePetsForFull();
-                if (stored)
+                var sent = StoreLevelOnePetsForFull();
+                if (sent > 0)
                 {
+                    _dragonStoreSentCount += sent;
                     _dragonStoreRetries++;
-                    WriteLog("dragon loop store retry=" + _dragonStoreRetries + " recheck=" + _dragonStoreRechecks);
+                    WriteLog("dragon loop store retry=" + _dragonStoreRetries
+                             + " recheck=" + _dragonStoreRechecks + " sent+=" + sent);
                     Tip("龙族循环：宠物仍满，继续存1级宠到银行…");
                     _dragonPhaseAtMs = now;
                     return;
                 }
             }
 
+            if (_dragonStoreSentCount > 0 && _dragonStoreRechecks >= DragonStoreForceContinueRechecks)
+            {
+                WriteLog("dragon loop store force-continue sent=" + _dragonStoreSentCount
+                         + " rechecks=" + _dragonStoreRechecks + " failUid=" + failUid2
+                         + " used=" + usedNow + " baseline=" + _dragonStoreBaselineUsed);
+                Tip("龙族循环：存包已发送，继续循环（若仍满请手动存宠）");
+                BeginDragonNextRound(null);
+                return;
+            }
+
             if (_dragonStoreRechecks < DragonStoreMaxRechecks)
             {
                 WriteLog("dragon loop store wait free uid=" + failUid2
-                    + " recheck=" + _dragonStoreRechecks + "/" + DragonStoreMaxRechecks);
+                         + " recheck=" + _dragonStoreRechecks + "/" + DragonStoreMaxRechecks
+                         + " used=" + usedNow + " sent=" + _dragonStoreSentCount);
                 _dragonPhaseAtMs = now;
                 return;
             }
 
             WriteLog("dragon loop stop: 存包后仍满 uid=" + failUid2
-                + " retries=" + _dragonStoreRetries + " rechecks=" + _dragonStoreRechecks
-                + " count=" + _dragonLoopCount);
+                     + " retries=" + _dragonStoreRetries + " rechecks=" + _dragonStoreRechecks
+                     + " sent=" + _dragonStoreSentCount + " count=" + _dragonLoopCount);
             Tip("龙族循环停止：宠物位满且存包后仍无空位，共循环 " + _dragonLoopCount + " 轮");
             _dragonLoopActive = false;
             _dragonPhase = 0;
@@ -9718,8 +10760,8 @@ public static class SeqChapterTestUi
 
         if (TempMidAutumnEscort119 && _escortLoginGatePending)
         {
-            // 回登入点后立刻掐掉任务导航；切到阿凯鲁法后若仍在寻路，会继续点回城去哥拉尔。
-            StopTaskNavigation(false);
+            // 回登入点途中一直掐路径，避免切图后继续沿倒序表回城。
+            AbortEscortTaskPathFully("119-logingate-wait");
             if (now - _escortLoginGateAtMs < EscortLoginGateWaitMs)
             {
                 return;
@@ -9728,39 +10770,49 @@ public static class SeqChapterTestUi
             _escortLoginGatePending = false;
             if (_escort119PendingAfterGateStep == MoonRabbitLoginGateStep2)
             {
-                // 哥拉尔版：登入点已在哥拉尔，回登入点后正向去 47005，不要 RunTask（会沿倒序表退回法兰）
-                if (_midAutumnGoralEdition)
-                {
-                    if (!RestartMoonRabbitForwardNav(
-                            "119-after-logingate-goral",
-                            MoonRabbitStep2GoalFloor, MoonRabbitStep2GoalX, MoonRabbitStep2GoalY,
-                            "任务护航：已到哥拉尔，改走怨念囚灵魔"))
-                    {
-                        PauseEscortOnConditionFail("119-after-logingate-goral");
-                    }
-
-                    return;
-                }
-
-                StopTaskNavigation();
-                if (UseCaptainBagItem(MoonRabbitWingKeyword, false))
-                {
-                    _escortUseItemPending = true;
-                    _escortUseItemAtMs = now;
-                    ResetWingWizardState();
-                    WriteLog("119 use 赤凤之翼 after login-gate");
-                    return;
-                }
-
-                Tip("任务护航：队长背包没有赤凤之翼");
-                _escortLastDiag = "队长背包没有赤凤之翼";
-                PauseEscortOnConditionFail("119-red-phoenix-wing");
+                AbortEscortTaskPathFully(_midAutumnGoralEdition
+                    ? "119-goral-before-resume"
+                    : "119-akai-before-wing");
+                _escort119OfficialResumeAtMs = now;
+                _escort119OfficialResumePending = true;
+                _escort119ResumeUseWing = !_midAutumnGoralEdition;
+                WriteLog(_midAutumnGoralEdition
+                    ? "119 goral abort then wait 2s official nav"
+                    : "119 akai abort #1, wait 2s then 赤凤之翼");
+                Tip("任务护航：已取消导航");
                 return;
             }
 
             if (!ClickEscortTaskNav("119-after-logingate"))
             {
                 PauseEscortOnConditionFail("119-after-logingate");
+            }
+
+            return;
+        }
+
+        if (TempMidAutumnEscort119 && _escort119OfficialResumePending)
+        {
+            AbortEscortTaskPathFully("119-official-resume-wait");
+            if (now - _escort119OfficialResumeAtMs < EscortWingWizardSettleMs)
+            {
+                _escortLastDiag = _escort119ResumeUseWing ? "取消后用羽毛" : "等2秒后点任务";
+                return;
+            }
+
+            _escort119OfficialResumePending = false;
+            _escortLastDiag = "";
+            if (_escort119ResumeUseWing)
+            {
+                _escort119ResumeUseWing = false;
+                StartMoonRabbitWingAfterAbort("after-akai-abort");
+                return;
+            }
+
+            Tip("任务护航：重新点任务");
+            if (!ClickEscortTaskLikeMouse())
+            {
+                PauseEscortOnConditionFail("119-official-resume");
             }
 
             return;
@@ -9788,38 +10840,20 @@ public static class SeqChapterTestUi
             {
                 WriteLog("119 wing wizard never opened, continue task");
             }
-            else
+            else if (IsMapLoading())
             {
-                if (IsMapLoading())
-                {
-                    _escortLastDiag = "赤凤之翼切图中";
-                    return;
-                }
-
-                int floor;
-                string floorName;
-                int mapResId;
-                if (_escortWingFromFloor != 0
-                    && TryGetCurrentMapInfo(out floor, out floorName, out mapResId)
-                    && floor == _escortWingFromFloor
-                    && now - _escortWingWizardClosedAtMs < 8000)
-                {
-                    _escortLastDiag = "赤凤之翼切图中";
-                    return;
-                }
+                _escortLastDiag = "赤凤之翼切图中";
+                return;
             }
 
             _escortUseItemPending = false;
             _escortLastDiag = "";
-            // 飞到哥拉尔后禁止 RunTask：倒序表 TargetCannotReach 会 +1 一直退到 2000 法兰
-            if (!RestartMoonRabbitForwardNav(
-                    "119-after-use-item",
-                    MoonRabbitStep2GoalFloor, MoonRabbitStep2GoalX, MoonRabbitStep2GoalY,
-                    "任务护航：已到哥拉尔，改走怨念囚灵魔"))
-            {
-                PauseEscortOnConditionFail("119-after-use-item");
-            }
-
+            AbortEscortTaskPathFully("119-after-wing");
+            _escort119OfficialResumeAtMs = now;
+            _escort119OfficialResumePending = true;
+            _escort119ResumeUseWing = false;
+            WriteLog("119 akai abort #2 after wing, wait 2s then official nav");
+            Tip("任务护航：已取消导航");
             return;
         }
 
@@ -9870,7 +10904,8 @@ public static class SeqChapterTestUi
             try
             {
                 var sn = GetEscortMissionStepNum();
-                if (TryStartMoonRabbitBrownTeleport(sn, "tick")
+                if (TryStartMoonRabbitStepSpecial(sn, "tick")
+                    || TryStartMoonRabbitBrownTeleport(sn, "tick")
                     || TryStartMoonRabbitReefTeleport(sn, "tick")
                     || TryStartMoonRabbitLastStepBank(sn, "tick"))
                 {
@@ -9987,12 +11022,21 @@ public static class SeqChapterTestUi
 
         _escortFinishWaitMs = 0;
 
-        if (dialogueOpen || inBattle)
+        // 战斗中不刷新静止基线（否则战后动画段会把 5 秒计时一直往后推）
+        if (_escortPrevInBattle && !inBattle)
+        {
+            _lastActivityMs = now;
+            WriteLog("escort battle exit idle reset id=" + _escortMissionId);
+        }
+
+        _escortPrevInBattle = inBattle;
+
+        if (dialogueOpen)
         {
             _lastActivityMs = now;
         }
 
-        if (TryGetPlayerXY(out var x, out var y))
+        if (!inBattle && TryGetPlayerXY(out var x, out var y))
         {
             if (x != _lastPosX || y != _lastPosY)
             {
@@ -10019,11 +11063,6 @@ public static class SeqChapterTestUi
                 _escortMapChangeAtMs = now;
                 _lastActivityMs = now;
                 ClearEscortStuckPending();
-                // 15000 挪格特例：整步只做一次，离图不重置 Done
-                if (_escort119WarpUnstickPhase != 0 && curFloor != MoonRabbitWarpStuckFloor)
-                {
-                    _escort119WarpUnstickPhase = 0;
-                }
             }
         }
 
@@ -10054,9 +11093,6 @@ public static class SeqChapterTestUi
             _escortLastStepNum = stepNum;
             _escortRecoverAttempts = 0;
             ResetEscortStuckState();
-            _escort119WarpUnstickDone = false;
-            _escort119WarpUnstickPhase = 0;
-            _escort119WarpUnstickClicks = 0;
             _lastActivityMs = now;
 
             if (TempMidAutumnEscort119 && _escortMissionId == MoonRabbitMissionId && prevStep >= 0)
@@ -10067,6 +11103,17 @@ public static class SeqChapterTestUi
                     || TryStartMoonRabbitLastStepBank(stepNum, "step-change"))
                 {
                     WriteLog("119 special on step-change " + prevStep + "->" + stepNum);
+                    return;
+                }
+
+                // 打完 boss 时常在战斗中就切到步骤 2，回登入点发不出去。
+                // 先掐路径，出战后由 tick 补发；不要点任务/走卡死。
+                if (MoonRabbitLoginGateNeeded())
+                {
+                    StopEscortEncounterWait("119-step2-defer", false);
+                    AbortEscortTaskPathFully("119-step2-wait-battle");
+                    ClearEscortStuckPending();
+                    WriteLog("119 login-gate defer in-battle step=" + prevStep + "->" + stepNum);
                     return;
                 }
             }
@@ -10081,6 +11128,15 @@ public static class SeqChapterTestUi
 
                 return;
             }
+        }
+
+        if (MoonRabbitLoginGateNeeded())
+        {
+            AbortEscortTaskPathFully("119-step2-wait");
+            ClearEscortStuckPending();
+            _lastActivityMs = now;
+            _escortLastDiag = "出战后回登入点";
+            return;
         }
 
         if (inBattle)
@@ -11339,6 +12395,104 @@ public static class SeqChapterTestUi
         }
     }
 
+    /// <summary>
+    /// 彻底终止官方任务导航，含 TaskManager 缓存路径与 MissionData.AutoWarpIndex / TargetPoint。
+    /// CancelTaskPathfinding 本身不清 AutoWarpIndex；m_IsStartingTaskPath 为 true 时 Cancel 会直接 return。
+    /// </summary>
+    private static void AbortEscortTaskPathFully(string reason)
+    {
+        try
+        {
+            var tm = GetManagerInstance("TaskManager");
+            if (tm != null)
+            {
+                try
+                {
+                    SetMember(tm, "m_IsStartingTaskPath", false);
+                }
+                catch
+                {
+                    // ignore
+                }
+            }
+
+            StopTaskNavigation(false);
+            ClearTaskPathSameIndexStopGuard();
+            if (tm != null)
+            {
+                try
+                {
+                    SetMember(tm, "m_IsTaskPathfindingActive", false);
+                    SetMember(tm, "m_TaskPathResumePending", false);
+                    SetMember(tm, "m_TaskPathWaitingNpcMapChange", false);
+                    SetMember(tm, "m_TaskPathCompletedIndex", -1);
+                    SetMember(tm, "m_TaskPathCompletedStep", -1);
+                    SetMember(tm, "m_TaskPathContextTaskId", -1);
+                    SetMember(tm, "m_TaskPathContextStep", -1);
+                    SetMember(tm, "m_TaskPathContextIndex", -1);
+                    SetMember(tm, "m_TaskPathSuppressAutoWarpFallback", false);
+                    SetMember(tm, "m_TaskPathResetIndexAfterMapLoad", false);
+                    SetMember(tm, "m_TaskPathMissionDataDirty", false);
+                    SetMember(tm, "RunTaskId", -1);
+                }
+                catch (Exception ex)
+                {
+                    WriteLog("AbortEscortTaskPathFully fields EX " + RootMessage(ex));
+                }
+
+                try
+                {
+                    var clearCtx = tm.GetType().GetMethod(
+                        "ClearTaskPathContext",
+                        BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                    clearCtx?.Invoke(tm, null);
+                    var clearRetry = tm.GetType().GetMethod(
+                        "ClearTaskPathLastRetry",
+                        BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                    clearRetry?.Invoke(tm, null);
+                }
+                catch
+                {
+                    // ignore
+                }
+            }
+
+            var mission = GetSidebarTaskMissionData(_escortMissionId) ?? GetMissionDataById(_escortMissionId);
+            ForceEscortAutoWarpIndexZero();
+            ClearMissionTargetPoint(mission);
+            try
+            {
+                var mdType = FindType("MissionData");
+                if (mdType != null)
+                {
+                    var cur = mdType.GetProperty(
+                        "currentExecuting", BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic);
+                    if (cur != null && cur.CanWrite)
+                    {
+                        cur.SetValue(null, null, null);
+                    }
+                    else
+                    {
+                        mdType.GetField(
+                            "currentExecuting",
+                            BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic)
+                            ?.SetValue(null, null);
+                    }
+                }
+            }
+            catch
+            {
+                // ignore
+            }
+
+            WriteLog("119 abort-path " + reason);
+        }
+        catch (Exception ex)
+        {
+            WriteLog("AbortEscortTaskPathFully EX " + RootMessage(ex));
+        }
+    }
+
     /// <summary>走到指定格（卡楼梯解卡 / 走回原格）。</summary>
     private static bool TryWalkTo(int tx, int ty)
     {
@@ -11625,7 +12779,10 @@ public static class SeqChapterTestUi
         }
     }
 
-    /// <summary>遇敌步骤导航点：scriptData.movePoint 最后一项（与 ClickEscortTaskNav 一致）。MapPoint 为 x=地图 y=X z=Y。</summary>
+    /// <summary>
+    /// 遇敌步骤指定坐标：movePoint[0]（倒序表头=真正目的地，与侧栏 AutoWarpIndex=0 一致）。
+    /// 切勿用表尾——那是出发城镇，会在出发点就开遇敌。
+    /// </summary>
     private static bool TryGetEscortEncounterDest(out int mapFloor, out int x, out int y)
     {
         mapFloor = 0;
@@ -11646,7 +12803,7 @@ public static class SeqChapterTestUi
                 return false;
             }
 
-            var v3 = move[move.Count - 1];
+            var v3 = move[0];
             mapFloor = Convert.ToInt32(GetMember(v3, "x") ?? GetProp(v3, "x") ?? 0);
             x = Convert.ToInt32(GetMember(v3, "y") ?? GetProp(v3, "y") ?? 0);
             y = Convert.ToInt32(GetMember(v3, "z") ?? GetProp(v3, "z") ?? 0);
@@ -11674,7 +12831,8 @@ public static class SeqChapterTestUi
         int destY;
         if (!TryGetEscortEncounterDest(out destFloor, out destX, out destY))
         {
-            return true;
+            // 无寻路点：只有「开启原地遇敌」类才允许原地开；否则视为未到点
+            return false;
         }
 
         int floor;
@@ -11837,6 +12995,9 @@ public static class SeqChapterTestUi
         _escortLoginGateAtMs = 0;
         _escortUseItemPending = false;
         _escortUseItemAtMs = 0;
+        _escort119OfficialResumePending = false;
+        _escort119OfficialResumeAtMs = 0;
+        _escort119ResumeUseWing = false;
         ResetWingWizardState();
         _escort119GateDone2 = false;
         _escort119TeleportDone5 = false;
@@ -11854,16 +13015,13 @@ public static class SeqChapterTestUi
         _escort119TicketBankAwaitConfirm = false;
         _escort119TicketBankAnyStored = false;
         _escort119PendingAfterGateStep = -1;
-        _escort119WarpUnstickPhase = 0;
-        _escort119WarpUnstickAtMs = 0;
-        _escort119WarpUnstickClicks = 0;
-        _escort119WarpUnstickDone = false;
+        _escort119WarpUnstickHandledStep = -1;
     }
 
     /// <summary>
-    /// 中秋 #119 唯一导航特例：15000(22,33)。
-    /// 右侧点任务不是「取消再启动」，而是 AutoWarpIndex=0（走向 400）。
-    /// 护航遇敌步却从表尾 100 开，切图后还握着回芙蕾雅，直接导航迈不开步。
+    /// 中秋 #119：15000(22,33) 与哥拉尔羽毛落地同一套：
+    /// 彻底掐掉缓存路径 → 等 2 秒 → 官方 AutoWarpIndex=0 + RunTask。
+    /// 同一 missionStepNum 只处理一次，避免过图反复落点重复清路径。
     /// </summary>
     private static bool TryTickMoonRabbitWarpUnstick(long now)
     {
@@ -11882,22 +13040,24 @@ public static class SeqChapterTestUi
 
         if (floor != MoonRabbitWarpStuckFloor)
         {
-            if (!_escort119WarpUnstickDone
-                && (_escort119WarpUnstickPhase != 0 || _escort119WarpUnstickClicks > 0))
-            {
-                WriteLog("119 warp-unstick done left floor=" + floor
-                         + " clicks=" + _escort119WarpUnstickClicks);
-                _escort119WarpUnstickPhase = 0;
-                _escort119WarpUnstickClicks = 0;
-                _escort119WarpUnstickDone = true;
-            }
-
             return false;
         }
 
-        if (_escort119WarpUnstickDone)
+        if (_escort119OfficialResumePending)
+        {
+            return true;
+        }
+
+        var stepNum = GetEscortMissionStepNum();
+        if (_escort119WarpUnstickHandledStep == stepNum && stepNum >= 0)
         {
             return false;
+        }
+
+        if (IsMapLoading())
+        {
+            AbortEscortTaskPathFully("119-15000-loading");
+            return true;
         }
 
         int px;
@@ -11907,91 +13067,19 @@ public static class SeqChapterTestUi
             return false;
         }
 
-        var atStuck = px == MoonRabbitWarpStuckX && py == MoonRabbitWarpStuckY;
-        if (_escort119WarpUnstickClicks > 0 && !atStuck)
-        {
-            WriteLog("119 warp-unstick done left tile (" + px + "," + py + ")"
-                     + " clicks=" + _escort119WarpUnstickClicks);
-            _escort119WarpUnstickPhase = 0;
-            _escort119WarpUnstickClicks = 0;
-            _escort119WarpUnstickDone = true;
-            return false;
-        }
-
-        if (_escort119WarpUnstickPhase == 1)
-        {
-            if (!atStuck)
-            {
-                _escort119WarpUnstickPhase = 0;
-                _escort119WarpUnstickClicks = 0;
-                _escort119WarpUnstickDone = true;
-                return false;
-            }
-
-            if (now - _escort119WarpUnstickAtMs < MoonRabbitWarpUnstickRetryMs)
-            {
-                return true;
-            }
-
-            if (_escort119WarpUnstickClicks >= MoonRabbitWarpUnstickMaxClicks)
-            {
-                _escort119WarpUnstickPhase = 0;
-                _escort119WarpUnstickDone = true;
-                return false;
-            }
-
-            return ClickMoonRabbitWarpRestart(now, "second-after-2s");
-        }
-
-        if (_escortMapChangeAtMs > 0
-            && now - _escortMapChangeAtMs < MoonRabbitWarpUnstickSettleMs)
+        if (px != MoonRabbitWarpStuckX || py != MoonRabbitWarpStuckY)
         {
             return false;
         }
 
-        if (IsMapLoading())
-        {
-            return true;
-        }
-
-        if (!atStuck)
-        {
-            return false;
-        }
-
-        return ClickMoonRabbitWarpRestart(now, "first");
-    }
-
-    /// <summary>15000：取消回芙蕾雅的任务导航，再走正向下一张。</summary>
-    private static bool ClickMoonRabbitWarpRestart(long now, string tag)
-    {
-        _escort119WarpUnstickClicks++;
-        var to15001 = _escort119WarpUnstickClicks <= 1;
-        var floor = to15001 ? MoonRabbitWarpNextFloor : MoonRabbitWarpGoalFloor;
-        var x = to15001 ? MoonRabbitWarpNextX : MoonRabbitWarpGoalX;
-        var y = to15001 ? MoonRabbitWarpNextY : MoonRabbitWarpGoalY;
-        WriteLog("119 warp-unstick cancel+nav #" + _escort119WarpUnstickClicks + " tag=" + tag
-                 + " dest=(" + floor + "," + x + "," + y + ")");
-        Tip(to15001
-            ? "任务护航：过图卡住，取消回程改走下层"
-            : "任务护航：再导航去星月噬灵者");
-        ClearEscortStuckPending();
-        StopTaskNavigation(false);
-        ClearTaskPathSameIndexStopGuard();
-        ForceEscortAutoWarpIndexZero();
-        _escort119WarpUnstickPhase = 1;
-        _escort119WarpUnstickAtMs = now;
+        AbortEscortTaskPathFully("119-15000-before-resume");
+        _escort119OfficialResumeAtMs = now;
+        _escort119OfficialResumePending = true;
+        _escort119WarpUnstickHandledStep = stepNum;
         _lastActivityMs = now;
-        if (!TryNavigateTo(floor, x, y, out var how))
-        {
-            WriteLog("119 warp-unstick nav fail how=" + how);
-            PauseEscortOnConditionFail("119-warp-restart");
-        }
-        else
-        {
-            WriteLog("119 warp-unstick nav ok how=" + how);
-        }
-
+        ClearEscortStuckPending();
+        WriteLog("119 15000 abort once step=" + stepNum + ", wait 2s then official nav");
+        Tip("任务护航：过图卡住，清路径后点任务");
         return true;
     }
 
@@ -12414,9 +13502,25 @@ public static class SeqChapterTestUi
         }
     }
 
+    /// <summary>步骤 2 还没发出回登入点（含战斗中切步、出战后待补发）。</summary>
+    private static bool MoonRabbitLoginGateNeeded()
+    {
+        if (!TempMidAutumnEscort119 || _escortMissionId != MoonRabbitMissionId)
+        {
+            return false;
+        }
+
+        if (_escort119GateDone2 || _escortLoginGatePending)
+        {
+            return false;
+        }
+
+        return GetEscortMissionStepNum() == MoonRabbitLoginGateStep2;
+    }
+
     /// <summary>
     /// 中秋 #119：步骤 2 开始时队长回登入点。
-    /// 阿凯版：切图后再用赤凤之翼；哥拉尔版：登入点已在哥拉尔，回点后直接点任务。
+    /// 战斗中发不出，出战后由 tick 重试。阿凯版切图后再用赤凤之翼；哥拉尔版回点后点任务。
     /// </summary>
     private static bool TryStartMoonRabbitStepSpecial(int stepNum, string reason)
     {
@@ -12428,6 +13532,23 @@ public static class SeqChapterTestUi
         if (stepNum != MoonRabbitLoginGateStep2 || _escort119GateDone2)
         {
             return false;
+        }
+
+        try
+        {
+            if (Convert.ToBoolean(GetStaticMember("BattleDataHolder", "IsInBattle") ?? false))
+            {
+                if (reason != "tick")
+                {
+                    WriteLog("119 login-gate wait in-battle reason=" + reason);
+                }
+
+                return false;
+            }
+        }
+        catch
+        {
+            // ignore，交给 SendLoginGate 再判一次
         }
 
         if (!TrySendEscortLoginGate())
@@ -12442,6 +13563,24 @@ public static class SeqChapterTestUi
         WriteLog("119 login-gate " + reason + " step=" + stepNum
                  + " edition=" + (_midAutumnGoralEdition ? "goral" : "akai"));
         return true;
+    }
+
+    /// <summary>阿凯版第一次取消并等 2 秒后，使用队长背包赤凤之翼。</summary>
+    private static void StartMoonRabbitWingAfterAbort(string reason)
+    {
+        if (UseCaptainBagItem(MoonRabbitWingKeyword, false))
+        {
+            _escortUseItemPending = true;
+            _escortUseItemAtMs = NowMs();
+            ResetWingWizardState();
+            WriteLog("119 use 赤凤之翼 " + reason);
+            Tip("任务护航：使用赤凤之翼");
+            return;
+        }
+
+        Tip("任务护航：队长背包没有赤凤之翼");
+        _escortLastDiag = "队长背包没有赤凤之翼";
+        PauseEscortOnConditionFail("119-red-phoenix-wing");
     }
 
     /// <summary>
@@ -13304,7 +14443,14 @@ public static class SeqChapterTestUi
     /// <returns>0=仍在等, 1=弹窗已关, 2=一直没弹窗, -1=点窗超时</returns>
     private static int TickWingWizardProgress(long startedAtMs)
     {
-        StopTaskNavigation(false);
+        if (_escortUseItemPending)
+        {
+            AbortEscortTaskPathFully("119-wing-wait");
+        }
+        else
+        {
+            StopTaskNavigation(false);
+        }
         var now = NowMs();
         if (IsDialoguePanelOpen())
         {
@@ -13547,6 +14693,14 @@ public static class SeqChapterTestUi
 
     private static void EnterEscortEncounterWait()
     {
+        // 有指定坐标时必须到位才开遇敌，否则在路上/出发点开挂机会出问题
+        if (TryGetEscortEncounterDest(out var df, out var dx, out var dy) && !IsAtEscortEncounterDest())
+        {
+            WriteLog("escort encounter refuse not-at-dest id=" + _escortMissionId
+                     + " need=(" + df + "," + dx + "," + dy + ")");
+            return;
+        }
+
         if (_escortWaitItem)
         {
             EnsureEscortEncounterOn();
@@ -13569,7 +14723,8 @@ public static class SeqChapterTestUi
         EnsureEscortEncounterOn();
         WriteLog("escort encounter wait id=" + _escortMissionId
                  + " step=" + _escortWaitAtStepNum
-                 + " item=" + _escortWaitItemName);
+                 + " item=" + _escortWaitItemName
+                 + (df != 0 ? (" at=(" + df + "," + dx + "," + dy + ")") : " (原地无寻路点)"));
         Tip(string.IsNullOrEmpty(_escortWaitItemName)
             ? "任务护航：已开启遇敌，等待任务道具"
             : ("任务护航：已开启遇敌，等待获得" + _escortWaitItemName));
@@ -13605,8 +14760,9 @@ public static class SeqChapterTestUi
     }
 
     /// <summary>
-    /// 模拟右侧任务点击：AutoWarpIndex=0 + TaskManager.RunTask（与改 15000 特例之前一致）。
-    /// 卡楼梯：先 StopTaskNavigation 再点任务。遇敌无寻路点则进挂机等待。
+    /// 模拟右侧任务点击：AutoWarpIndex=0 + TaskManager.RunTask。
+    /// 卡楼梯：先 StopTaskNavigation 再点任务。
+    /// 遇敌有坐标：只导航，到位后由 Tick 开挂机；无寻路点才立刻原地开。
     /// </summary>
     private static bool ClickEscortTaskNav(string reason)
     {
@@ -13644,10 +14800,20 @@ public static class SeqChapterTestUi
 
             var hasMove = MissionHasMovePoints(mission);
             var encounterFarm = IsEncounterFarmStep(GetMissionStepConfig(mission));
+            // 无寻路点的「原地遇敌」才可立刻开挂机；有坐标必须先导航到位，由 Tick 再开
             if (encounterFarm && !hasMove)
             {
                 _escortLastDiag = "";
                 WriteLog("ClickEscortTaskNav encounter-wait no move id=" + _escortMissionId
+                         + " reason=" + reason);
+                EnterEscortEncounterWait();
+                return true;
+            }
+
+            if (encounterFarm && hasMove && IsAtEscortEncounterDest())
+            {
+                _escortLastDiag = "";
+                WriteLog("ClickEscortTaskNav encounter already-at-dest id=" + _escortMissionId
                          + " reason=" + reason);
                 EnterEscortEncounterWait();
                 return true;
@@ -13706,23 +14872,8 @@ public static class SeqChapterTestUi
                 // ignore
             }
 
+            // 遇敌步骤也走 AutoWarpIndex=0（真正指定坐标）；到位后 Tick 再开挂机
             var warpIndex = 0;
-            if (encounterFarm)
-            {
-                try
-                {
-                    var script = GetProp(mission, "scriptData") ?? GetMember(mission, "scriptData");
-                    var move = GetMember(script, "movePoint") as System.Collections.IList;
-                    if (move != null && move.Count > 0)
-                    {
-                        warpIndex = move.Count - 1;
-                    }
-                }
-                catch
-                {
-                    warpIndex = 0;
-                }
-            }
 
             try
             {
@@ -15785,6 +16936,28 @@ public static class SeqChapterTestUi
         }
 
         return list;
+    }
+
+    /// <summary>助手战斗页「跳过动画」是否默认开：hotfixdata 存在 seqchapter_skip_battle_anim.flag 即开。</summary>
+    private static bool SkipBattleAnimDefaultEnabled()
+    {
+        try
+        {
+            foreach (var path in EnumerateHotfixAssetPaths(
+                         "seqchapter_skip_battle_anim.flag",
+                         "hotfixdata/seqchapter_skip_battle_anim.flag"))
+            {
+                if (File.Exists(path))
+                {
+                    return true;
+                }
+            }
+        }
+        catch
+        {
+            // ignore
+        }
+        return false;
     }
 
     /// <summary>护航面板是否显示「龙族循环 A/B」按钮：hotfixdata 存在 seqchapter_dragon_loop.flag 标记即显示。

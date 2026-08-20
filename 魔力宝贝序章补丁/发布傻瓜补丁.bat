@@ -9,5 +9,6 @@ if errorlevel 1 (
   exit /b 1
 )
 echo.
-echo 完成。发布物在 E:\cross\发布plugin\
+echo 完成。发布物在：游戏目录上一级\发布plugin\
+echo （本仓库相对路径：..\发布plugin\ ；可用环境变量 SEQCHAPTER_RELEASE_DIR 覆盖）
 pause

@@ -5,7 +5,8 @@
 
 发布物为融合版（百科助手面板：常规/抓宠（无宠二动）/抓宠/抓宠卖银币/烧卡）。
 九动版已无限期停发，enable_nine 仅保留给历史包兼容调用。
-界面外层选项：「战斗加速」（开→战斗倍速+心跳回传1.5x；关→原速+心跳回传1.0x）
+界面外层选项：「战斗加速」（开→战斗倍速+心跳回传1.5x；关→原速+心跳回传1.0x）、
+「移动加速」（地图 Sprint 8 倍，默认关）、
 与「跳帧」（切后台/老板键限帧 30FPS）。
 
 活 hotfix 不干净时：界面可选手选干净目录恢复（restore_hotfixdata_from_clean），无默认源。
@@ -90,6 +91,7 @@ def run_foolproof_patch(
     gift_codes: list[str] | str | None = None,
     apply_accel: bool = False,
     apply_accel2: bool = False,
+    apply_map_sprint: bool = False,
     dragon_loop_ui: bool = True,
     apply_frameskip: bool = True,
     inject_bridge: bool = True,
@@ -108,8 +110,10 @@ def run_foolproof_patch(
         关→原速+无特效加速+心跳回传1.0x。
         注意：默认组合总是拦截倍速检测上报（CheckTimeScaleWarning /
         SendTimeScaleWarning 打成空方法，防检测），无论加速是否开启。
+        地图跑速（Sprint）已拆成独立选项 apply_map_sprint，不再随战斗加速自动开关。
     apply_accel2：战斗加速方案2开关，默认关。开→只加速战斗表现（跑位/箭矢/气功弹/击飞/去慢放），
         不改 BattleTimeScale，与 apply_accel（VIP 倍速）可共存；方案2 同样强制携带 kill-report。
+    apply_map_sprint：移动加速（地图 Sprint）开关，默认关。开→跑速 8 倍；可与战斗加速分开勾选。
     dragon_loop_ui：护航面板「龙族循环A/B」按钮开关，默认开。傻瓜补丁分「带龙族」（True）/
         「原版」（False）两版，唯一差别就是这个按钮标记。
     apply_frameskip：跳帧开关（切后台/老板键限帧 30FPS），默认开。
@@ -191,22 +195,33 @@ def run_foolproof_patch(
     kwargs["on_log"] = on_log
 
     if not apply_accel:
-        # 加速关：不打 VIP 倍速 / 心跳回传 / 跑速 / 过场 / 技能特效（特效归属战斗倍速）
+        # 加速关：不打 VIP 倍速 / 心跳回传 / 过场 / 技能特效（特效归属战斗倍速）
         kwargs["vip"] = False
         kwargs["vip_non_vip"] = False
         kwargs["vip_echo"] = None
-        kwargs["map_sprint"] = False
         kwargs["transition_speed"] = False
         kwargs["skill_effect_speed"] = False
-        _emit(messages, on_log, "加速补丁：关（不打战斗倍速/心跳回传/跑速/特效/过场）")
+        _emit(messages, on_log, "加速补丁：关（不打战斗倍速/心跳回传/特效/过场）")
     else:
-        # 加速开：战斗倍速 + 心跳回传 1.5x + 技能特效（默认 3x）
+        # 加速开：战斗倍速 + 心跳回传 1.5x + 技能特效（默认 3x）；跑速见 apply_map_sprint
         kwargs["vip"] = True
         kwargs["vip_non_vip"] = True
         kwargs["vip_echo"] = 1.5
         kwargs["skill_effect_speed"] = True
         kwargs["skill_effect_scale"] = float(kwargs.get("skill_effect_scale") or 3.0)
-        _emit(messages, on_log, "加速补丁：开（战斗倍速 + 特效加速 + 心跳回传固定 1.5x，强制携带 kill-report）")
+        _emit(
+            messages,
+            on_log,
+            "加速补丁：开（战斗倍速 + 特效加速 + 心跳回传固定 1.5x，强制携带 kill-report）",
+        )
+
+    if apply_map_sprint:
+        kwargs["map_sprint"] = True
+        kwargs["map_sprint_scale"] = 8
+        _emit(messages, on_log, "移动加速：开（地图 Sprint 8 倍）")
+    else:
+        kwargs["map_sprint"] = False
+        _emit(messages, on_log, "移动加速：关（原速跑图）")
 
     if apply_accel2:
         kwargs["combat_accel"] = True
@@ -230,6 +245,19 @@ def run_foolproof_patch(
         "跳帧（切后台/老板键限帧 30FPS）：开" if apply_frameskip else "跳帧（切后台/老板键限帧 30FPS）：关",
     )
 
+    if kwargs.get("skip_battle_anim_default"):
+        _emit(
+            messages,
+            on_log,
+            "跳过动画：默认开启（PVE 清空表现队列；不含移动加速/Sprint；助手战斗页可关）",
+        )
+    else:
+        _emit(
+            messages,
+            on_log,
+            "跳过动画：默认关闭（助手战斗页可手动开）",
+        )
+
     _emit(messages, on_log, "正在余量预检（启动补丁引擎，首次可能较慢）…")
     if inject_bridge:
         _emit(
@@ -240,7 +268,11 @@ def run_foolproof_patch(
     else:
         _emit(messages, on_log, "多开器适配功能：关闭（需用多开器时请勾选「多开器适配功能」）")
     try:
-        precheck = ["longpress"] if not apply_accel else ["vip", "sprint", "longpress", "skill_effect"]
+        precheck = ["longpress"]
+        if apply_accel:
+            precheck.extend(["vip", "skill_effect"])
+        if apply_map_sprint:
+            precheck.append("sprint")
         data = slack_report(
             game_root=root,
             prefer_orig=True,
@@ -289,20 +321,20 @@ def run_foolproof_patch(
     # 九动已永久封存：新发布包一律不带，且不再特意说明「无九动」。
     nine_part = f" · 九动{nine_label}" if enable_nine else ""
     accel2_part = " · 加速2(表现加速)" if apply_accel2 else ""
+    sprint_part = " · Sprint8" if kwargs.get("map_sprint") else " · 原速跑图"
     fx = kwargs.get("skill_effect_scale", 3.0) if kwargs.get("skill_effect_speed") else 0
     fx_part = f" · 特效{fx:g}x" if fx else " · 无特效加速"
     if not apply_accel:
         _emit(
             messages,
             on_log,
-            f"已应用：无战斗倍速 · 原速跑图 · 长按详情{fx_part} · 心跳回传1.0x"
+            f"已应用：无战斗倍速{sprint_part} · 长按详情{fx_part} · 心跳回传1.0x"
             f"{accel2_part}{panel_part}{gm_part}{daily_part}{nine_part}{frameskip_part}{bridge_part}"
             + (" · 一级含蝙蝠/哥布林" if kwargs.get("level_one_include_all") else ""),
         )
     else:
         vip = kwargs.get("vip_scale", 5)
         echo = kwargs.get("vip_echo", 1.5)
-        sprint_part = " · Sprint快" if kwargs.get("map_sprint") else ""
         _emit(
             messages,
             on_log,

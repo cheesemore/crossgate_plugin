@@ -72,6 +72,7 @@ FOOLPROOF_COMBO_KWARGS = {
     "battle_appear": False,  # 皮肤挂钩（进战形象钩子）总是部署，默认不套形象；游戏内可开
     "vip_scale": 3,  # 仅在勾选战斗加速时生效（vip=True，vip_echo 由 foolproof_apply 设置）
     "map_sprint": False,  # 移动加速默认关
+    "skip_battle_anim_default": False,  # 傻瓜包：跳过动画默认关（面板内手动开）
 }
 
 FOOLPROOF_NO_NINE_COMBO_KWARGS = {

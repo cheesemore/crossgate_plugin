@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""构建「傻瓜补丁」独立包 → E:\\cross\\发布plugin\\*.zip。
+"""构建「傻瓜补丁」独立包 → <游戏目录上级>/发布plugin/*.zip。
 
 一次产出两版（说明文件不提差异）：
   - 傻瓜补丁_融合版_*   （护航面板无龙族按钮）
   - 傻瓜补丁_带龙族_*   （包内带龙族.flag → 打补丁写 hotfixdata 标记）
+
+发布目录：相对游戏根的上一级 ``发布plugin``（本机常见为 ``../发布plugin``，
+勿写死盘符；也可用环境变量 SEQCHAPTER_RELEASE_DIR 覆盖）。
 
 入口：
   python tools/workflow.py publish-foolproof
@@ -12,6 +15,7 @@
 """
 from __future__ import annotations
 
+import os
 import re
 import shutil
 import subprocess
@@ -24,7 +28,8 @@ SCRIPTS_DIR = Path(__file__).resolve().parent
 TOOLKIT_ROOT = SCRIPTS_DIR.parent
 GAME_ROOT = TOOLKIT_ROOT.parent
 CROSS_ROOT = GAME_ROOT.parent
-RELEASE_DIR = CROSS_ROOT / "发布plugin"
+_DEFAULT_RELEASE = CROSS_ROOT / "发布plugin"
+RELEASE_DIR = Path(os.environ["SEQCHAPTER_RELEASE_DIR"]).resolve() if os.environ.get("SEQCHAPTER_RELEASE_DIR") else _DEFAULT_RELEASE
 STAGING_DIR = RELEASE_DIR / "_foolproof_build"
 DIST_DIR = RELEASE_DIR / "dist_foolproof"
 PATCHER_CSPROJ = GAME_ROOT / "tools" / "hotfix_patcher" / "HotfixPatcher.csproj"
@@ -133,6 +138,8 @@ def _readme_content(app_name: str) -> str:
 · 战斗模式默认：抓宠（无宠二动）/ 抓宠 / 抓宠卖银币 / 烧卡 / 计数挂机（面板内互斥切换）
 · 采集自动提取：战斗页独立开关，与战斗模式共存；对账号所有在线角色（五开/队伍）已采集5格单格满999，逐格节奏式提取到账号银行（0.4s 状态机节奏，不瞬间刷屏）；脚本页「立刻提取采集物」可手动触发一轮
 · 面板「脚本」页：做日常 / 礼包码 / 立刻提取采集物
+· 助手战斗页「跳过动画」：默认关闭（PVE 可在面板内手动开）
+· 外层「移动加速」：可选地图 Sprint 8 倍（默认不勾）
 · 界面外层选项：「战斗加速」（默认关：开启→战斗倍速+心跳回传1.5x，会连带掐断倍速检测上报；关→原速+心跳回传1.0x）、「跳帧（切后台/老板键限帧 30FPS）」与「多开器适配功能」（默认不打：勾选=注入精简桥接，供包内「多开器」登录/拉多控/一键召唤；占 hotfixdata 容量）
 · 默认含：分享改日常、礼包码
 · 随包附「多开器」（多开器\多开器.exe，界面「启动多开器」按钮）：多开器需要打「多开器适配功能」才能连接游戏

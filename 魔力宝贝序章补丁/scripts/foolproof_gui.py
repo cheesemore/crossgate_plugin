@@ -5,13 +5,14 @@
 九动版已无限期停发，发布只产融合版（对历史九动版包仍兼容识别）。
 
 界面外层选项：「战斗加速」（开→战斗倍速+心跳回传1.5x；关→原速+心跳回传1.0x）、
+「移动加速」（地图 Sprint 8 倍，默认关，可与战斗加速分开勾）、
 「跳帧」（切后台/老板键限帧 30FPS）与「注入桥接」（默认关，占容量；多开器/助手需连接时勾）。
 抓宠/烧卡等在游戏内百科助手面板切换。
 
 用法：
   傻瓜补丁_*.exe
   傻瓜补丁_*.exe --auto
-  傻瓜补丁_*.exe --auto --no-accel [--accel2] [--no-frameskip] [--bridge]
+  傻瓜补丁_*.exe --auto --no-accel [--accel2] [--map-sprint] [--no-frameskip] [--bridge]
 """
 from __future__ import annotations
 
@@ -98,6 +99,9 @@ def run_auto() -> int:
         apply_accel2 = any(
             a in ("--accel2", "--accel-2", "/accel2") for a in sys.argv[1:]
         )
+        apply_map_sprint = any(
+            a in ("--map-sprint", "--sprint", "/map-sprint", "/sprint") for a in sys.argv[1:]
+        )
         apply_frameskip = not any(
             a in ("--no-frameskip", "--no-bossfps", "/no-frameskip") for a in sys.argv[1:]
         )
@@ -108,6 +112,7 @@ def run_auto() -> int:
             enable_nine=NINE_PACK,
             apply_accel=apply_accel,
             apply_accel2=apply_accel2,
+            apply_map_sprint=apply_map_sprint,
             dragon_loop_ui=DRAGON_LOOP_PACK,
             apply_frameskip=apply_frameskip,
             inject_bridge=inject_bridge,
@@ -152,6 +157,7 @@ class FoolproofApp(tk.Tk):
             f"· 侧栏「百科」→ 助手面板，战斗模式：{_panel_modes_tip()}\n"
             "· 外层选项：「战斗加速」（开→战斗倍速+特效3x+心跳回传1.5x；关→原速+无特效加速）\n"
             "             「加速2」（战斗加速方案2：只加速表现，可与战斗加速共存）\n"
+            "             「移动加速」（默认关：地图 Sprint 8 倍，可与战斗加速分开勾）\n"
             "             「跳帧」（切后台/老板键限帧 30FPS）\n"
             "             与「多开器适配功能」（默认开；勾选=注入精简桥接，供包内「多开器.exe」登录/拉多控/一键召唤）\n"
             "· 采集自动提取：战斗页独立开关（对账号所有在线角色，满999格逐格提入账号银行，节奏式间隔发送）\n"
@@ -175,6 +181,13 @@ class FoolproofApp(tk.Tk):
             body,
             text="加速2（战斗加速方案2，默认关：只加速表现——跑位/箭矢/气功弹/击飞/去慢放，不改倍速，可与上方战斗加速共存）",
             variable=self.apply_accel2_var,
+        ).pack(anchor=tk.W, pady=(0, 6))
+
+        self.apply_map_sprint_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            body,
+            text="移动加速（默认关：地图 Sprint 8 倍；可与战斗加速分开勾选）",
+            variable=self.apply_map_sprint_var,
         ).pack(anchor=tk.W, pady=(0, 6))
 
         self.apply_frameskip_var = tk.BooleanVar(value=True)
@@ -545,6 +558,7 @@ class FoolproofApp(tk.Tk):
                     gift_codes=self.gift_codes_box.get("1.0", "end"),
                     apply_accel=bool(self.apply_accel_var.get()),
                     apply_accel2=bool(self.apply_accel2_var.get()),
+                    apply_map_sprint=bool(self.apply_map_sprint_var.get()),
                     dragon_loop_ui=DRAGON_LOOP_PACK,
                     apply_frameskip=bool(self.apply_frameskip_var.get()),
                     inject_bridge=bool(self.inject_bridge_var.get()),
