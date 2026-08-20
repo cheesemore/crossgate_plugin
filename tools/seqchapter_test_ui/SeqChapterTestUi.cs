@@ -368,7 +368,7 @@ public static class SeqChapterTestUi
     private const int StorePetLevel = 1;
     private const int PetStatusRest = 0;
 
-    /// <summary>中秋 #119 循环（临时；等用户下令再删）。</summary>
+    /// <summary>七夕 #119 循环（临时；等用户下令再删）。</summary>
     private static bool _midAutumnLoopActive;
     private static int _midAutumnLoopCount;
     /// <summary>true=哥拉尔版（登入点哥拉尔、不用赤凤之翼）；false=阿凯版（回登入点+赤凤之翼）。</summary>
@@ -740,6 +740,12 @@ public static class SeqChapterTestUi
         // 只保留计数挂机标题（挂机）；采集/抓宠等不再影响窗口标题
         AppendFeatureSuffix("SeqChapterCountFarm", parts);
         AppendFeatureSuffix("SeqChapterBearSlayer", parts);
+        // 七夕循环：标题显示已完成轮次（存兑换券后才 +1）
+        if (_midAutumnLoopActive)
+        {
+            parts.Add("★七夕" + _midAutumnLoopCount + "轮★");
+        }
+
         return string.Join(" ", parts);
     }
 
@@ -7737,8 +7743,6 @@ public static class SeqChapterTestUi
             return;
         }
 
-        var dragonLoopUi = DragonLoopUiEnabled();
-
         var hint2 = CreateUiChild(_bodyRoot, "Hint2", rtType);
         SetAnchoredTop(RequireRect(hint2, "ha2"), 0f, -8f, 500f, 88f);
         var hintText = AddText(hint2);
@@ -7756,10 +7760,7 @@ public static class SeqChapterTestUi
             "队列护航：可塞未接；完成一项后等 5 秒再下一项。\n"
             + "手动暂停不清铃；自动暂停约每2秒响铃，点「我知道了」或停止才停。静止5秒尝试恢复，连挪5次后改为直接续任务再观察5秒；本步骤连续20次失败自动暂停。\n"
             + (TempMidAutumnEscort119
-                ? "中秋循环：阿凯版=回登入点+赤凤之翼；哥拉尔版=登入点在哥拉尔、不用赤凤之翼。最后一步分账号存兑换券后下一轮。\n"
-                : "")
-            + (dragonLoopUi
-                ? "龙族循环A：自动重置龙4→按序执行龙族纷争1-4→宠物位满停止。"
+                ? "七夕循环：阿凯版=回登入点+赤凤之翼；哥拉尔版=登入点在哥拉尔、不用赤凤之翼。最后一步分账号存兑换券后才计一轮。\n"
                 : ""),
             11);
 
@@ -7824,32 +7825,7 @@ public static class SeqChapterTestUi
         }
 
         y -= 50f;
-        // 龙族循环 A（仅带龙族.flag）；中秋循环两版都显示（临时活动）
-        if (dragonLoopUi)
-        {
-            var dragonBtn = CreateUiChild(_bodyRoot, "DragonLoopBtn", rtType);
-            SetAnchoredTop(RequireRect(dragonBtn, "dlb"), 0f, y, 420f, 40f);
-            var dragonImg = AddComp(dragonBtn, "UnityEngine.UI.Image");
-            SetColor(dragonImg, _dragonLoopActive ? 0.55f : 0.3f, _dragonLoopActive ? 0.24f : 0.3f, _dragonLoopActive ? 0.22f : 0.42f, 1f);
-            var dragonLab = CreateUiChild(dragonBtn, "L", rtType);
-            StretchFull(RequireRect(dragonLab, "dll"));
-            SetText(AddText(dragonLab), _dragonLoopActive
-                ? ("停止龙族循环(第" + (_dragonLoopCount + 1) + "轮)")
-                : "龙族循环A(110-113)", 14);
-            BindButton(dragonBtn, dragonImg, () =>
-            {
-                if (_dragonLoopActive)
-                {
-                    StopDragonLoop();
-                }
-                else
-                {
-                    StartDragonLoop();
-                }
-            });
-            y -= 48f;
-        }
-
+        // 七夕循环（#119 临时活动）；龙族护航已卸载，不再显示按钮
         if (TempMidAutumnEscort119)
         {
             if (_midAutumnLoopActive)
@@ -7862,7 +7838,7 @@ public static class SeqChapterTestUi
                 StretchFull(RequireRect(midLab, "mal"));
                 var ed = _midAutumnGoralEdition ? "哥拉尔" : "阿凯";
                 SetText(AddText(midLab),
-                    "停止中秋" + ed + "版(第" + (_midAutumnLoopCount + 1) + "轮)", 14);
+                    "停止七夕" + ed + "版(已完成" + _midAutumnLoopCount + "轮)", 14);
                 BindButton(midBtn, midImg, StopMidAutumnLoop);
                 y -= 48f;
             }
@@ -7874,7 +7850,7 @@ public static class SeqChapterTestUi
                 SetColor(akImg, 0.42f, 0.28f, 0.18f, 1f);
                 var akLab = CreateUiChild(akBtn, "L", rtType);
                 StretchFull(RequireRect(akLab, "maakl"));
-                SetText(AddText(akLab), "中秋阿凯版", 14);
+                SetText(AddText(akLab), "七夕阿凯版", 14);
                 BindButton(akBtn, akImg, () => StartMidAutumnLoop(false));
 
                 var goBtn = CreateUiChild(_bodyRoot, "MidAutumnGoBtn", rtType);
@@ -7883,7 +7859,7 @@ public static class SeqChapterTestUi
                 SetColor(goImg, 0.28f, 0.36f, 0.48f, 1f);
                 var goLab = CreateUiChild(goBtn, "L", rtType);
                 StretchFull(RequireRect(goLab, "magol"));
-                SetText(AddText(goLab), "中秋哥拉尔版", 14);
+                SetText(AddText(goLab), "七夕哥拉尔版", 14);
                 BindButton(goBtn, goImg, () => StartMidAutumnLoop(true));
                 y -= 48f;
             }
@@ -9439,7 +9415,7 @@ public static class SeqChapterTestUi
                + "（换步骤重置；卡楼梯：挪格后点任务）"
                + "\n" + GetEscortSpecialNote()
                + (_dragonLoopActive ? "\n龙族循环: 已循环 " + _dragonLoopCount + " 轮" : "")
-               + (_midAutumnLoopActive ? "\n中秋循环: 已循环 " + _midAutumnLoopCount + " 轮" : "")
+               + (_midAutumnLoopActive ? "\n七夕循环: 已完成 " + _midAutumnLoopCount + " 轮（存券后计）" : "")
                + (_stuckResumePending ? "\n卡楼梯：恢复动作进行中…" : "");
     }
 
@@ -9459,9 +9435,9 @@ public static class SeqChapterTestUi
         {
             if (id == MoonRabbitMissionId)
             {
-                return "特殊处理: 中秋#119 "
+                return "特殊处理: 七夕#119 "
                        + (_midAutumnGoralEdition ? "哥拉尔版(回登入点、不用赤凤之翼)" : "阿凯版(回登入点+赤凤之翼)")
-                       + "；步骤7洞窟传送；步骤5布朗山；仅15000先取消回程再走15001；最后一步存兑换券";
+                       + "；步骤7洞窟传送；步骤5布朗山；仅15000先取消回程再走15001；最后一步存兑换券才计一轮";
             }
 
             return "特殊处理: 无 #" + id;
@@ -10060,13 +10036,23 @@ public static class SeqChapterTestUi
                     return;
                 }
 
-                _midAutumnLoopCount++;
+                // 一轮以「存兑换券」为准；任务结束本身不计轮，重新接取继续
                 ResetMoonRabbitEscortFlags();
                 EnqueueMidAutumnMission();
                 _escortQueueIndex = 0;
                 _escortBetweenTasksWaitMs = NowMs();
-                Tip("中秋循环：第 " + _midAutumnLoopCount + " 轮完成，5 秒后继续");
-                WriteLog("mid-autumn loop next round count=" + _midAutumnLoopCount);
+                Tip("七夕循环：任务结束，重新接取（存兑换券后才计一轮，当前已完成 "
+                    + _midAutumnLoopCount + " 轮）");
+                WriteLog("qixi loop mission-complete no-count count=" + _midAutumnLoopCount);
+                try
+                {
+                    RefreshTitleFromFeature();
+                }
+                catch
+                {
+                    // ignore
+                }
+
                 if (_visible && _tab == TabEscort)
                 {
                     try
@@ -10300,21 +10286,21 @@ public static class SeqChapterTestUi
         StartDragonLoopCore(DragonMissionIds, "A");
     }
 
-    /// <summary>启动中秋 #119 循环。goralEdition=true 哥拉尔版（不用赤凤之翼）。</summary>
+    /// <summary>启动七夕 #119 循环。goralEdition=true 哥拉尔版（不用赤凤之翼）。</summary>
     private static void StartMidAutumnLoop(bool goralEdition)
     {
         try
         {
             if (!TempMidAutumnEscort119)
             {
-                Tip("中秋循环未启用");
+                Tip("七夕循环未启用");
                 return;
             }
 
             if (_midAutumnLoopActive)
             {
                 var ed = _midAutumnGoralEdition ? "哥拉尔" : "阿凯";
-                Tip("中秋循环：已在运行中（" + ed + "版 第 " + (_midAutumnLoopCount + 1) + " 轮）");
+                Tip("七夕循环：已在运行中（" + ed + "版，已完成 " + _midAutumnLoopCount + " 轮）");
                 return;
             }
 
@@ -10324,12 +10310,12 @@ public static class SeqChapterTestUi
             }
             else if (_escortActive || _escortPicking || _escortQueue.Count > 0)
             {
-                CancelEscort(true, "已切换到中秋循环");
+                CancelEscort(true, "已切换到七夕循环");
             }
 
             if (!goralEdition && !CaptainHasMoonRabbitWing())
             {
-                Tip("中秋阿凯版：队长背包没有赤凤之翼");
+                Tip("七夕阿凯版：队长背包没有赤凤之翼");
                 WriteLog("mid-autumn loop abort no 赤凤之翼");
                 return;
             }
@@ -10338,11 +10324,12 @@ public static class SeqChapterTestUi
             _midAutumnLoopActive = true;
             _midAutumnLoopCount = 0;
             EnqueueMidAutumnMission();
-            WriteLog("mid-autumn loop start id=" + MoonRabbitMissionId
+            try { RefreshTitleFromFeature(); } catch { }
+            WriteLog("qixi loop start id=" + MoonRabbitMissionId
                      + " edition=" + (goralEdition ? "goral" : "akai"));
             Tip(goralEdition
-                ? "中秋哥拉尔版：开始月宫救兔（不用赤凤之翼）"
-                : "中秋阿凯版：开始月宫救兔");
+                ? "七夕哥拉尔版：开始月宫救兔（不用赤凤之翼）"
+                : "七夕阿凯版：开始月宫救兔");
             StartEscortQueue();
             if (_visible && _tab == TabEscort)
             {
@@ -10359,7 +10346,7 @@ public static class SeqChapterTestUi
         catch (Exception ex)
         {
             WriteLog("StartMidAutumnLoop EX: " + RootMessage(ex));
-            Tip("中秋循环：启动失败");
+            Tip("七夕循环：启动失败");
             _midAutumnLoopActive = false;
         }
     }
@@ -10374,8 +10361,9 @@ public static class SeqChapterTestUi
         var n = _midAutumnLoopCount;
         var ed = _midAutumnGoralEdition ? "哥拉尔" : "阿凯";
         _midAutumnLoopActive = false;
-        WriteLog("mid-autumn loop manual stop count=" + n + " edition=" + ed);
-        CancelEscort(true, "中秋" + ed + "版已停止（共 " + n + " 轮）");
+        WriteLog("qixi loop manual stop count=" + n + " edition=" + ed);
+        CancelEscort(true, "七夕" + ed + "版已停止（共完成 " + n + " 轮）");
+        try { RefreshTitleFromFeature(); } catch { }
     }
 
     private static void EnqueueMidAutumnMission()
@@ -13789,7 +13777,7 @@ public static class SeqChapterTestUi
     }
 
     /// <summary>
-    /// 中秋循环最后一步：停导航，全员把七夕礼盒兑换券存账号银行。任务会回到第一步，直接开下一轮。
+    /// 七夕循环最后一步：停导航，全员把七夕礼盒兑换券存账号银行。任务会回到第一步，直接开下一轮。
     /// </summary>
     private static bool TryStartMoonRabbitLastStepBank(int stepNum, string reason)
     {
@@ -13899,8 +13887,17 @@ public static class SeqChapterTestUi
         ResetMoonRabbitEscortFlags();
         _escortLastStepNum = GetEscortMissionStepNum();
         _lastActivityMs = now;
-        Tip("中秋循环：已存兑换券，进入第 " + (_midAutumnLoopCount + 1) + " 轮");
-        WriteLog("119 ticket-bank next-round count=" + _midAutumnLoopCount + " step=" + _escortLastStepNum);
+        Tip("七夕循环：已存兑换券，完成第 " + _midAutumnLoopCount + " 轮，继续…");
+        WriteLog("qixi ticket-bank next-round count=" + _midAutumnLoopCount + " step=" + _escortLastStepNum);
+        try
+        {
+            RefreshTitleFromFeature();
+        }
+        catch
+        {
+            // ignore
+        }
+
         if (!ClickEscortTaskNav("119-after-ticket-bank"))
         {
             PauseEscortOnConditionFail("119-after-ticket-bank");
@@ -13982,7 +13979,7 @@ public static class SeqChapterTestUi
                     if (_escort119TicketBankUidIndex >= _escort119TicketBankUids.Count
                         && _escort119TicketBankAnyStored)
                     {
-                        Tip("中秋循环：全员兑换券已存入账号银行");
+                        Tip("七夕循环：全员兑换券已存入账号银行");
                     }
 
                     return;
@@ -14014,7 +14011,7 @@ public static class SeqChapterTestUi
                 if (_escort119TicketBankUidIndex >= _escort119TicketBankUids.Count
                     && _escort119TicketBankAnyStored)
                 {
-                    Tip("中秋循环：全员兑换券已存入账号银行");
+                    Tip("七夕循环：全员兑换券已存入账号银行");
                 }
 
                 return;
@@ -14089,7 +14086,7 @@ public static class SeqChapterTestUi
             if (_escort119TicketBankAtMs == 0)
             {
                 _escort119TicketBankAtMs = now;
-                Tip("中秋循环：全员兑换券已存入账号银行");
+                Tip("七夕循环：全员兑换券已存入账号银行");
             }
 
             if (now - _escort119TicketBankAtMs < EscortTicketBankWaitMs * 2)
@@ -14116,7 +14113,7 @@ public static class SeqChapterTestUi
             return true;
         }
 
-        Tip("中秋阿凯版：队长背包没有赤凤之翼");
+        Tip("七夕阿凯版：队长背包没有赤凤之翼");
         WriteLog("119 wing missing " + reason);
         StopMidAutumnLoop();
         return false;

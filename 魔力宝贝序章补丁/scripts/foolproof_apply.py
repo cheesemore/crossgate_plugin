@@ -231,11 +231,11 @@ def run_foolproof_patch(
             "加速2补丁：开（战斗加速方案2：跑位/箭矢/气功弹/击飞/去慢放，不改 BattleTimeScale，可共存）",
         )
 
-    kwargs["dragon_loop_ui"] = bool(dragon_loop_ui)
+    kwargs["dragon_loop_ui"] = False  # 龙族护航已卸载（忽略旧包 带龙族.flag）
     _emit(
         messages,
         on_log,
-        "护航面板：龙族循环按钮" + ("显示（带龙族版）" if dragon_loop_ui else "不显示（原版）"),
+        "护航面板：龙族循环已卸载",
     )
 
     kwargs["boss_key_fps"] = bool(apply_frameskip)
