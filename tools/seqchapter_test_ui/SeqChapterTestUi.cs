@@ -178,7 +178,14 @@ public static class SeqChapterTestUi
     private static long _skipBattleAnimLastDiagMs;
     private static long _skipBattleAnimCmdSinceMs;
     private static bool _skipBattleAnimManualDone;
-    private static long _skipBattleAnimAutoKickMs;
+    private static long _skipBattleAnimLastFlushMs;
+    private static long _skipBattleAnimAllEndStuckSinceMs;
+    private static long _skipBattleAnimAllEndTipMs;
+    /// <summary>flush 后禁止 UnableAct 抢发 N / 禁止判选指令卡住（毫秒）。</summary>
+    private const long SkipAnimFlushCooldownMs = 2500;
+    /// <summary>AllEnd+空队列空等 ACTION/CHAR 多久后 Tip；再久强制退战。</summary>
+    private const long SkipAnimAllEndStuckTipMs = 8000;
+    private const long SkipAnimAllEndStuckExitMs = 20000;
     /// <summary>无法行动容错：按账号+回合去重。</summary>
     private static string _battleUnableActFixKey = "";
     private static bool _battleUnableActInjected;
@@ -620,13 +627,10 @@ public static class SeqChapterTestUi
             TickSuperAi();
             TickPetNamer();
             TickScriptWingTest();
-            // 跳过动画开着时：只 Stop 表现，等 CHAR(info) RefreshData，指令全交给官方。
-            // 禁止再发 N / 踢 DoAutoFight / 假 OnCompleted（会和 info 重置抢状态）。
+            // 跳过动画：只清表现队列；选指令交给官方 AutoFight，禁止回合间隙乱踢 DoAutoFight。
             TickSkipBattleAnim();
-            if (!_skipBattleAnim)
-            {
-                TickBattleUnableActFix();
-            }
+            // 跳过动画开着时仍跑无法行动兜底（石化/死亡漏 N）；与清队列不冲突。
+            TickBattleUnableActFix();
         }
         catch (Exception ex)
         {
@@ -3181,14 +3185,16 @@ public static class SeqChapterTestUi
     }
 
     /// <summary>
-    /// 跳过动画（防第二回合卡死）：只清表现队列，让 RunProcess 自然 OnCompleted；
-    /// 禁止每拍手动 OnCompleted。选指令踢 DoAutoFight；仅超时才补一次 OnCompleted。
+    /// 跳过动画：CmdRunning 时清表现队列，让 RunProcess 自然 OnCompleted。
+    /// 选指令完全交给官方 AutoFight（首号有 3 秒倒计时，禁止再踢 DoAutoFight，否则与官方抢跑→空等 ACTION）。
+    /// AllEnd+空队列过久：Tip，再久 ForceExitBattle 自救。
     /// </summary>
     private static void TickSkipBattleAnim()
     {
         if (!_skipBattleAnim)
         {
             _skipBattleAnimFlushLogged = false;
+            _skipBattleAnimAllEndStuckSinceMs = 0;
             return;
         }
 
@@ -3199,6 +3205,8 @@ public static class SeqChapterTestUi
                 _skipBattleAnimFlushLogged = false;
                 _skipBattleAnimCmdSinceMs = 0;
                 _skipBattleAnimManualDone = false;
+                _skipBattleAnimLastFlushMs = 0;
+                _skipBattleAnimAllEndStuckSinceMs = 0;
                 return;
             }
 
@@ -3207,9 +3215,6 @@ public static class SeqChapterTestUi
             {
                 return;
             }
-
-            ForceBattleGlobalTimeScale(1f);
-            ForceSkipAnimRolesReady();
 
             var bm = GetManagerInstance("BattleManager");
             if (bm == null)
@@ -3223,13 +3228,19 @@ public static class SeqChapterTestUi
                 _skipBattleAnimFlushLogged = false;
                 _skipBattleAnimCmdSinceMs = 0;
                 _skipBattleAnimManualDone = false;
-                TryKickAutoFightWhenStuck(bm);
+                // 不踢 DoAutoFight：官方首号 AutoFight 自带 3s 倒计时，踢会与之抢跑。
+                TryRescueSkipAnimAllEndStuck(bm);
                 MaybeLogSkipBattleDiag(bm);
                 return;
             }
 
+            _skipBattleAnimAllEndStuckSinceMs = 0;
+
+            // 仅播表现时拉 timescale / 归位，避免选指令阶段每拍 AllRoleReturn 捣乱
+            ForceBattleGlobalTimeScale(1f);
+            ForceSkipAnimRolesReady();
+
             var now = NowMs();
-            _skipBattleAnimAutoKickMs = 0;
             if (_skipBattleAnimCmdSinceMs <= 0)
             {
                 _skipBattleAnimCmdSinceMs = now;
@@ -3237,6 +3248,7 @@ public static class SeqChapterTestUi
 
             var qBefore = GetBattleCommandQueueCount();
             FlushBattlePresentationQueue();
+            _skipBattleAnimLastFlushMs = now;
 
             if (!_skipBattleAnimFlushLogged)
             {
@@ -3312,51 +3324,76 @@ public static class SeqChapterTestUi
             ?.Invoke(runner, null);
     }
 
-    /// <summary>回合间选指令：踢官方 DoAutoFight。</summary>
-    private static void TryKickAutoFightWhenStuck(object bm)
+    /// <summary>
+    /// AllEnd + 账号/ACTION/CHAR 全空：客户端在等服务端包，通常已死锁。
+    /// Tip 一次；超过阈值 ForceExitBattle，避免挂机窗口永久卡战斗。
+    /// </summary>
+    private static void TryRescueSkipAnimAllEndStuck(object bm)
     {
         try
         {
-            if (!Convert.ToBoolean(GetMember(bm, "IsAutoBattle") ?? false))
-            {
-                try
-                {
-                    SetMember(bm, "IsAutoBattle", true);
-                }
-                catch
-                {
-                    return;
-                }
-            }
-
             var fight = Convert.ToInt32(GetMember(bm, "FightProcessFlag") ?? 0);
-            if (fight == FightProcessAllEnd)
-            {
-                return;
-            }
-
-            if (Convert.ToBoolean(GetMember(bm, "CmdRunningFlag") ?? false))
-            {
-                return;
-            }
-
+            var acctQ = GetBattleAccountQueueCount();
+            var actQ = GetBattleActionQueueCount();
+            var statusQ = GetBattleStatusQueueCount();
+            var cmdQ = GetBattleCommandQueueCount();
             var now = NowMs();
-            if (now - _skipBattleAnimAutoKickMs < 1500)
+
+            if (fight != FightProcessAllEnd || acctQ != 0 || actQ != 0 || statusQ != 0 || cmdQ != 0)
+            {
+                _skipBattleAnimAllEndStuckSinceMs = 0;
+                return;
+            }
+
+            if (_skipBattleAnimLastFlushMs > 0 && now - _skipBattleAnimLastFlushMs < SkipAnimFlushCooldownMs)
             {
                 return;
             }
 
-            _skipBattleAnimAutoKickMs = now;
+            if (_skipBattleAnimAllEndStuckSinceMs <= 0)
+            {
+                _skipBattleAnimAllEndStuckSinceMs = now;
+                return;
+            }
+
+            var elapsed = now - _skipBattleAnimAllEndStuckSinceMs;
+            if (elapsed >= SkipAnimAllEndStuckTipMs && now - _skipBattleAnimAllEndTipMs > 15000)
+            {
+                _skipBattleAnimAllEndTipMs = now;
+                Tip("战斗卡住，正在尝试解除…");
+                WriteLog("SkipAnim: AllEnd-empty stuck tip elapsed=" + elapsed
+                         + "ms fight=3 acctQ=0 actQ=0 statusQ=0");
+            }
+
+            if (elapsed < SkipAnimAllEndStuckExitMs)
+            {
+                return;
+            }
+
+            _skipBattleAnimAllEndStuckSinceMs = now;
+            WriteLog("SkipAnim: AllEnd-empty ForceExitBattle elapsed=" + elapsed + "ms");
+            Tip("战斗已强制退出（卡住过久）");
+            try
+            {
+                var t = FindType("BattleDataHolder");
+                var f = t?.GetField("forceQuitBattle",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+                f?.SetValue(null, true);
+            }
+            catch
+            {
+                // ignore
+            }
+
             var proc = TryGetBattleProcesser();
-            proc?.GetType().GetMethod("DoAutoFight",
-                    BindingFlags.NonPublic | BindingFlags.Instance, null, Type.EmptyTypes, null)
+            proc?.GetType().GetMethod("ForceExitBattle",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance,
+                    null, Type.EmptyTypes, null)
                 ?.Invoke(proc, null);
-            WriteLog("SkipAnim: kick DoAutoFight fight=" + fight
-                     + " acctQ=" + GetBattleAccountQueueCount());
         }
-        catch
+        catch (Exception ex)
         {
-            // ignore
+            WriteLog("TryRescueSkipAnimAllEndStuck EX: " + RootMessage(ex));
         }
     }
 
@@ -3450,6 +3487,19 @@ public static class SeqChapterTestUi
                 return;
             }
 
+            // 跳过动画刚 flush：禁止抢发 N / DoAutoFight，否则与 NextRound 抢状态→AllEnd 空等
+            if (_skipBattleAnim
+                && _skipBattleAnimLastFlushMs > 0
+                && NowMs() - _skipBattleAnimLastFlushMs < SkipAnimFlushCooldownMs)
+            {
+                return;
+            }
+
+            if (GetBattleStatusQueueCount() > 0 || GetBattleActionQueueCount() > 0)
+            {
+                return;
+            }
+
             var proc = TryGetBattleProcesser();
             var turn = Convert.ToInt32(GetMember(proc, "m_BattleSvTurnIndex") ?? 0);
             var acct = Convert.ToString(GetStaticMember("BattleDataHolder", "CurrentAccount") ?? "") ?? "";
@@ -3477,7 +3527,8 @@ public static class SeqChapterTestUi
             EnsureUnableActIdleCommandsSent(bm, proc, acct, turn);
 
             fight = Convert.ToInt32(GetMember(bm, "FightProcessFlag") ?? 0);
-            if (auto && fight != FightProcessAllEnd && injected)
+            // 跳过动画开着时不踢 DoAutoFight（与官方 3s 倒计时抢跑）；idle 已由上面补发
+            if (auto && fight != FightProcessAllEnd && injected && !_skipBattleAnim)
             {
                 proc?.GetType().GetMethod("DoAutoFight",
                         BindingFlags.NonPublic | BindingFlags.Instance, null, Type.EmptyTypes, null)
