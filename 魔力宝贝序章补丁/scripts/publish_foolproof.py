@@ -2,8 +2,9 @@
 # -*- coding: utf-8 -*-
 """构建「傻瓜补丁」独立包 → <游戏目录上级>/发布plugin/*.zip。
 
-产出：傻瓜补丁_融合版_*（护航含七夕循环；龙族护航已卸载）。
-历史「带龙族」包会在清理时删除。
+一次产出两版（说明文件不提差异）：
+  - 傻瓜补丁_融合版_*   （护航面板无龙族按钮）
+  - 傻瓜补丁_带龙族_*   （包内带龙族.flag → 打补丁写 hotfixdata 标记）
 
 发布目录：相对游戏根的上一级 ``发布plugin``（本机常见为 ``../发布plugin``，
 勿写死盘符；也可用环境变量 SEQCHAPTER_RELEASE_DIR 覆盖）。
@@ -145,7 +146,6 @@ def _readme_content(app_name: str) -> str:
 · 随包附「多开器」（多开器\多开器.exe，界面「启动多开器」按钮）：多开器需要打「多开器适配功能」才能连接游戏
 · 随包附「窗口监视」（窗口监视\窗口监视.exe，界面「启动窗口监视」按钮）：右下角置顶，定时刷新所有 cg37 窗口标题
 · 勾选「移动加速」可在打补丁时一并开启
-· 打补丁时会卸载旧版「龙族护航」标记（若有）
 
 【用法】
 1. 关掉游戏，解压到游戏目录（与 cg37.exe 同级或子文件夹）
@@ -665,12 +665,13 @@ def main() -> int:
     cleanup_series_old_releases(RELEASE_DIR, SERIES_CLEANUP_PREFIXES)
 
     publish_patcher()
-    # 龙族护航已卸载：只产融合版；清理历史「带龙族」包
-    variants = [(APP_NAME, False)]
+    # 两版：原版（护航面板无龙族按钮）+ 带龙族（护航面板有龙族循环 A/B 按钮）。
+    # 唯一差别是包内「带龙族.flag」→ GUI 打补丁时写入 hotfixdata 标记，DLL 据此显示按钮。
+    variants = [(APP_NAME, False), (DRAGON_APP_NAME, True)]
     zipped: list[Path] = []
     for app_name, dragon_loop_ui in variants:
-        print(f"\n--- 构建 {app_name}（龙族已卸载）---")
-        out_dir = build_exe(app_name, dragon_loop_ui=False)
+        print(f"\n--- 构建 {app_name}（带龙族={dragon_loop_ui}）---")
+        out_dir = build_exe(app_name, dragon_loop_ui=dragon_loop_ui)
         zip_path = RELEASE_DIR / f"{app_name}_{stamp}.zip"
         zip_folder(out_dir, zip_path)
         verify_pack(out_dir, zip_path, app_name)

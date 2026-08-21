@@ -39,7 +39,7 @@ DEFAULT_COMBO_KWARGS = {
     "pet_equip_unlock": False,
     "wiki_download_res": False,
     "wiki_label": False,
-    "dragon_loop_ui": False,  # 龙族护航已卸载：后续补丁一律不写/删除标记
+    "dragon_loop_ui": True,  # 护航面板「龙族循环A」按钮（写 seqchapter_dragon_loop.flag）
     "daily_claim": True,
     "newbie_gift_code": True,
     "boss_key_fps": True,  # 切后台 / 老板键隐藏 → 30 FPS
@@ -58,7 +58,8 @@ DEFAULT_COMBO_KWARGS = {
 # 加速默认关闭（2026-08 起）：战斗倍速补丁默认连带掐断倍速检测上报
 #   （CheckTimeScaleWarning / SendTimeScaleWarning 空方法），默认不打。
 #   GUI 勾选「战斗加速」时才置 vip=True + vip_echo=1.5。
-# 龙族护航已卸载：不再分「带龙族」包，打补丁时删除 seqchapter_dragon_loop.flag。
+# 傻瓜包分「融合版 / 带龙族」：基底不带龙族按钮；带龙族版由 publish 写 带龙族.flag
+# 后由 foolproof_apply 覆盖 dragon_loop_ui=True。
 FOOLPROOF_COMBO_KWARGS = {
     **DEFAULT_COMBO_KWARGS,
     "battle_nine_action": False,
@@ -73,7 +74,7 @@ FOOLPROOF_COMBO_KWARGS = {
     "battle_appear": False,  # 皮肤挂钩（进战形象钩子）总是部署，默认不套形象；游戏内可开
     "vip_scale": 3,  # 仅在勾选战斗加速时生效（vip=True，vip_echo 由 foolproof_apply 设置）
     "map_sprint": False,  # 移动加速默认关
-    "dragon_loop_ui": False,  # 龙族护航已卸载
+    "dragon_loop_ui": False,  # 融合版默认不显示；带龙族版由 flag 覆盖
     "skip_battle_anim_default": False,  # 傻瓜包：跳过动画默认关（面板内手动开）
 }
 
@@ -84,6 +85,7 @@ FOOLPROOF_NO_NINE_COMBO_KWARGS = {
     "auto_catch_external": True,
     "auto_catch_nopet_external": True,
     "auto_catch_sell_external": True,
+    # 原版：护航面板不显示龙族循环 A/B 按钮（带龙族版由 publish 写 flag 决定覆盖为 True）
     "dragon_loop_ui": False,
 }
 

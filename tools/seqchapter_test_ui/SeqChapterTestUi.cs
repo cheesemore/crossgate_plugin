@@ -170,7 +170,9 @@ public static class SeqChapterTestUi
     private static bool _escortWasInBattle;
     /// <summary>上一 tick 是否在战斗；用于退战边沿重置静止基线。</summary>
     private static bool _escortPrevInBattle;
-    /// <summary>战斗页：PVE 清空 BattleCommandRunner 表现队列，RunProcess 空队列直接 OnCompleted。默认关。</summary>
+    /// <summary>护航要求队伍至少人数（战后不足则暂停等手动继续）。</summary>
+    private const int EscortTeamMinMembers = 5;
+    /// <summary>战斗页：PVE 清表现队列让 RunProcess 自然 OnCompleted，再等 CHAR。默认关。</summary>
     private static bool _skipBattleAnim = false;
     private static bool _skipBattleAnimFlushLogged;
     private static long _skipBattleAnimLastDiagMs;
@@ -180,6 +182,15 @@ public static class SeqChapterTestUi
     /// <summary>无法行动容错：按账号+回合去重。</summary>
     private static string _battleUnableActFixKey = "";
     private static bool _battleUnableActInjected;
+    /// <summary>本账号本回合已强制补发人物 idle「N」（防死亡静默跳过不发包）。</summary>
+    private static string _battleUnableActPlayerIdleKey = "";
+    /// <summary>本账号本回合已强制补发宠物 idle。</summary>
+    private static string _battleUnableActPetIdleKey = "";
+    /// <summary>AllEnd+空队列卡死时补发去重。</summary>
+    private static string _battleUnableActStuckRescueKey = "";
+    private static long _battleUnableActStuckSinceMs;
+    /// <summary>卡死计时签名（turn|acct|fight|acctQ）；变化则重置，避免正常选指令累计超时。</summary>
+    private static string _battleUnableActStuckSig = "";
     private const int BpFlagPlayerMenuNon = 4;
     private const int BpFlagPetMenuNon = 8;
     private const int BpFlagPet = 0x20;
@@ -187,6 +198,12 @@ public static class SeqChapterTestUi
     private const int FightProcessPlayerEnd = 1;
     private const int FightProcessPetEnd = 2;
     private const int FightProcessAllEnd = 3;
+    /// <summary>无法行动账号选指令卡住才强制收尾（毫秒）。</summary>
+    private const long BattleUnableActSelectStuckMs = 2500;
+    /// <summary>fight≠AllEnd 且 acctQ=0 幽灵态才强制 AllEnd（毫秒）。</summary>
+    private const long BattleGhostStuckMs = 4000;
+    /// <summary>无法行动且 AllEnd+空队列才补发 idle（毫秒）。</summary>
+    private const long BattleEmptyQueueStuckMs = 5000;
     // BATTLE_TYPE：P_vs_P=2 WATCH=3 PVP_WATCH=9 REPLAY_BATTLE=10（跳过动画不处理）
     private const int BattleTypePvp = 2;
     private const int BattleTypeWatch = 3;
@@ -603,8 +620,13 @@ public static class SeqChapterTestUi
             TickSuperAi();
             TickPetNamer();
             TickScriptWingTest();
+            // 跳过动画开着时：只 Stop 表现，等 CHAR(info) RefreshData，指令全交给官方。
+            // 禁止再发 N / 踢 DoAutoFight / 假 OnCompleted（会和 info 重置抢状态）。
             TickSkipBattleAnim();
-            TickBattleUnableActFix();
+            if (!_skipBattleAnim)
+            {
+                TickBattleUnableActFix();
+            }
         }
         catch (Exception ex)
         {
@@ -3136,7 +3158,7 @@ public static class SeqChapterTestUi
         var lab = CreateUiChild(row, "L", rtType);
         StretchFull(RequireRect(lab, "sbal"));
         var text = AddText(lab);
-        SetText(text, (_skipBattleAnim ? "● " : "○ ") + "跳过动画（PVE：清空表现队列，直接等状态包）", 13);
+        SetText(text, (_skipBattleAnim ? "● " : "○ ") + "跳过动画（清队列等自然结束，防第二回合卡）", 13);
         BindButton(row, img, ToggleSkipBattleAnimFromUi);
 
         y -= 34f;
@@ -3146,6 +3168,8 @@ public static class SeqChapterTestUi
     {
         _skipBattleAnim = !_skipBattleAnim;
         _skipBattleAnimFlushLogged = false;
+        _skipBattleAnimCmdSinceMs = 0;
+        _skipBattleAnimManualDone = false;
         Tip(_skipBattleAnim ? "跳过动画已开启" : "跳过动画已关闭");
         WriteLog("ToggleSkipBattleAnim=" + _skipBattleAnim);
         if (_tab == TabBattle)
@@ -3156,7 +3180,10 @@ public static class SeqChapterTestUi
         }
     }
 
-    /// <summary>清空 m_CmdQueue 让 RunProcess 自然 OnCompleted；不手动调 OnCompleted（防第二回合状态乱）。</summary>
+    /// <summary>
+    /// 跳过动画（防第二回合卡死）：只清表现队列，让 RunProcess 自然 OnCompleted；
+    /// 禁止每拍手动 OnCompleted。选指令踢 DoAutoFight；仅超时才补一次 OnCompleted。
+    /// </summary>
     private static void TickSkipBattleAnim()
     {
         if (!_skipBattleAnim)
@@ -3170,6 +3197,8 @@ public static class SeqChapterTestUi
             if (!Convert.ToBoolean(GetStaticMember("BattleDataHolder", "IsInBattle") ?? false))
             {
                 _skipBattleAnimFlushLogged = false;
+                _skipBattleAnimCmdSinceMs = 0;
+                _skipBattleAnimManualDone = false;
                 return;
             }
 
@@ -3180,7 +3209,7 @@ public static class SeqChapterTestUi
             }
 
             ForceBattleGlobalTimeScale(1f);
-            ForceBattleRolesReady();
+            ForceSkipAnimRolesReady();
 
             var bm = GetManagerInstance("BattleManager");
             if (bm == null)
@@ -3201,7 +3230,6 @@ public static class SeqChapterTestUi
 
             var now = NowMs();
             _skipBattleAnimAutoKickMs = 0;
-
             if (_skipBattleAnimCmdSinceMs <= 0)
             {
                 _skipBattleAnimCmdSinceMs = now;
@@ -3213,13 +3241,12 @@ public static class SeqChapterTestUi
             if (!_skipBattleAnimFlushLogged)
             {
                 WriteLog("SkipAnim: flush cmdQ " + qBefore + "->" + GetBattleCommandQueueCount()
-                         + " statusQ=" + GetBattleStatusQueueCount());
+                         + " (wait natural OnCompleted) statusQ=" + GetBattleStatusQueueCount());
                 _skipBattleAnimFlushLogged = true;
             }
 
-            // RunProcess 未自然结束 → CmdRunning 一直 true，会挡住下一回合 ProcessCommand
             if (!_skipBattleAnimManualDone
-                && now - _skipBattleAnimCmdSinceMs > 150
+                && now - _skipBattleAnimCmdSinceMs > 200
                 && Convert.ToBoolean(GetMember(bm, "CmdRunningFlag") ?? false))
             {
                 WriteLog("SkipAnim: RunProcess 超时，补一次 OnCompleted");
@@ -3260,8 +3287,7 @@ public static class SeqChapterTestUi
                      + " acctQ=" + acct
                      + " actQ=" + GetBattleActionQueueCount()
                      + " cmdQ=" + GetBattleCommandQueueCount()
-                     + " statusQ=" + GetBattleStatusQueueCount()
-                     + " rolesBad=" + CountBattleRolesNotReady());
+                     + " statusQ=" + GetBattleStatusQueueCount());
         }
         catch
         {
@@ -3269,7 +3295,7 @@ public static class SeqChapterTestUi
         }
     }
 
-    /// <summary>只清 BattleCommandRunner 表现队列，让 RunProcess 空跑结束；不手动 OnCompleted。</summary>
+    /// <summary>先清队列再 Stop，让 RunProcess 自然 OnCompleted。</summary>
     private static void FlushBattlePresentationQueue()
     {
         var runner = GetBattleCommandRunner();
@@ -3278,22 +3304,29 @@ public static class SeqChapterTestUi
             return;
         }
 
-        runner.GetType().GetMethod("Stop",
-                BindingFlags.Public | BindingFlags.Instance, null, Type.EmptyTypes, null)
-            ?.Invoke(runner, null);
         ClearReflectCollection(GetMember(runner, "m_CmdQueue"));
         ClearReflectCollection(GetMember(runner, "m_LuanList"));
         ClearReflectDictionary(GetMember(runner, "m_CurCmds"));
+        runner.GetType().GetMethod("Stop",
+                BindingFlags.Public | BindingFlags.Instance, null, Type.EmptyTypes, null)
+            ?.Invoke(runner, null);
     }
 
-    /// <summary>回合间 fight 未 AllEnd 且开自动战斗时，直接 DoAutoFight（不能调 AutoFight，会重置 3 秒倒计时）。</summary>
+    /// <summary>回合间选指令：踢官方 DoAutoFight。</summary>
     private static void TryKickAutoFightWhenStuck(object bm)
     {
         try
         {
             if (!Convert.ToBoolean(GetMember(bm, "IsAutoBattle") ?? false))
             {
-                return;
+                try
+                {
+                    SetMember(bm, "IsAutoBattle", true);
+                }
+                catch
+                {
+                    return;
+                }
             }
 
             var fight = Convert.ToInt32(GetMember(bm, "FightProcessFlag") ?? 0);
@@ -3306,9 +3339,6 @@ public static class SeqChapterTestUi
             {
                 return;
             }
-
-            // 无法行动：先注入 MENU_NON，再踢 DoAutoFight（走官方 idle 分支，勿直接攻击）
-            EnsureBattleUnableActMenuNon(bm);
 
             var now = NowMs();
             if (now - _skipBattleAnimAutoKickMs < 1500)
@@ -3330,10 +3360,58 @@ public static class SeqChapterTestUi
         }
     }
 
+    /// <summary>跳过表现后清 NeedWaitDeadAction。</summary>
+    private static void ForceSkipAnimRolesReady()
+    {
+        try
+        {
+            var brc = FindType("BattleRoleContainer");
+            brc?.GetMethod("AllRoleReturn", BindingFlags.Public | BindingFlags.Static, null, Type.EmptyTypes, null)
+                ?.Invoke(null, null);
+            var dic = brc?.GetField("BattleRoleDic", BindingFlags.Public | BindingFlags.Static)
+                ?.GetValue(null) as IDictionary;
+            if (dic == null)
+            {
+                return;
+            }
+
+            foreach (DictionaryEntry kv in dic)
+            {
+                var role = kv.Value;
+                if (role == null)
+                {
+                    continue;
+                }
+
+                SetMember(role, "NeedWaitDeadAction", false);
+                SetMember(role, "IsInPosition", true);
+                SetMember(role, "returnCompleted", true);
+            }
+        }
+        catch
+        {
+            // ignore
+        }
+    }
+
+    /// <summary>仅超时兜底：补官方 OnCompleted。</summary>
+    private static void ForceFinishPresentationRun(object bm)
+    {
+        ForceBattleGlobalTimeScale(1f);
+        if (!Convert.ToBoolean(GetMember(bm, "CmdRunningFlag") ?? false))
+        {
+            return;
+        }
+
+        var proc = TryGetBattleProcesser();
+        proc?.GetType().GetMethod("CommandRunner_OnCompleted",
+                BindingFlags.NonPublic | BindingFlags.Instance, null, Type.EmptyTypes, null)
+            ?.Invoke(proc, null);
+    }
+
     /// <summary>
-    /// 五开自动战斗：队长/当前号死亡、石化、睡眠时官方 AutoFight_PlayerAction 只跳过死亡，
-    /// 石化仍会发攻击包，服务端不认 → BattleCmdQueue 空卡住。
-    /// 做法：提前把 BPFlag / BPFlagArray 打上 PLAYER/PET_MENU_NON，让官方 DoAutoFight 走 idle 分支。
+    /// 五开自动战斗：死亡/石化/睡眠时官方常漏发「N」或卡在选目标；跳过动画时更明显。
+    /// 无法行动立刻补 idle；选指令卡住 / AllEnd 空队列 / fight 与 acctQ 错位再强制收尾。
     /// </summary>
     private static void TickBattleUnableActFix()
     {
@@ -3342,6 +3420,11 @@ public static class SeqChapterTestUi
             if (!Convert.ToBoolean(GetStaticMember("BattleDataHolder", "IsInBattle") ?? false))
             {
                 _battleUnableActFixKey = "";
+                _battleUnableActPlayerIdleKey = "";
+                _battleUnableActPetIdleKey = "";
+                _battleUnableActStuckRescueKey = "";
+                _battleUnableActStuckSinceMs = 0;
+                _battleUnableActStuckSig = "";
                 return;
             }
 
@@ -3352,16 +3435,18 @@ public static class SeqChapterTestUi
             }
 
             var bm = GetManagerInstance("BattleManager");
-            if (bm == null || !Convert.ToBoolean(GetMember(bm, "IsAutoBattle") ?? false))
+            if (bm == null)
             {
                 return;
             }
 
-            // 表现中也预填 BPFlagArray，保证切到该号时 ChangeNextBattleRole 已带 MENU_NON
+            // 表现中也预填 BPFlagArray（仅死亡/睡眠/石化，不读 MENU_NON 防自循环）
             PrefillUnableActMenuNonForAllies();
 
             if (Convert.ToBoolean(GetMember(bm, "CmdRunningFlag") ?? false))
             {
+                _battleUnableActStuckSinceMs = 0;
+                _battleUnableActStuckSig = "";
                 return;
             }
 
@@ -3375,28 +3460,324 @@ public static class SeqChapterTestUi
                 _battleUnableActInjected = false;
             }
 
+            var auto = Convert.ToBoolean(GetMember(bm, "IsAutoBattle") ?? false);
             var fight = Convert.ToInt32(GetMember(bm, "FightProcessFlag") ?? 0);
             var injected = EnsureBattleUnableActMenuNon(bm);
             if (injected && !_battleUnableActInjected)
             {
                 _battleUnableActInjected = true;
                 var playerRole = GetCurrentBattlePlayerRole();
+                var bc = GetBattleRoleStatus(playerRole);
                 WriteLog("UnableAct: inject MENU_NON uid=" + acct + " turn=" + turn
-                         + " bc=" + FormatBcStatus(GetBattleRoleStatus(playerRole))
-                         + " fight=" + fight);
+                         + " bc=0x" + bc.ToString("X") + "(" + FormatBcStatus(bc) + ")"
+                         + " fight=" + fight + " auto=" + auto);
             }
 
-            // 尚未选完：注入后踢 DoAutoFight，走官方 SendPlayerIdleCommand / 宠物分支
-            if (fight != FightProcessAllEnd && injected)
+            // 无法行动：立刻发 idle（不等待官方 DoAutoFight / 不要求已标 PlayerActionEnd）
+            EnsureUnableActIdleCommandsSent(bm, proc, acct, turn);
+
+            fight = Convert.ToInt32(GetMember(bm, "FightProcessFlag") ?? 0);
+            if (auto && fight != FightProcessAllEnd && injected)
             {
                 proc?.GetType().GetMethod("DoAutoFight",
                         BindingFlags.NonPublic | BindingFlags.Instance, null, Type.EmptyTypes, null)
                     ?.Invoke(proc, null);
             }
+
+            // 仅无法行动 / 幽灵态 / 真空队列才救；正常选指令绝不再「强制跳过」
+            TryRescueBattleCommandStuck(bm, proc, acct, turn, auto);
         }
         catch (Exception ex)
         {
             WriteLog("TickBattleUnableActFix EX: " + RootMessage(ex));
+        }
+    }
+
+    /// <summary>
+    /// 人物/宠无法行动时强制发 idle（每账号每回合各一次）。
+    /// 死亡静默跳过、石化仍走攻击选目标都会漏包，故一发现就发，不依赖 FightProcess 状态。
+    /// </summary>
+    private static void EnsureUnableActIdleCommandsSent(object bm, object proc, string acct, int turn)
+    {
+        if (proc == null || string.IsNullOrEmpty(acct))
+        {
+            return;
+        }
+
+        var playerRole = GetCurrentBattlePlayerRole();
+        var playerUnable = IsBattleRoleTrulyUnableToAct(playerRole);
+        var petUnable = IsCurrentBattlePetTrulyUnableToAct(bm);
+        if (!playerUnable && !petUnable)
+        {
+            return;
+        }
+
+        EnsureBattleUnableActMenuNon(bm);
+        InvokeBattleProcesserMethod(proc, "EndSelect");
+        var fight = Convert.ToInt32(GetMember(bm, "FightProcessFlag") ?? 0);
+        var playerKey = acct + "|" + turn + "|P";
+        var petKey = acct + "|" + turn + "|E";
+
+        if (playerUnable
+            && !string.Equals(playerKey, _battleUnableActPlayerIdleKey, StringComparison.Ordinal))
+        {
+            InvokeBattleProcesserMethod(proc, "SendPlayerIdleCommand");
+            _battleUnableActPlayerIdleKey = playerKey;
+            SetBattleFightProcessFlag(bm, fight | FightProcessPlayerEnd);
+            fight |= FightProcessPlayerEnd;
+            WriteLog("UnableAct: force player idle N uid=" + acct + " turn=" + turn
+                     + " fight=" + fight + " dead="
+                     + Convert.ToBoolean(GetMember(playerRole, "IsDead") ?? false)
+                     + " bc=0x" + GetBattleRoleStatus(playerRole).ToString("X"));
+        }
+
+        if (petUnable
+            && !string.Equals(petKey, _battleUnableActPetIdleKey, StringComparison.Ordinal))
+        {
+            ForceSendPetIdle(bm, proc);
+            _battleUnableActPetIdleKey = petKey;
+            SetBattleFightProcessFlag(bm, fight | FightProcessPetEnd);
+            WriteLog("UnableAct: force pet idle uid=" + acct + " turn=" + turn);
+        }
+    }
+
+    private static void ForceSendPetIdle(object bm, object proc)
+    {
+        var bp = GetBattleBpFlag();
+        if (HasBpFlag(bp, BpFlagPet))
+        {
+            InvokeBattleProcesserMethod(proc, "CheckAndSendDefaultPetCommand");
+            return;
+        }
+
+        try
+        {
+            bm.GetType().GetMethod("SendBattleCommond",
+                    BindingFlags.Public | BindingFlags.Instance, null,
+                    new[] { typeof(string) }, null)
+                ?.Invoke(bm, new object[] { "W|FF|FF" });
+        }
+        catch
+        {
+            // ignore
+        }
+    }
+
+    /// <summary>
+    /// 卡死兜底（收紧，避免正常选指令误 Tip「强制跳过」）：
+    /// 1) 当前账号人物/宠真正无法行动且久不 AllEnd → 强制 idle+AllEnd；
+    /// 2) fight≠AllEnd 且 acctQ=0 幽灵态过久 → 静默标 AllEnd（不 Tip）；
+    /// 3) 无法行动且 AllEnd+空队列过久 → 再补发 idle（不 Tip）。
+    /// </summary>
+    private static void TryRescueBattleCommandStuck(object bm, object proc, string acct, int turn, bool auto)
+    {
+        var fight = Convert.ToInt32(GetMember(bm, "FightProcessFlag") ?? 0);
+        var acctQ = GetBattleAccountQueueCount();
+        var actQ = GetBattleActionQueueCount();
+        var statusQ = GetBattleStatusQueueCount();
+        var now = NowMs();
+
+        var playerUnable = IsBattleRoleTrulyUnableToAct(GetCurrentBattlePlayerRole());
+        var petUnable = IsCurrentBattlePetTrulyUnableToAct(bm);
+        var unableNow = playerUnable || petUnable;
+
+        // 正常选指令：fight 会长时间 ≠ AllEnd，绝不能当卡死
+        var selectStuck = unableNow && fight != FightProcessAllEnd;
+        var ghostStuck = fight != FightProcessAllEnd && acctQ == 0;
+        var emptyQueueStuck = unableNow && fight == FightProcessAllEnd
+                              && acctQ == 0 && actQ == 0 && statusQ == 0;
+        if (!selectStuck && !ghostStuck && !emptyQueueStuck)
+        {
+            _battleUnableActStuckSinceMs = 0;
+            _battleUnableActStuckSig = "";
+            return;
+        }
+
+        var sig = turn + "|" + acct + "|" + fight + "|" + acctQ
+                  + "|" + (selectStuck ? "S" : "") + (ghostStuck ? "G" : "") + (emptyQueueStuck ? "E" : "");
+        if (!string.Equals(sig, _battleUnableActStuckSig, StringComparison.Ordinal))
+        {
+            _battleUnableActStuckSig = sig;
+            _battleUnableActStuckSinceMs = now;
+            return;
+        }
+
+        if (_battleUnableActStuckSinceMs <= 0)
+        {
+            _battleUnableActStuckSinceMs = now;
+            return;
+        }
+
+        var waitMs = selectStuck
+            ? BattleUnableActSelectStuckMs
+            : (ghostStuck ? BattleGhostStuckMs : BattleEmptyQueueStuckMs);
+        if (now - _battleUnableActStuckSinceMs < waitMs)
+        {
+            return;
+        }
+
+        if (selectStuck)
+        {
+            var selKey = acct + "|" + turn + "|sel";
+            if (!string.Equals(selKey, _battleUnableActStuckRescueKey, StringComparison.Ordinal))
+            {
+                _battleUnableActStuckRescueKey = selKey;
+                ForceCompleteCurrentBattleAccount(bm, proc, acct, turn, "unable-select-stuck");
+                if (auto)
+                {
+                    try
+                    {
+                        SetMember(bm, "IsAutoBattle", true);
+                    }
+                    catch
+                    {
+                        // ignore
+                    }
+
+                    proc?.GetType().GetMethod("DoAutoFight",
+                            BindingFlags.NonPublic | BindingFlags.Instance, null, Type.EmptyTypes, null)
+                        ?.Invoke(proc, null);
+                }
+            }
+
+            _battleUnableActStuckSinceMs = now;
+            return;
+        }
+
+        if (ghostStuck)
+        {
+            var ghostKey = turn + "|ghost";
+            if (!string.Equals(ghostKey, _battleUnableActStuckRescueKey, StringComparison.Ordinal))
+            {
+                _battleUnableActStuckRescueKey = ghostKey;
+                SetBattleFightProcessFlag(bm, FightProcessAllEnd);
+                WriteLog("UnableAct: rescue ghost AllEnd turn=" + turn + " uid=" + acct
+                         + " fightWas=" + fight + " auto=" + auto + " unable=" + unableNow);
+            }
+
+            _battleUnableActStuckSinceMs = now;
+            return;
+        }
+
+        // emptyQueueStuck（仅 unableNow）
+        var rescueKey = turn + "|empty";
+        if (string.Equals(rescueKey, _battleUnableActStuckRescueKey, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _battleUnableActStuckRescueKey = rescueKey;
+        EnsureBattleUnableActMenuNon(bm);
+        InvokeBattleProcesserMethod(proc, "SendPlayerIdleCommand");
+        WriteLog("UnableAct: stuck-rescue N turn=" + turn + " uid=" + acct
+                 + " actQ=" + actQ + " statusQ=" + statusQ + " auto=" + auto);
+        _battleUnableActStuckSinceMs = now;
+    }
+
+    /// <summary>对本账号强制发人物+宠物 idle 并标 AllEnd（仿 RoundTimeUp）。仅无法行动路径调用。</summary>
+    private static void ForceCompleteCurrentBattleAccount(object bm, object proc, string acct, int turn, string reason)
+    {
+        InvokeBattleProcesserMethod(proc, "EndSelect");
+        EnsureBattleUnableActMenuNon(bm);
+        var fight = Convert.ToInt32(GetMember(bm, "FightProcessFlag") ?? 0);
+        if ((fight & FightProcessPlayerEnd) == 0)
+        {
+            InvokeBattleProcesserMethod(proc, "SendPlayerIdleCommand");
+            _battleUnableActPlayerIdleKey = acct + "|" + turn + "|P";
+        }
+
+        if ((fight & FightProcessPetEnd) == 0)
+        {
+            ForceSendPetIdle(bm, proc);
+            _battleUnableActPetIdleKey = acct + "|" + turn + "|E";
+        }
+
+        SetBattleFightProcessFlag(bm, FightProcessAllEnd);
+        WriteLog("UnableAct: force-complete account uid=" + acct + " turn=" + turn
+                 + " reason=" + reason + " fightWas=" + fight);
+        Tip("无法行动已自动跳过指令");
+    }
+
+    private static bool AnyAllyUnableToAct()
+    {
+        try
+        {
+            var brc = FindType("BattleRoleContainer");
+            var roleDic = brc?.GetField("BattleRoleDic", BindingFlags.Public | BindingFlags.Static)
+                ?.GetValue(null) as IDictionary;
+            var acctDic = brc?.GetField("AccountIndexDic", BindingFlags.Public | BindingFlags.Static)
+                ?.GetValue(null) as IDictionary;
+            if (roleDic == null || acctDic == null)
+            {
+                return false;
+            }
+
+            var playerIdx = Convert.ToInt32(GetStaticMember("BattleDataHolder", "battlePlayerIndex") ?? -1);
+            foreach (DictionaryEntry kv in acctDic)
+            {
+                var idx = Convert.ToInt32(kv.Value ?? -1);
+                if (idx < 0)
+                {
+                    continue;
+                }
+
+                var mine = playerIdx < 0
+                    || (playerIdx < 10 && idx < 10)
+                    || (playerIdx >= 10 && idx >= 10);
+                if (!mine)
+                {
+                    continue;
+                }
+
+                var role = roleDic.Contains(idx) ? roleDic[idx] : null;
+                if (role != null && IsBattleRoleTrulyUnableToAct(role))
+                {
+                    return true;
+                }
+            }
+        }
+        catch
+        {
+            // ignore
+        }
+
+        return false;
+    }
+
+    private static void InvokeBattleProcesserMethod(object proc, string name)
+    {
+        try
+        {
+            proc?.GetType().GetMethod(name,
+                    BindingFlags.NonPublic | BindingFlags.Instance, null, Type.EmptyTypes, null)
+                ?.Invoke(proc, null);
+        }
+        catch
+        {
+            // ignore
+        }
+    }
+
+    private static void SetBattleFightProcessFlag(object bm, int value)
+    {
+        try
+        {
+            var p = bm.GetType().GetProperty("FightProcessFlag",
+                BindingFlags.Public | BindingFlags.Instance);
+            if (p != null && p.CanWrite)
+            {
+                object boxed = p.PropertyType.IsEnum
+                    ? Enum.ToObject(p.PropertyType, value)
+                    : value;
+                p.SetValue(bm, boxed, null);
+                return;
+            }
+
+            SetMember(bm, "FightProcessFlag", value);
+        }
+        catch
+        {
+            // ignore
         }
     }
 
@@ -3490,8 +3871,8 @@ public static class SeqChapterTestUi
     private static bool EnsureBattleUnableActMenuNon(object bm)
     {
         var playerRole = GetCurrentBattlePlayerRole();
-        var playerUnable = playerRole != null && IsBattleRoleUnableToAct(playerRole, true);
-        var petUnable = IsCurrentBattlePetUnableToAct(bm);
+        var playerUnable = IsBattleRoleTrulyUnableToAct(playerRole);
+        var petUnable = IsCurrentBattlePetTrulyUnableToAct(bm);
         if (!playerUnable && !petUnable)
         {
             return false;
@@ -3514,7 +3895,7 @@ public static class SeqChapterTestUi
             SetBattleBpFlag(next);
         }
 
-        return playerUnable || petUnable;
+        return true;
     }
 
     private static int GetBattleBpFlag()
@@ -3630,8 +4011,8 @@ public static class SeqChapterTestUi
         }
     }
 
-    /// <summary>死亡、睡眠、石化，或 BPFlag 已标记 MENU_NON。</summary>
-    private static bool IsBattleRoleUnableToAct(object role, bool isPlayer)
+    /// <summary>死亡 / 睡眠 / 石化（不读 MENU_NON，避免注入后自循环把正常人当无法行动）。</summary>
+    private static bool IsBattleRoleTrulyUnableToAct(object role)
     {
         if (role == null)
         {
@@ -3643,9 +4024,20 @@ public static class SeqChapterTestUi
             return true;
         }
 
-        if ((GetBattleRoleStatus(role) & BcUnableActMask) != 0)
+        return (GetBattleRoleStatus(role) & BcUnableActMask) != 0;
+    }
+
+    /// <summary>真正无法行动，或本拍已写过 MENU_NON（仅用于写 BP / 发 idle 去重，不作卡死判定入口）。</summary>
+    private static bool IsBattleRoleUnableToAct(object role, bool isPlayer)
+    {
+        if (IsBattleRoleTrulyUnableToAct(role))
         {
             return true;
+        }
+
+        if (role == null)
+        {
+            return false;
         }
 
         var bp = GetBattleBpFlag();
@@ -3655,6 +4047,12 @@ public static class SeqChapterTestUi
         }
 
         return !isPlayer && HasBpFlag(bp, BpFlagPetMenuNon);
+    }
+
+    private static bool IsCurrentBattlePetTrulyUnableToAct(object bm)
+    {
+        var petRole = GetCurrentBattlePetRole(bm);
+        return IsBattleRoleTrulyUnableToAct(petRole);
     }
 
     private static bool IsCurrentBattlePetUnableToAct(object bm)
@@ -3672,23 +4070,6 @@ public static class SeqChapterTestUi
         }
 
         return IsBattleRoleUnableToAct(petRole, false);
-    }
-
-    private static void ForceFinishPresentationRun(object bm)
-    {
-        FlushBattlePresentationQueue();
-        ForceBattleGlobalTimeScale(1f);
-
-        if (!Convert.ToBoolean(GetMember(bm, "CmdRunningFlag") ?? false))
-        {
-            return;
-        }
-
-        SetMember(bm, "CmdRunningFlag", false);
-        var proc = TryGetBattleProcesser();
-        proc?.GetType().GetMethod("CommandRunner_OnCompleted",
-                BindingFlags.NonPublic | BindingFlags.Instance, null, Type.EmptyTypes, null)
-            ?.Invoke(proc, null);
     }
 
     private static object GetBattleCommandRunner()
@@ -7743,6 +8124,8 @@ public static class SeqChapterTestUi
             return;
         }
 
+        var dragonLoopUi = DragonLoopUiEnabled();
+
         var hint2 = CreateUiChild(_bodyRoot, "Hint2", rtType);
         SetAnchoredTop(RequireRect(hint2, "ha2"), 0f, -8f, 500f, 88f);
         var hintText = AddText(hint2);
@@ -7761,7 +8144,11 @@ public static class SeqChapterTestUi
             + "手动暂停不清铃；自动暂停约每2秒响铃，点「我知道了」或停止才停。静止5秒尝试恢复，连挪5次后改为直接续任务再观察5秒；本步骤连续20次失败自动暂停。\n"
             + (TempMidAutumnEscort119
                 ? "七夕循环：阿凯版=回登入点+赤凤之翼；哥拉尔版=登入点在哥拉尔、不用赤凤之翼。最后一步分账号存兑换券后才计一轮。\n"
-                : ""),
+                : "")
+            + (dragonLoopUi
+                ? "龙族循环A：自动重置龙4→按序执行龙族纷争1-4→宠物位满停止。\n"
+                : "")
+            + "战后若队伍解散或不足5人（普通护航/七夕/龙城）：自动暂停，组好后点「继续护航」。",
             11);
 
         var y = -96f;
@@ -7825,7 +8212,33 @@ public static class SeqChapterTestUi
         }
 
         y -= 50f;
-        // 七夕循环（#119 临时活动）；龙族护航已卸载，不再显示按钮
+        // 龙族循环 A（seqchapter_dragon_loop.flag）；七夕循环临时活动
+        if (dragonLoopUi)
+        {
+            var dragonBtn = CreateUiChild(_bodyRoot, "DragonLoopBtn", rtType);
+            SetAnchoredTop(RequireRect(dragonBtn, "dlb"), 0f, y, 420f, 40f);
+            var dragonImg = AddComp(dragonBtn, "UnityEngine.UI.Image");
+            SetColor(dragonImg, _dragonLoopActive ? 0.55f : 0.3f, _dragonLoopActive ? 0.24f : 0.3f,
+                _dragonLoopActive ? 0.22f : 0.42f, 1f);
+            var dragonLab = CreateUiChild(dragonBtn, "L", rtType);
+            StretchFull(RequireRect(dragonLab, "dll"));
+            SetText(AddText(dragonLab), _dragonLoopActive
+                ? ("停止龙族循环(第" + (_dragonLoopCount + 1) + "轮)")
+                : "龙族循环A(110-113)", 14);
+            BindButton(dragonBtn, dragonImg, () =>
+            {
+                if (_dragonLoopActive)
+                {
+                    StopDragonLoop();
+                }
+                else
+                {
+                    StartDragonLoop();
+                }
+            });
+            y -= 48f;
+        }
+
         if (TempMidAutumnEscort119)
         {
             if (_midAutumnLoopActive)
@@ -9825,6 +10238,18 @@ public static class SeqChapterTestUi
             return;
         }
 
+        var teamNow = GetEscortTeamNum();
+        WriteLog("escort MARK resume-team-check teamNum=" + teamNow
+                 + " need>=" + EscortTeamMinMembers + " id=" + _escortMissionId
+                 + " idx=" + _escortQueueIndex);
+        if (teamNow < EscortTeamMinMembers)
+        {
+            WriteLog("escort MARK resume-blocked-team-low teamNum=" + teamNow
+                     + " id=" + _escortMissionId + " idx=" + _escortQueueIndex);
+            Tip("队伍仍不足" + EscortTeamMinMembers + "人（当前" + teamNow + "），请组好再继续");
+            return;
+        }
+
         _escortPaused = false;
         _escortPauseReason = "";
         _escortLastDiag = "";
@@ -9842,7 +10267,7 @@ public static class SeqChapterTestUi
         }
 
         WriteLog("escort resume id=" + _escortMissionId + " idx=" + _escortQueueIndex
-                 + " recover=" + _escortRecoverAttempts);
+                 + " recover=" + _escortRecoverAttempts + " teamNum=" + teamNow);
         Tip("任务护航：已继续");
         if (_escortMissionId > 0)
         {
@@ -10714,6 +11139,10 @@ public static class SeqChapterTestUi
             return;
         }
 
+        // 护航进行中（含七夕/龙城）：每拍跟踪战斗边沿；战后少人一律暂停。
+        // 必须放在各类 pending early-return 之前，否则会漏检。
+        TickEscortBattleExitTeamGuard();
+
         // 暂停：不自动点对话 / 不推进队列 / 不卡楼梯；允许手动接管（点其它任务不终止）
         if (_escortPaused)
         {
@@ -11010,15 +11439,7 @@ public static class SeqChapterTestUi
 
         _escortFinishWaitMs = 0;
 
-        // 战斗中不刷新静止基线（否则战后动画段会把 5 秒计时一直往后推）
-        if (_escortPrevInBattle && !inBattle)
-        {
-            _lastActivityMs = now;
-            WriteLog("escort battle exit idle reset id=" + _escortMissionId);
-        }
-
-        _escortPrevInBattle = inBattle;
-
+        // 战斗中不刷新静止基线（战后 idle 重置已在 TickEscortBattleExitTeamGuard）
         if (dialogueOpen)
         {
             _lastActivityMs = now;
@@ -11555,6 +11976,82 @@ public static class SeqChapterTestUi
         {
             WriteLog("DiagnoseEscortStepFail EX: " + RootMessage(ex));
             return "条件诊断失败";
+        }
+    }
+
+    /// <summary>
+    /// 护航战斗边沿：出战刷新静止计时；队伍解散或不足 5 人则暂停（普通护航 / 七夕 / 龙城共用）。
+    /// </summary>
+    private static void TickEscortBattleExitTeamGuard()
+    {
+        var inBattle = Convert.ToBoolean(GetStaticMember("BattleDataHolder", "IsInBattle") ?? false);
+        if (_escortPrevInBattle && !inBattle)
+        {
+            _lastActivityMs = NowMs();
+            WriteLog("escort battle exit idle reset id=" + _escortMissionId
+                     + " dragon=" + _dragonLoopActive + " qixi=" + _midAutumnLoopActive);
+            if (!_escortPaused)
+            {
+                TryPauseEscortIfTeamBrokenAfterBattle();
+            }
+        }
+
+        _escortPrevInBattle = inBattle;
+    }
+
+    /// <summary>战后：队伍解散或不足 EscortTeamMinMembers 则暂停护航，等手动继续。</summary>
+    private static void TryPauseEscortIfTeamBrokenAfterBattle()
+    {
+        if (!_escortActive || _escortPaused)
+        {
+            return;
+        }
+
+        var teamNum = GetEscortTeamNum();
+        var mode = _dragonLoopActive ? "dragon" : (_midAutumnLoopActive ? "qixi" : "escort");
+        WriteLog("escort MARK battle-exit-team-check mode=" + mode
+                 + " teamNum=" + teamNum
+                 + " need>=" + EscortTeamMinMembers
+                 + " id=" + _escortMissionId + " idx=" + _escortQueueIndex
+                 + " title=" + _escortMissionTitle);
+        if (teamNum >= EscortTeamMinMembers)
+        {
+            WriteLog("escort MARK battle-exit-team-ok mode=" + mode + " teamNum=" + teamNum
+                     + " id=" + _escortMissionId);
+            return;
+        }
+
+        WriteLog("escort MARK battle-exit-team-break pause mode=" + mode
+                 + " teamNum=" + teamNum
+                 + " id=" + _escortMissionId + " idx=" + _escortQueueIndex
+                 + " title=" + _escortMissionTitle);
+        PauseEscort("战后队伍不足" + EscortTeamMinMembers + "人（当前" + teamNum
+                    + "），请组队后点继续", true);
+    }
+
+    /// <summary>当前队伍人数：TeamManager.GetTeamNum（与条件诊断/桥接一致）。</summary>
+    private static int GetEscortTeamNum()
+    {
+        try
+        {
+            var tm = GetManagerInstance("TeamManager");
+            if (tm == null)
+            {
+                return 0;
+            }
+
+            var m = tm.GetType().GetMethod("GetTeamNum",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            if (m == null)
+            {
+                return 0;
+            }
+
+            return Convert.ToInt32(m.Invoke(tm, null) ?? 0);
+        }
+        catch
+        {
+            return 0;
         }
     }
 
@@ -16957,8 +17454,7 @@ public static class SeqChapterTestUi
         return false;
     }
 
-    /// <summary>护航面板是否显示「龙族循环 A/B」按钮：hotfixdata 存在 seqchapter_dragon_loop.flag 标记即显示。
-    /// 傻瓜补丁分「带龙族」/「原版」两版，唯一差别就是这个标记。</summary>
+    /// <summary>护航面板是否显示「龙族循环 A」：hotfixdata 存在 seqchapter_dragon_loop.flag 即显示。</summary>
     private static bool DragonLoopUiEnabled()
     {
         try

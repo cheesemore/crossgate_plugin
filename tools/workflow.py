@@ -15,7 +15,7 @@
   status            cross / crosscopy / 补丁状态一览
   update            客户端更新一条龙（调用 cross_update.auto-update）
   repatch           用 DEFAULT_COMBO_KWARGS 从 .orig 重打 cross（需关游戏）
-  publish-foolproof 打傻瓜补丁融合版（龙族护航已卸载）
+  publish-foolproof 只打傻瓜补丁两版（融合版 + 带龙族）
   publish-all       按 publish_packs.json 默认清单发布
 """
 from __future__ import annotations
@@ -117,7 +117,7 @@ def main(argv: list[str] | None = None) -> int:
     p_up.add_argument("--force", action="store_true")
 
     sub.add_parser("repatch", help="默认组合重打 cross")
-    sub.add_parser("publish-foolproof", help="发布傻瓜补丁融合版")
+    sub.add_parser("publish-foolproof", help="发布傻瓜补丁两版")
     sub.add_parser("publish-all", help="按 publish_packs.json 发布")
 
     args = p.parse_args(argv)

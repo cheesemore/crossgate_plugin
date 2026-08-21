@@ -80,10 +80,13 @@ SKIP_BATTLE_ANIM_FLAG_NAME = "seqchapter_skip_battle_anim.flag"
 def sync_dragon_loop_flag(hotfix_dir: Path, enabled: bool) -> Path | None:
     """写/删「带龙族」护航面板标记：hotfixdata/seqchapter_dragon_loop.flag。
 
-    龙族护航已卸载：enabled 一律视为 False，打补丁时删除旧标记（兼容旧「带龙族」包）。
+    DLL（SeqChapterTestUi）据此决定护航面板是否显示「龙族循环A/B」按钮。
+    傻瓜补丁「带龙族」版写标记；「原版」不写。
     """
     path = hotfix_dir / DRAGON_LOOP_FLAG_NAME
-    _ = enabled  # 强制卸载，忽略调用方
+    if enabled:
+        path.write_text("1\n", encoding="utf-8")
+        return path
     if path.is_file():
         try:
             path.unlink()
@@ -1554,12 +1557,13 @@ def apply_combo(
         patch_msgs, work = _apply_gameplay_patches(hotfix, orig, **patch_kwargs)
         messages.extend(patch_msgs)
 
-    # 龙族护航已卸载：一律删除 hotfixdata 标记（兼容旧「带龙族」包）
-    sync_dragon_loop_flag(hotfix.parent, False)
+    # 护航面板龙族循环按钮（flag 控制显示）
+    dragon_flag = sync_dragon_loop_flag(hotfix.parent, dragon_loop_ui)
     _emit_combo(
         messages,
         on_log,
-        "护航面板：龙族循环已卸载（已删除标记）",
+        "护航面板："
+        + ("已开启龙族循环按钮" if dragon_flag else "不显示龙族循环按钮"),
     )
 
     skip_flag = sync_skip_battle_anim_flag(hotfix.parent, skip_battle_anim_default)
