@@ -183,9 +183,22 @@ public static class SeqChapterTestUi
     private static long _skipBattleAnimAllEndTipMs;
     /// <summary>flush 后禁止 UnableAct 抢发 N / 禁止判选指令卡住（毫秒）。</summary>
     private const long SkipAnimFlushCooldownMs = 2500;
-    /// <summary>AllEnd+空队列空等 ACTION/CHAR 多久后 Tip；再久强制退战。</summary>
+    /// <summary>石化/死亡刚走官方 DoAutoFight：禁止马上 flush，否则 AllEnd 被当成播表现、其余账号发不出包。</summary>
+    private const long SkipAnimHoldFlushAfterUnableActMs = 4000;
+    private static long _skipBattleAnimHoldFlushUntilMs;
+    /// <summary>本回合本地选指令已走完（见过 AllEnd 且 acctQ=0）。播表现时下一回合账号会再灌进 AcountList。</summary>
+    private static bool _skipBattleAnimSelectDone;
+    private static long _skipBattleAnimSelectDoneAtMs;
+    private static int _skipBattleAnimCmdQAtSelectDone;
+    /// <summary>本回合队长及其宠都无法行动：等第一个单位开播再 flush（ACTION 已解析完）。</summary>
+    private static bool _skipBattleAnimLeadSlotUnable;
+    private static long _skipBattleAnimSelectHoldMs;
+    /// <summary>队长还能动（或宠还能动）：选完后短等 ACTION。</summary>
+    private const long SkipAnimHoldFlushAfterSelectAbleMs = 100;
+    /// <summary>AllEnd+空队列空等 ACTION 多久后 Tip。只提示，不在这里强退。</summary>
     private const long SkipAnimAllEndStuckTipMs = 8000;
-    private const long SkipAnimAllEndStuckExitMs = 20000;
+    /// <summary>表现队列已 Stop 仍不 OnCompleted 才补一次（过短会双开 NextRound）。</summary>
+    private const long SkipAnimForceFinishMs = 3000;
     /// <summary>无法行动容错：按账号+回合去重。</summary>
     private static string _battleUnableActFixKey = "";
     private static bool _battleUnableActInjected;
@@ -366,7 +379,8 @@ public static class SeqChapterTestUi
     private static bool _dragonUseMemoryPending;
     private static long _dragonUseMemoryAtMs;
     private const long DragonResetDelayMs = 2500;
-    private const long DragonUseMemoryDelayMs = 1500;
+    /// <summary>龙3/4 用完记忆/意志后再点任务；在原 1.5s 上再加 1s。</summary>
+    private const long DragonUseMemoryDelayMs = 2500;
     /// <summary>A 线：龙族纷争 1-4 全量。</summary>
     private static readonly int[] DragonMissionIds = { 110, 111, 112, 113 };
     /// <summary>当前循环实际执行的任务集。</summary>
@@ -444,17 +458,15 @@ public static class SeqChapterTestUi
     /// <summary>角色之间切换的额外间隔。</summary>
     private const long PetNamerRoleMs = 1000;
 
-    // ----- 超级AI（模拟阶段：只采信息+模拟决策，不改出手） -----
+    // ----- 超级AI（纯提示：不改出手、不关 VIP、不发包） -----
     private static bool _superAiActive;
-    private static bool _superAiVipBackupValid;
-    private static int _superAiVipPlayerSwitch;
-    private static int _superAiVipPetSwitch;
-    private static string _superAiLastDumpKey = "";
-    private static long _superAiLastDumpMs;
+    private static string _superAiLastHintKey = "";
     private static string _superAiLastSimLine = "";
     private static object _superAiStatusText;
     private static object _superAiBattleRoot;
-    private const long SuperAiDumpMinIntervalMs = 900;
+    private static object _superAiHintCanvas;
+    private static object _superAiHintText;
+    private static int _superAiHintTurn;
     private static int _superAiUiPage; // 0=战场一览 1=单位详情
     private static int _superAiDetailIndex = -1;
     private static string _superAiUnitsKey = "";
@@ -479,7 +491,27 @@ public static class SeqChapterTestUi
         public int Spirit;
         public int Rec;
         public string Extra; // drops / job
+        public long Bc;
+        public string Status;
+        public bool Unable;
+        public string Suggest;
+        public string Uid;
+        public string JobName;
+        public string JobAncestry;
     }
+
+    private struct SuperAiPotion
+    {
+        public string Name;
+        public int Power;
+        public int Count;
+        public int BagIndex;
+    }
+
+    private const float SuperAiPlayerPotionHpRatio = 0.5f;
+    private const float SuperAiPetPotionHpRatio = 0.4f;
+    private const int SuperAiPriestSkipPotionMp = 200;
+    private const string SuperAiPotionNamePrefix = "生命力回复药";
     /// <summary>VIP AutoSkillType：与 BattleProcesser.TryUseVipAutoSkill 一致，便于后续决策。</summary>
     private const string SuperAiVipTypeHint =
         "VIP条件:2/3敌数 4敌蓝% 5自身血% 6/7队均血% 8加血 9恢复(无RCV_UP) 10守卫 "
@@ -562,6 +594,17 @@ public static class SeqChapterTestUi
 
         try
         {
+            // 最小化时再点百科：展开，不要当成关闭（不受开关防抖影响）
+            if (_visible && _minimized)
+            {
+                _lastToggleMs = now;
+                EnsureHost();
+                EnsurePanel();
+                SetMinimized(false);
+                WriteLog("wiki restore from minimized");
+                return true;
+            }
+
             if (_lastToggleMs > 0 && now - _lastToggleMs < DebounceMs)
             {
                 WriteLog("DEBOUNCE keep visible=" + _visible);
@@ -2963,9 +3006,9 @@ public static class SeqChapterTestUi
         SetAnchoredTop(RequireRect(_bodyRoot, "body"), 0f, -88f, 580f, 500f);
         SetColor(AddComp(_bodyRoot, "UnityEngine.UI.Image"), 0.1f, 0.12f, 0.16f, 0.5f);
 
-        // 左上角收缩按钮（默认隐藏）
+        // 右上角收缩按钮（默认隐藏）
         _miniFabGo = CreateUiChild(_canvasGo, "MiniFab", rtType);
-        SetAnchoredTopLeft(RequireRect(_miniFabGo, "fab"), 10f, -10f, 110f, 36f);
+        SetAnchoredTopRight(RequireRect(_miniFabGo, "fab"), -10f, -10f, 110f, 36f);
         var fabImg = AddComp(_miniFabGo, "UnityEngine.UI.Image");
         SetColor(fabImg, 0.12f, 0.28f, 0.4f, 0.94f);
         var fabLab = CreateUiChild(_miniFabGo, "L", rtType);
@@ -3187,7 +3230,7 @@ public static class SeqChapterTestUi
     /// <summary>
     /// 跳过动画：CmdRunning 时清表现队列，让 RunProcess 自然 OnCompleted。
     /// 选指令完全交给官方 AutoFight（首号有 3 秒倒计时，禁止再踢 DoAutoFight，否则与官方抢跑→空等 ACTION）。
-    /// AllEnd+空队列过久：Tip，再久 ForceExitBattle 自救。
+    /// AllEnd+空队列过久只 Tip，不在这里强退。
     /// </summary>
     private static void TickSkipBattleAnim()
     {
@@ -3195,6 +3238,9 @@ public static class SeqChapterTestUi
         {
             _skipBattleAnimFlushLogged = false;
             _skipBattleAnimAllEndStuckSinceMs = 0;
+            _skipBattleAnimHoldFlushUntilMs = 0;
+            _skipBattleAnimSelectDone = false;
+            _skipBattleAnimSelectDoneAtMs = 0;
             return;
         }
 
@@ -3207,6 +3253,9 @@ public static class SeqChapterTestUi
                 _skipBattleAnimManualDone = false;
                 _skipBattleAnimLastFlushMs = 0;
                 _skipBattleAnimAllEndStuckSinceMs = 0;
+                _skipBattleAnimHoldFlushUntilMs = 0;
+                _skipBattleAnimSelectDone = false;
+                _skipBattleAnimSelectDoneAtMs = 0;
                 return;
             }
 
@@ -3220,6 +3269,31 @@ public static class SeqChapterTestUi
             if (bm == null)
             {
                 return;
+            }
+
+            var fight = Convert.ToInt32(GetMember(bm, "FightProcessFlag") ?? 0);
+            var acctQ = GetBattleAccountQueueCount();
+            // 单个账号 DoAutoFight 也会把 fight 标成 AllEnd，此时 AcountList 里还有队友。
+            // 必须先见过「AllEnd 且 acctQ=0」（本回合选完），才允许 flush。
+            // 播表现时下一回合 PLAYER 会再灌进 AcountList，那时 selectDone 仍为 true。
+            if (fight != FightProcessAllEnd)
+            {
+                _skipBattleAnimSelectDone = false;
+                _skipBattleAnimSelectDoneAtMs = 0;
+            }
+            else if (acctQ == 0)
+            {
+                if (!_skipBattleAnimSelectDone)
+                {
+                    SnapSkipAnimLeadUnable(bm);
+                    _skipBattleAnimSelectDone = true;
+                    _skipBattleAnimSelectDoneAtMs = NowMs();
+                    _skipBattleAnimCmdQAtSelectDone = GetBattleCommandQueueCount();
+                    WriteLog("SkipAnim: select done, hold="
+                             + (_skipBattleAnimLeadSlotUnable ? "first-anim" : (_skipBattleAnimSelectHoldMs + "ms"))
+                             + " cmdQ=" + _skipBattleAnimCmdQAtSelectDone
+                             + " leadSlotUnable=" + _skipBattleAnimLeadSlotUnable);
+                }
             }
 
             var cmdRunning = Convert.ToBoolean(GetMember(bm, "CmdRunningFlag") ?? false);
@@ -3236,30 +3310,84 @@ public static class SeqChapterTestUi
 
             _skipBattleAnimAllEndStuckSinceMs = 0;
 
+            // 选指令时 fight≠AllEnd。下一回合 PLAYER 包会在播动画时提前灌进 AcountList，
+            // 所以不能要求 acctQ==0，否则跳过动画永远不 flush。
+            if (fight != FightProcessAllEnd)
+            {
+                MaybeLogSkipBattleDiag(bm);
+                return;
+            }
+
+            var now = NowMs();
+            // 刚给无法行动账号走官方 DoAutoFight：本地会先标 AllEnd，其余账号还在选。
+            // 这时 flush 会 OnCompleted→NextRound，服务端永远等不齐指令。
+            if (_skipBattleAnimHoldFlushUntilMs > 0 && now < _skipBattleAnimHoldFlushUntilMs)
+            {
+                MaybeLogSkipBattleDiag(bm);
+                return;
+            }
+
+            if (!_skipBattleAnimSelectDone)
+            {
+                MaybeLogSkipBattleDiag(bm);
+                return;
+            }
+
+            if (_skipBattleAnimLeadSlotUnable)
+            {
+                // 队长槽不能动：等第一个单位真正开播。ParseCommand 已把整包 ACTION 填进队列。
+                if (!IsFirstBattleUnitAnimStarting())
+                {
+                    MaybeLogSkipBattleDiag(bm);
+                    return;
+                }
+            }
+            else
+            {
+                if (_skipBattleAnimSelectDoneAtMs > 0
+                    && now - _skipBattleAnimSelectDoneAtMs < _skipBattleAnimSelectHoldMs)
+                {
+                    MaybeLogSkipBattleDiag(bm);
+                    return;
+                }
+
+                var actQ = GetBattleActionQueueCount();
+                var cmdQ = GetBattleCommandQueueCount();
+                // 选完瞬间的 cmdQ 多半是遇敌残留或半截 ACTION；等队列增长或 ACTION 到达再清。
+                if (actQ <= 0 && cmdQ <= _skipBattleAnimCmdQAtSelectDone
+                    && !IsFirstBattleUnitAnimStarting())
+                {
+                    MaybeLogSkipBattleDiag(bm);
+                    return;
+                }
+            }
+
             // 仅播表现时拉 timescale / 归位，避免选指令阶段每拍 AllRoleReturn 捣乱
             ForceBattleGlobalTimeScale(1f);
             ForceSkipAnimRolesReady();
 
-            var now = NowMs();
             if (_skipBattleAnimCmdSinceMs <= 0)
             {
                 _skipBattleAnimCmdSinceMs = now;
             }
 
-            var qBefore = GetBattleCommandQueueCount();
-            FlushBattlePresentationQueue();
-            _skipBattleAnimLastFlushMs = now;
-
             if (!_skipBattleAnimFlushLogged)
             {
+                var qBefore = GetBattleCommandQueueCount();
+                var curBefore = GetBattleCurCmdCount();
+                var luanBefore = GetBattleLuanCount();
+                FlushBattlePresentationQueue();
+                _skipBattleAnimLastFlushMs = now;
                 WriteLog("SkipAnim: flush cmdQ " + qBefore + "->" + GetBattleCommandQueueCount()
+                         + " cur=" + curBefore + " luan=" + luanBefore
                          + " (wait natural OnCompleted) statusQ=" + GetBattleStatusQueueCount());
                 _skipBattleAnimFlushLogged = true;
             }
 
             if (!_skipBattleAnimManualDone
-                && now - _skipBattleAnimCmdSinceMs > 200
-                && Convert.ToBoolean(GetMember(bm, "CmdRunningFlag") ?? false))
+                && now - _skipBattleAnimCmdSinceMs > SkipAnimForceFinishMs
+                && Convert.ToBoolean(GetMember(bm, "CmdRunningFlag") ?? false)
+                && Convert.ToInt32(GetMember(bm, "FightProcessFlag") ?? 0) == FightProcessAllEnd)
             {
                 WriteLog("SkipAnim: RunProcess 超时，补一次 OnCompleted");
                 ForceFinishPresentationRun(bm);
@@ -3299,12 +3427,90 @@ public static class SeqChapterTestUi
                      + " acctQ=" + acct
                      + " actQ=" + GetBattleActionQueueCount()
                      + " cmdQ=" + GetBattleCommandQueueCount()
+                     + " cur=" + GetBattleCurCmdCount()
+                     + " luan=" + GetBattleLuanCount()
                      + " statusQ=" + GetBattleStatusQueueCount());
         }
         catch
         {
             // ignore
         }
+    }
+
+    /// <summary>
+    /// 队长还能动（或宠还能动）→ 100ms；队长和宠（没有宠也算槽位不能动）都不能动 → 等第一个单位开播。
+    /// </summary>
+    private static void SnapSkipAnimLeadUnable(object bm)
+    {
+        object playerRole = null;
+        object petRole = null;
+        try
+        {
+            var uid = GetCaptainUid();
+            var brc = FindType("BattleRoleContainer");
+            var roleDic = brc?.GetField("BattleRoleDic", BindingFlags.Public | BindingFlags.Static)
+                ?.GetValue(null) as IDictionary;
+            var acctDic = brc?.GetField("AccountIndexDic", BindingFlags.Public | BindingFlags.Static)
+                ?.GetValue(null) as IDictionary;
+            var idx = -1;
+            if (acctDic != null && !string.IsNullOrEmpty(uid))
+            {
+                if (acctDic.Contains(uid))
+                {
+                    idx = Convert.ToInt32(acctDic[uid] ?? -1);
+                }
+                else
+                {
+                    foreach (DictionaryEntry kv in acctDic)
+                    {
+                        var key = Convert.ToString(kv.Key ?? "") ?? "";
+                        if (string.Equals(key, uid, StringComparison.Ordinal))
+                        {
+                            idx = Convert.ToInt32(kv.Value ?? -1);
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if (idx >= 0 && roleDic != null)
+            {
+                playerRole = roleDic.Contains(idx) ? roleDic[idx] : null;
+                if (roleDic.Contains(idx + 5))
+                {
+                    petRole = roleDic[idx + 5];
+                }
+                else if (roleDic.Contains(idx - 5))
+                {
+                    petRole = roleDic[idx - 5];
+                }
+            }
+        }
+        catch
+        {
+            // ignore
+        }
+
+        if (playerRole == null)
+        {
+            playerRole = GetCurrentBattlePlayerRole();
+            if (petRole == null)
+            {
+                petRole = GetCurrentBattlePetRole(bm);
+            }
+        }
+
+        var playerUnable = IsBattleRoleTrulyUnableToAct(playerRole);
+        var hasPet = petRole != null;
+        var petUnable = !hasPet || IsBattleRoleTrulyUnableToAct(petRole);
+        _skipBattleAnimLeadSlotUnable = playerUnable && petUnable;
+        _skipBattleAnimSelectHoldMs = _skipBattleAnimLeadSlotUnable
+            ? 0
+            : SkipAnimHoldFlushAfterSelectAbleMs;
+        WriteLog("SkipAnim: lead snap playerUnable=" + playerUnable
+                 + " hasPet=" + hasPet
+                 + " petUnable=" + petUnable
+                 + " hold=" + (_skipBattleAnimLeadSlotUnable ? "first-anim" : (_skipBattleAnimSelectHoldMs + "ms")));
     }
 
     /// <summary>先清队列再 Stop，让 RunProcess 自然 OnCompleted。</summary>
@@ -3325,8 +3531,8 @@ public static class SeqChapterTestUi
     }
 
     /// <summary>
-    /// AllEnd + 账号/ACTION/CHAR 全空：客户端在等服务端包，通常已死锁。
-    /// Tip 一次；超过阈值 ForceExitBattle，避免挂机窗口永久卡战斗。
+    /// AllEnd + 账号/ACTION/CHAR 全空：客户端在等服务端 ACTION，通常指令已对不齐。
+    /// 只 Tip，不在这里强退。
     /// </summary>
     private static void TryRescueSkipAnimAllEndStuck(object bm)
     {
@@ -3360,36 +3566,10 @@ public static class SeqChapterTestUi
             if (elapsed >= SkipAnimAllEndStuckTipMs && now - _skipBattleAnimAllEndTipMs > 15000)
             {
                 _skipBattleAnimAllEndTipMs = now;
-                Tip("战斗卡住，正在尝试解除…");
+                Tip("战斗卡住，等待官方超时脱离…");
                 WriteLog("SkipAnim: AllEnd-empty stuck tip elapsed=" + elapsed
                          + "ms fight=3 acctQ=0 actQ=0 statusQ=0");
             }
-
-            if (elapsed < SkipAnimAllEndStuckExitMs)
-            {
-                return;
-            }
-
-            _skipBattleAnimAllEndStuckSinceMs = now;
-            WriteLog("SkipAnim: AllEnd-empty ForceExitBattle elapsed=" + elapsed + "ms");
-            Tip("战斗已强制退出（卡住过久）");
-            try
-            {
-                var t = FindType("BattleDataHolder");
-                var f = t?.GetField("forceQuitBattle",
-                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
-                f?.SetValue(null, true);
-            }
-            catch
-            {
-                // ignore
-            }
-
-            var proc = TryGetBattleProcesser();
-            proc?.GetType().GetMethod("ForceExitBattle",
-                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance,
-                    null, Type.EmptyTypes, null)
-                ?.Invoke(proc, null);
         }
         catch (Exception ex)
         {
@@ -3477,6 +3657,13 @@ public static class SeqChapterTestUi
                 return;
             }
 
+            // 跳过动画：选指令全交给官方 AutoFight。预填/注入 MENU_NON 或补发 N
+            // 会和 RefreshOtherBattleUI / DoAutoFight 打成双包，服务端不再下发 ACTION。
+            if (_skipBattleAnim)
+            {
+                return;
+            }
+
             // 表现中也预填 BPFlagArray（仅死亡/睡眠/石化，不读 MENU_NON 防自循环）
             PrefillUnableActMenuNonForAllies();
 
@@ -3484,14 +3671,6 @@ public static class SeqChapterTestUi
             {
                 _battleUnableActStuckSinceMs = 0;
                 _battleUnableActStuckSig = "";
-                return;
-            }
-
-            // 跳过动画刚 flush：禁止抢发 N / DoAutoFight，否则与 NextRound 抢状态→AllEnd 空等
-            if (_skipBattleAnim
-                && _skipBattleAnimLastFlushMs > 0
-                && NowMs() - _skipBattleAnimLastFlushMs < SkipAnimFlushCooldownMs)
-            {
                 return;
             }
 
@@ -3545,8 +3724,9 @@ public static class SeqChapterTestUi
     }
 
     /// <summary>
-    /// 人物/宠无法行动时强制发 idle（每账号每回合各一次）。
-    /// 死亡静默跳过、石化仍走攻击选目标都会漏包，故一发现就发，不依赖 FightProcess 状态。
+    /// 人物/宠无法行动时补 idle。SendBattleCommond 的 Count 看 PlayerActionEnd：
+    /// 未结束=人物指令(1)，已结束=宠物指令(2)。人物 N 绝不能在 fight 已带 PlayerActionEnd 时再发，
+    /// 否则会当成宠物包，和官方 RefreshOtherBattleUI / DoAutoFight 撞车，服务器不再下发 ACTION。
     /// </summary>
     private static void EnsureUnableActIdleCommandsSent(object bm, object proc, string acct, int turn)
     {
@@ -3564,27 +3744,61 @@ public static class SeqChapterTestUi
         }
 
         EnsureBattleUnableActMenuNon(bm);
-        InvokeBattleProcesserMethod(proc, "EndSelect");
         var fight = Convert.ToInt32(GetMember(bm, "FightProcessFlag") ?? 0);
         var playerKey = acct + "|" + turn + "|P";
         var petKey = acct + "|" + turn + "|E";
+        var playerEnd = (fight & FightProcessPlayerEnd) != 0;
+        var petEnd = (fight & FightProcessPetEnd) != 0;
 
+        // 跳过动画：官方 NextRound 对 2 号起立刻 DoAutoFight。我们再发 N 会与官方各一包，
+        // 两条 Count=1 的人物待机让服务端再也等不齐 ACTION（AllEnd 空队列）。
+        // 只预写 MENU_NON，N / 宠 idle 交给官方 AutoFight。
+        if (_skipBattleAnim)
+        {
+            if (playerUnable
+                && !string.Equals(playerKey, _battleUnableActPlayerIdleKey, StringComparison.Ordinal))
+            {
+                _battleUnableActPlayerIdleKey = playerKey;
+                _skipBattleAnimHoldFlushUntilMs = NowMs() + SkipAnimHoldFlushAfterUnableActMs;
+                WriteLog("UnableAct: skip extra N (skip-anim, official DoAutoFight) uid=" + acct
+                         + " turn=" + turn + " fight=" + fight
+                         + " playerEnd=" + playerEnd + " petUnable=" + petUnable
+                         + " holdFlush=" + SkipAnimHoldFlushAfterUnableActMs + "ms");
+            }
+
+            return;
+        }
+
+        // 官方 MENU_NON 路径已经发过人物 N（fight 已有 PlayerActionEnd）→ 不再发，否则 Count=2 变成宠物包
         if (playerUnable
+            && !playerEnd
             && !string.Equals(playerKey, _battleUnableActPlayerIdleKey, StringComparison.Ordinal))
         {
+            InvokeBattleProcesserMethod(proc, "EndSelect");
             InvokeBattleProcesserMethod(proc, "SendPlayerIdleCommand");
             _battleUnableActPlayerIdleKey = playerKey;
             SetBattleFightProcessFlag(bm, fight | FightProcessPlayerEnd);
             fight |= FightProcessPlayerEnd;
+            playerEnd = true;
             WriteLog("UnableAct: force player idle N uid=" + acct + " turn=" + turn
                      + " fight=" + fight + " dead="
                      + Convert.ToBoolean(GetMember(playerRole, "IsDead") ?? false)
                      + " bc=0x" + GetBattleRoleStatus(playerRole).ToString("X"));
         }
+        else if (playerUnable && playerEnd
+                 && !string.Equals(playerKey, _battleUnableActPlayerIdleKey, StringComparison.Ordinal))
+        {
+            _battleUnableActPlayerIdleKey = playerKey;
+            WriteLog("UnableAct: skip player N (already PlayerActionEnd) uid=" + acct
+                     + " turn=" + turn + " fight=" + fight);
+        }
 
         if (petUnable
+            && playerEnd
+            && !petEnd
             && !string.Equals(petKey, _battleUnableActPetIdleKey, StringComparison.Ordinal))
         {
+            InvokeBattleProcesserMethod(proc, "EndSelect");
             ForceSendPetIdle(bm, proc);
             _battleUnableActPetIdleKey = petKey;
             SetBattleFightProcessFlag(bm, fight | FightProcessPetEnd);
@@ -3632,9 +3846,10 @@ public static class SeqChapterTestUi
         var petUnable = IsCurrentBattlePetTrulyUnableToAct(bm);
         var unableNow = playerUnable || petUnable;
 
-        // 正常选指令：fight 会长时间 ≠ AllEnd，绝不能当卡死
+        // 正常选指令：fight 会长时间 ≠ AllEnd，绝不能当卡死。
+        // 最后一名账号被弹出后 acctQ 本来就是 0，不能当幽灵态标 AllEnd。
         var selectStuck = unableNow && fight != FightProcessAllEnd;
-        var ghostStuck = fight != FightProcessAllEnd && acctQ == 0;
+        var ghostStuck = !_skipBattleAnim && unableNow && fight != FightProcessAllEnd && acctQ == 0;
         var emptyQueueStuck = unableNow && fight == FightProcessAllEnd
                               && acctQ == 0 && actQ == 0 && statusQ == 0;
         if (!selectStuck && !ghostStuck && !emptyQueueStuck)
@@ -3669,12 +3884,18 @@ public static class SeqChapterTestUi
 
         if (selectStuck)
         {
+            if (_skipBattleAnim)
+            {
+                _battleUnableActStuckSinceMs = now;
+                return;
+            }
+
             var selKey = acct + "|" + turn + "|sel";
             if (!string.Equals(selKey, _battleUnableActStuckRescueKey, StringComparison.Ordinal))
             {
                 _battleUnableActStuckRescueKey = selKey;
                 ForceCompleteCurrentBattleAccount(bm, proc, acct, turn, "unable-select-stuck");
-                if (auto)
+                if (auto && !_skipBattleAnim)
                 {
                     try
                     {
@@ -3719,9 +3940,8 @@ public static class SeqChapterTestUi
 
         _battleUnableActStuckRescueKey = rescueKey;
         EnsureBattleUnableActMenuNon(bm);
-        InvokeBattleProcesserMethod(proc, "SendPlayerIdleCommand");
-        WriteLog("UnableAct: stuck-rescue N turn=" + turn + " uid=" + acct
-                 + " actQ=" + actQ + " statusQ=" + statusQ + " auto=" + auto);
+        WriteLog("UnableAct: empty-queue wait (no extra N, already AllEnd) turn=" + turn
+                 + " uid=" + acct + " auto=" + auto);
         _battleUnableActStuckSinceMs = now;
     }
 
@@ -4248,6 +4468,38 @@ public static class SeqChapterTestUi
             var proc = TryGetBattleProcesser();
             var runner = GetMember(proc, "m_CommandRunner");
             var q = GetMember(runner, "m_CmdQueue") as ICollection;
+            return q?.Count ?? 0;
+        }
+        catch
+        {
+            return 0;
+        }
+    }
+
+    /// <summary>RunProcess 已把第一批指令放进 m_CurCmds / m_LuanList，第一个单位即将 Execute。</summary>
+    private static bool IsFirstBattleUnitAnimStarting()
+    {
+        return GetBattleCurCmdCount() > 0 || GetBattleLuanCount() > 0;
+    }
+
+    private static int GetBattleCurCmdCount()
+    {
+        try
+        {
+            var d = GetMember(GetBattleCommandRunner(), "m_CurCmds") as ICollection;
+            return d?.Count ?? 0;
+        }
+        catch
+        {
+            return 0;
+        }
+    }
+
+    private static int GetBattleLuanCount()
+    {
+        try
+        {
+            var q = GetMember(GetBattleCommandRunner(), "m_LuanList") as ICollection;
             return q?.Count ?? 0;
         }
         catch
@@ -5360,39 +5612,42 @@ public static class SeqChapterTestUi
     {
         var rtType = RequireType("UnityEngine.RectTransform");
         WriteLog("BuildSuperAiBody begin sai=" + _superAiActive + " mode=" + _battleMode);
-        // AI 页放大面板，四列阵型够用
-        SetShellSize(760f, 720f);
+        SetShellSize(620f, 620f);
 
         float y = -4f;
         var saiAllowed = IsSuperAiModeAllowed(_battleMode);
         var sai = CreateUiChild(_bodyRoot, "SuperAi", rtType);
-        SetAnchoredTop(RequireRect(sai, "sai"), 0f, y, 700f, 36f);
+        SetAnchoredTop(RequireRect(sai, "sai"), 0f, y, 540f, 36f);
         var saiImg = AddComp(sai, "UnityEngine.UI.Image");
         if (!saiAllowed)
         {
             SetColor(saiImg, 0.25f, 0.18f, 0.14f, 1f);
             var saiLab = CreateUiChild(sai, "L", rtType);
             StretchFull(RequireRect(saiLab, "sail"));
-            SetText(AddText(saiLab), "○ 超级AI（请先到「战斗」页选常规/九动）", 14);
+            SetText(AddText(saiLab), "○ AI战斗（请先到「战斗」页选常规）", 14);
         }
         else
         {
-            SetColor(saiImg, _superAiActive ? 0.45f : 0.15f, _superAiActive ? 0.32f : 0.38f,
-                _superAiActive ? 0.12f : 0.55f, 1f);
+            SetColor(saiImg, _superAiActive ? 0.18f : 0.15f, _superAiActive ? 0.42f : 0.38f,
+                _superAiActive ? 0.28f : 0.55f, 1f);
             var saiLab = CreateUiChild(sai, "L", rtType);
             StretchFull(RequireRect(saiLab, "sail"));
             SetText(AddText(saiLab),
-                (_superAiActive ? "● 超级AI（点此停止）" : "○ 超级AI（点此启动）") + " · " + ModeLabel(_battleMode), 14);
+                (_superAiActive ? "● AI战斗（点此停止）" : "○ AI战斗（点此启动）") + " · " + ModeLabel(_battleMode), 14);
             BindButton(sai, saiImg, ToggleSuperAi);
         }
 
-        y -= 42f;
-        _superAiBattleRoot = CreateUiChild(_bodyRoot, "SuperAiBattle", rtType);
-        SetAnchoredTop(RequireRect(_superAiBattleRoot, "saib"), 0f, y, 720f, 560f);
+        y -= 48f;
+        _superAiBattleRoot = CreateUiChild(_bodyRoot, "SuperAiHintHelp", rtType);
+        SetAnchoredTop(RequireRect(_superAiBattleRoot, "saib"), 0f, y, 540f, 280f);
         SetColor(AddComp(_superAiBattleRoot, "UnityEngine.UI.Image"), 0.08f, 0.1f, 0.14f, 0.75f);
-        _superAiStatusText = null;
-        BuildSuperAiBattlefieldContent();
-        WriteLog("BuildSuperAiBody done units=" + _superAiUnits.Count);
+        var tip = CreateUiChild(_superAiBattleRoot, "Tip", rtType);
+        StretchFull(RequireRect(tip, "tip"));
+        var tx = AddText(tip);
+        try { SetProp(tx, "alignment", EnumValue("UnityEngine.TextAnchor", "UpperLeft", 0)); } catch { }
+        _superAiStatusText = tx;
+        SetText(tx, FormatSuperAiStatus(), 13);
+        WriteLog("BuildSuperAiBody done");
     }
 
     private static void AddModeRow(Type rtType, string modeId, string label, ref float y, bool available)
@@ -5680,15 +5935,16 @@ public static class SeqChapterTestUi
     {
         if (!_superAiActive)
         {
-            return "超级AI: 关闭\n仅常规/九动可开。开启后强制走普通 Auto（关闭 VIP 自动技开关，退出时还原）。\n"
-                   + "模拟阶段：进战斗采信息并写日志，不真正改出手。\n"
-                   + SuperAiVipTypeHint;
+            return "AI战斗：关闭（纯文字建议，不改出手）\n"
+                   + "开启后屏幕左下角显示每回合建议。\n"
+                   + "血瓶：名称「生命力回复药」+数字，回血=数字×目标回复力。\n"
+                   + "人血<50%、宠血<40%建议吃药；优先人、优先自己给自己；宠物等位。\n"
+                   + "传教类 MP>200 不用血瓶；石化/睡眠/死亡不可行动、不丢药。";
         }
 
-        return "超级AI: 运行中（模拟）\n模式: " + ModeLabel(_battleMode)
-               + "\nVIP自动技: 已强制关（退出还原）\n"
-               + (_superAiLastSimLine.Length > 0 ? _superAiLastSimLine : "等待进入战斗…")
-               + "\n" + SuperAiVipTypeHint;
+        return "AI战斗：运行中（仅提示）\n模式: " + ModeLabel(_battleMode)
+               + "\n左下角面板已打开。\n"
+               + (_superAiLastSimLine.Length > 0 ? _superAiLastSimLine : "等待进入战斗…");
     }
 
     private static void ToggleSuperAi()
@@ -5714,150 +5970,36 @@ public static class SeqChapterTestUi
     {
         if (!IsSuperAiModeAllowed(_battleMode))
         {
-            Tip("超级AI：请先到「战斗」页选常规或九动");
-            return;
-        }
-
-        if (!ForceVipAutoSkillOff(true))
-        {
-            Tip("超级AI：关闭 VIP 自动技失败，见日志");
+            Tip("AI战斗：请先到「战斗」页选常规");
             return;
         }
 
         _superAiActive = true;
-        _superAiLastDumpKey = "";
+        _superAiLastHintKey = "";
         _superAiLastSimLine = "已启动，等待战斗回合…";
-        try
-        {
-            BossStatEstimator.EnsureLoaded();
-            WriteLog("BossStatEstimator rows=" + BossStatEstimator.TableCount
-                     + " from=" + (BossStatEstimator.LoadedFrom ?? "?")
-                     + " err=" + (BossStatEstimator.LoadError ?? ""));
-        }
-        catch (Exception ex)
-        {
-            WriteLog("BossStatEstimator load EX: " + RootMessage(ex));
-        }
-
-        Tip("超级AI：已启动（模拟，不改出手）");
-        WriteLog("SuperAI start mode=" + _battleMode);
+        _superAiHintTurn = -1;
+        EnsureSuperAiHintOverlay();
+        RefreshSuperAiHintOverlay("等待进入战斗…");
+        Tip("AI战斗已开启");
+        WriteLog("SuperAI start(hint-only) mode=" + _battleMode);
     }
 
     private static void StopSuperAi(string reason)
     {
-        if (!_superAiActive && !_superAiVipBackupValid)
+        if (!_superAiActive)
         {
             return;
         }
 
         _superAiActive = false;
-        ForceVipAutoSkillOff(false);
         _superAiLastSimLine = reason ?? "";
         _superAiUiPage = 0;
         _superAiDetailIndex = -1;
         _superAiUnits.Clear();
+        _superAiLastHintKey = "";
+        HideSuperAiHintOverlay();
         WriteLog("SuperAI stop: " + reason);
-        Tip("超级AI：" + reason);
-    }
-
-    /// <summary>
-    /// VIP 月卡路径：MonthCardOpen && GetAutoSkillSwitch==1 → DoVip*；否则 AutoFight_PlayerAction。
-    /// 直接改本地 m_AutoState（不置 needSendData，避免改服务器 VIP 配置）。
-    /// </summary>
-    private static bool ForceVipAutoSkillOff(bool turnOff)
-    {
-        try
-        {
-            var uid = Convert.ToString(GetStaticMember("PlayerDataHolder", "MainPlayerUid") ?? "") ?? "";
-            if (string.IsNullOrEmpty(uid))
-            {
-                uid = Convert.ToString(GetStaticMember("BattleDataHolder", "CurrentAccount") ?? "") ?? "";
-            }
-
-            if (string.IsNullOrEmpty(uid))
-            {
-                WriteLog("SuperAI VIP switch: empty uid");
-                return !turnOff;
-            }
-
-            int[] state;
-            if (!TryGetVipAutoStateArray(uid, true, out state))
-            {
-                WriteLog("SuperAI VIP switch: no m_AutoState");
-                return false;
-            }
-
-            if (turnOff)
-            {
-                _superAiVipPlayerSwitch = state.Length > 0 ? state[0] : 0;
-                _superAiVipPetSwitch = state.Length > 1 ? state[1] : 0;
-                _superAiVipBackupValid = true;
-                if (state.Length > 0)
-                {
-                    state[0] = 0;
-                }
-
-                if (state.Length > 1)
-                {
-                    state[1] = 0;
-                }
-
-                WriteLog("SuperAI VIP off(local) backup p=" + _superAiVipPlayerSwitch + " pet=" + _superAiVipPetSwitch);
-            }
-            else if (_superAiVipBackupValid)
-            {
-                if (state.Length > 0)
-                {
-                    state[0] = _superAiVipPlayerSwitch;
-                }
-
-                if (state.Length > 1)
-                {
-                    state[1] = _superAiVipPetSwitch;
-                }
-
-                WriteLog("SuperAI VIP restore(local) p=" + _superAiVipPlayerSwitch + " pet=" + _superAiVipPetSwitch);
-                _superAiVipBackupValid = false;
-            }
-
-            return true;
-        }
-        catch (Exception ex)
-        {
-            WriteLog("ForceVipAutoSkillOff EX: " + RootMessage(ex));
-            return false;
-        }
-    }
-
-    private static bool TryGetVipAutoStateArray(string uid, bool createIfMissing, out int[] state)
-    {
-        state = null;
-        var mgr = GetManagerInstance("BattleAutoSkillManager");
-        if (mgr == null)
-        {
-            return false;
-        }
-
-        var f = mgr.GetType().GetField("m_AutoState",
-            BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
-        var dict = f?.GetValue(mgr) as IDictionary;
-        if (dict == null)
-        {
-            return false;
-        }
-
-        if (!dict.Contains(uid))
-        {
-            if (!createIfMissing)
-            {
-                return false;
-            }
-
-            dict.Add(uid, new int[2]);
-        }
-
-        state = dict[uid] as int[];
-        return state != null && state.Length >= 2;
+        Tip("AI战斗已关闭");
     }
 
     private static void TickSuperAi()
@@ -5869,83 +6011,689 @@ public static class SeqChapterTestUi
 
         if (!IsSuperAiModeAllowed(_battleMode))
         {
-            StopSuperAi("战斗模式非常规/九动，已关闭超级AI");
+            StopSuperAi("战斗模式非常规，已关闭AI战斗");
             return;
         }
 
-        // 防止战斗中 VIP 开关被服务端刷新回来
-        try
-        {
-            var uid = Convert.ToString(GetStaticMember("BattleDataHolder", "CurrentAccount")
-                                      ?? GetStaticMember("PlayerDataHolder", "MainPlayerUid") ?? "") ?? "";
-            int[] state;
-            if (!string.IsNullOrEmpty(uid) && TryGetVipAutoStateArray(uid, true, out state))
-            {
-                if (state[0] != 0)
-                {
-                    state[0] = 0;
-                }
-
-                if (state[1] != 0)
-                {
-                    state[1] = 0;
-                }
-            }
-        }
-        catch
-        {
-            // ignore keep-alive
-        }
+        EnsureSuperAiHintOverlay();
 
         var inBattle = Convert.ToBoolean(GetStaticMember("BattleDataHolder", "IsInBattle") ?? false);
         if (!inBattle)
         {
-            _superAiLastDumpKey = "";
+            _superAiLastHintKey = "";
+            _superAiHintTurn = -1;
+            RefreshSuperAiHintOverlay("等待进入战斗…");
             return;
         }
 
-        var now = NowMs();
-        if (_superAiLastDumpMs > 0 && now - _superAiLastDumpMs < SuperAiDumpMinIntervalMs)
+        var battleIndex = Convert.ToInt32(GetStaticMember("BattleDataHolder", "BattleIndex") ?? -1);
+        var turn = GetSuperAiBattleTurn();
+        var cmdRunning = false;
+        try
+        {
+            var bm = GetManagerInstance("BattleManager");
+            cmdRunning = bm != null && Convert.ToBoolean(GetMember(bm, "CmdRunningFlag") ?? false);
+        }
+        catch
+        {
+            // ignore
+        }
+
+        // 回合开始：CHAR 刷新后选指令阶段（不在播动画）
+        var key = battleIndex + "|" + turn;
+        if (cmdRunning)
         {
             return;
         }
 
-        string dump;
-        string key;
-        if (!TryBuildSuperAiBattlefieldDump(out dump, out key))
+        if (key == _superAiLastHintKey)
         {
             return;
         }
 
-        if (key == _superAiLastDumpKey)
+        CollectSuperAiRoundUnits();
+        FillSuperAiRoundSuggestions();
+        _superAiLastHintKey = key;
+        _superAiHintTurn = turn;
+        var board = FormatSuperAiHintBoard(turn);
+        _superAiLastSimLine = "第" + (turn + 1) + "回合 建议已出 单位" + _superAiUnits.Count;
+        RefreshSuperAiHintOverlay(board);
+        WriteLog("===== SuperAI HINT turn=" + turn + " key=" + key + " =====");
+        WriteLog(board);
+        if (_tab == TabSuperAi && _visible && _superAiStatusText != null && !IsUnityNull(_superAiStatusText))
+        {
+            SetText(_superAiStatusText, FormatSuperAiStatus(), 13);
+        }
+    }
+
+    private static int GetSuperAiBattleTurn()
+    {
+        try
+        {
+            var proc = TryGetBattleProcesser();
+            return Convert.ToInt32(GetMember(proc, "m_BattleSvTurnIndex") ?? 0);
+        }
+        catch
+        {
+            return 0;
+        }
+    }
+
+    private static void EnsureSuperAiHintOverlay()
+    {
+        try
+        {
+            if (_superAiHintCanvas != null && !IsUnityNull(_superAiHintCanvas))
+            {
+                SetGoActive(_superAiHintCanvas, true);
+                return;
+            }
+
+            var rtType = RequireType("UnityEngine.RectTransform");
+            var canvasType = RequireType("UnityEngine.Canvas");
+            _superAiHintCanvas = CreateGoWithComponents(
+                "SeqChapterAiHintOverlay",
+                rtType,
+                canvasType,
+                FindType("UnityEngine.UI.CanvasScaler"));
+            CallStatic(RequireType("UnityEngine.Object"), "DontDestroyOnLoad",
+                new[] { RequireType("UnityEngine.Object") }, new[] { _superAiHintCanvas });
+
+            var canvas = GetComp(_superAiHintCanvas, canvasType);
+            SetProp(canvas, "renderMode", EnumValue("UnityEngine.RenderMode", "ScreenSpaceOverlay", 0));
+            SetProp(canvas, "overrideSorting", true);
+            SetProp(canvas, "sortingOrder", 32000);
+            StretchFull(RequireRect(_superAiHintCanvas, "aiov"));
+
+            var panel = CreateUiChild(_superAiHintCanvas, "Panel", rtType);
+            SetAnchoredBottomLeft(RequireRect(panel, "aip"), 12f, 12f, 380f, 300f);
+            var img = AddComp(panel, "UnityEngine.UI.Image");
+            SetColor(img, 0.05f, 0.08f, 0.12f, 0.82f);
+            try { SetProp(img, "raycastTarget", false); } catch { }
+
+            var title = CreateUiChild(panel, "Title", rtType);
+            SetAnchoredTopLeft(RequireRect(title, "ait"), 8f, -6f, 360f, 22f);
+            var titleTx = AddText(title);
+            try { SetProp(titleTx, "alignment", EnumValue("UnityEngine.TextAnchor", "MiddleLeft", 3)); } catch { }
+            SetText(titleTx, "AI建议（仅提示）", 13);
+            try { SetProp(titleTx, "raycastTarget", false); } catch { }
+
+            var body = CreateUiChild(panel, "Body", rtType);
+            SetAnchoredTopLeft(RequireRect(body, "aib"), 8f, -30f, 364f, 262f);
+            _superAiHintText = AddText(body);
+            try { SetProp(_superAiHintText, "alignment", EnumValue("UnityEngine.TextAnchor", "UpperLeft", 0)); } catch { }
+            try { SetProp(_superAiHintText, "horizontalOverflow", EnumValue("UnityEngine.HorizontalWrapMode", "Wrap", 0)); } catch { }
+            try { SetProp(_superAiHintText, "verticalOverflow", EnumValue("UnityEngine.VerticalWrapMode", "Overflow", 0)); } catch { }
+            try { SetProp(_superAiHintText, "raycastTarget", false); } catch { }
+            SetText(_superAiHintText, "等待进入战斗…", 12);
+        }
+        catch (Exception ex)
+        {
+            WriteLog("EnsureSuperAiHintOverlay EX: " + RootMessage(ex));
+        }
+    }
+
+    private static void HideSuperAiHintOverlay()
+    {
+        try
+        {
+            if (_superAiHintCanvas != null && !IsUnityNull(_superAiHintCanvas))
+            {
+                SetGoActive(_superAiHintCanvas, false);
+            }
+        }
+        catch
+        {
+            // ignore
+        }
+    }
+
+    private static void RefreshSuperAiHintOverlay(string body)
+    {
+        EnsureSuperAiHintOverlay();
+        if (_superAiHintText != null && !IsUnityNull(_superAiHintText))
+        {
+            SetText(_superAiHintText, body ?? "", 12);
+        }
+    }
+
+    private static string FormatSuperAiHintBoard(int turn)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("第" + (turn + 1) + "回合 · 不改出手");
+        if (_superAiUnits.Count == 0)
+        {
+            sb.Append("（无单位）");
+            return sb.ToString();
+        }
+
+        var mine = new List<SuperAiUnitSnap>();
+        var foe = new List<SuperAiUnitSnap>();
+        for (var i = 0; i < _superAiUnits.Count; i++)
+        {
+            if (_superAiUnits[i].Mine)
+            {
+                mine.Add(_superAiUnits[i]);
+            }
+            else
+            {
+                foe.Add(_superAiUnits[i]);
+            }
+        }
+
+        if (mine.Count > 0)
+        {
+            sb.AppendLine("我方");
+            for (var i = 0; i < mine.Count; i++)
+            {
+                sb.AppendLine(FormatSuperAiHintLine(mine[i]));
+            }
+        }
+
+        if (foe.Count > 0)
+        {
+            sb.AppendLine("敌方");
+            for (var i = 0; i < foe.Count; i++)
+            {
+                sb.AppendLine(FormatSuperAiHintLine(foe[i]));
+            }
+        }
+
+        return sb.ToString().TrimEnd();
+    }
+
+    private static string FormatSuperAiHintLine(SuperAiUnitSnap u)
+    {
+        var tag = u.IsPlayer ? "人" : "宠";
+        var hp = u.MaxHp > 0 ? (u.Hp + "/" + u.MaxHp) : "-";
+        var act = string.IsNullOrEmpty(u.Suggest) ? "攻击" : u.Suggest;
+        if (u.Unable)
+        {
+            return "  [" + tag + "]" + (u.Name ?? "?") + " " + hp + "  不可行动（" + (u.Status ?? "异常") + "）";
+        }
+
+        return "  [" + tag + "]" + (u.Name ?? "?") + " " + hp + "  " + act;
+    }
+
+    private static void CollectSuperAiRoundUnits()
+    {
+        _superAiUnits.Clear();
+        try
+        {
+            var container = FindType("BattleRoleContainer");
+            var dic = container?.GetField("BattleRoleDic", BindingFlags.Public | BindingFlags.Static)
+                      ?.GetValue(null) as IDictionary;
+            if (dic == null)
+            {
+                return;
+            }
+
+            var playerIdx = Convert.ToInt32(GetStaticMember("BattleDataHolder", "battlePlayerIndex") ?? -1);
+            var allySide = playerIdx < 10;
+            foreach (DictionaryEntry kv in dic)
+            {
+                var role = kv.Value;
+                if (role == null)
+                {
+                    continue;
+                }
+
+                var idx = Convert.ToInt32(GetMember(role, "Index") ?? kv.Key ?? -1);
+                var roleData = GetMember(role, "RoleData");
+                var ch = roleData != null ? GetMember(roleData, "Char") : null;
+                if (ch == null)
+                {
+                    continue;
+                }
+
+                var bc = Convert.ToInt64(GetMember(ch, "Bcflag") ?? 0);
+                var hp = Convert.ToInt32(GetMember(ch, "Hp") ?? 0);
+                var maxHp = Convert.ToInt32(GetMember(ch, "MaxHp") ?? 0);
+                var snap = new SuperAiUnitSnap();
+                snap.Idx = idx;
+                snap.Mine = (allySide && idx < 10) || (!allySide && idx >= 10);
+                snap.IsPlayer = (bc & 4L) != 0;
+                snap.Name = Convert.ToString(GetMember(ch, "Name") ?? "") ?? "";
+                snap.Level = Convert.ToInt32(GetMember(ch, "Level") ?? 0);
+                snap.Hp = hp;
+                snap.MaxHp = maxHp;
+                snap.Mp = Convert.ToInt32(GetMember(ch, "Mp") ?? 0);
+                snap.MaxMp = Convert.ToInt32(GetMember(ch, "MaxMp") ?? 0);
+                snap.Bc = bc;
+                snap.Status = FormatBcStatus(bc);
+                snap.Unable = IsSuperAiUnable(bc, hp);
+                snap.Suggest = "";
+                snap.Uid = "";
+                snap.JobName = "";
+                snap.JobAncestry = "";
+                snap.Rec = 0;
+
+                if (snap.Mine)
+                {
+                    FillSuperAiAllyIdentity(ref snap);
+                }
+
+                _superAiUnits.Add(snap);
+            }
+
+            _superAiUnits.Sort((a, b) =>
+            {
+                if (a.Mine != b.Mine)
+                {
+                    return a.Mine ? -1 : 1;
+                }
+
+                if (a.IsPlayer != b.IsPlayer)
+                {
+                    return a.IsPlayer ? -1 : 1;
+                }
+
+                return a.Idx.CompareTo(b.Idx);
+            });
+        }
+        catch (Exception ex)
+        {
+            WriteLog("CollectSuperAiRoundUnits EX: " + RootMessage(ex));
+        }
+    }
+
+    private static bool IsSuperAiUnable(long bc, int hp)
+    {
+        if (hp <= 0)
+        {
+            return true;
+        }
+
+        return (bc & 2L) != 0 || (bc & 0x20L) != 0 || (bc & 0x40L) != 0;
+    }
+
+    private static void FillSuperAiAllyIdentity(ref SuperAiUnitSnap snap)
+    {
+        try
+        {
+            var ownerIdx = (snap.Idx % 10) >= 5 ? snap.Idx - 5 : snap.Idx;
+            var uid = FindUidByBattleIndex(snap.IsPlayer ? snap.Idx : ownerIdx) ?? "";
+            snap.Uid = uid;
+            if (string.IsNullOrEmpty(uid))
+            {
+                return;
+            }
+
+            var getPlayer = FindType("PlayerDataHolder")?.GetMethod(
+                "GetPlayerFromUid", BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic);
+            var player = getPlayer?.Invoke(null, new object[] { uid });
+            if (player == null)
+            {
+                return;
+            }
+
+            snap.JobName = Convert.ToString(GetMember(player, "JobName") ?? "") ?? "";
+            snap.JobAncestry = Convert.ToString(GetMember(player, "JobAncestryName") ?? "") ?? "";
+            if (snap.IsPlayer)
+            {
+                snap.Rec = Convert.ToInt32(GetMember(player, "Recovery") ?? 0);
+            }
+            else
+            {
+                TryFillAllySystemDetail(ref snap, false, false, uid, snap.Idx);
+            }
+        }
+        catch
+        {
+            // ignore
+        }
+    }
+
+    private static bool IsSuperAiPriestJob(SuperAiUnitSnap u)
+    {
+        var a = u.JobAncestry ?? "";
+        var j = u.JobName ?? "";
+        return a.IndexOf("传教", StringComparison.Ordinal) >= 0
+               || j.IndexOf("传教", StringComparison.Ordinal) >= 0;
+    }
+
+    private static void FillSuperAiRoundSuggestions()
+    {
+        for (var i = 0; i < _superAiUnits.Count; i++)
+        {
+            var u = _superAiUnits[i];
+            if (u.Unable)
+            {
+                u.Suggest = "不可行动（" + u.Status + "）";
+            }
+            else
+            {
+                u.Suggest = u.Mine ? "攻击" : "攻击";
+            }
+
+            _superAiUnits[i] = u;
+        }
+
+        AssignSuperAiPotionSuggestions();
+    }
+
+    /// <summary>
+    /// 血瓶：生命力回复药N，回血=N×目标回复力。
+    /// 人&lt;50%、宠&lt;40%才建议；优先人；优先自己给自己；宠物不丢（等位）；
+    /// 传教 MP&gt;200 不用药；不能行动者不丢，改由其他人丢。
+    /// </summary>
+    private static void AssignSuperAiPotionSuggestions()
+    {
+        var need = new List<int>();
+        var throwers = new List<int>();
+        var potions = new Dictionary<int, List<SuperAiPotion>>();
+
+        for (var i = 0; i < _superAiUnits.Count; i++)
+        {
+            var u = _superAiUnits[i];
+            if (!u.Mine)
+            {
+                continue;
+            }
+
+            if (SuperAiNeedsPotion(u))
+            {
+                need.Add(i);
+            }
+
+            if (!u.IsPlayer || u.Unable)
+            {
+                continue;
+            }
+
+            if (IsSuperAiPriestJob(u) && u.Mp > SuperAiPriestSkipPotionMp)
+            {
+                continue;
+            }
+
+            var pots = ScanSuperAiHpPotions(u.Uid);
+            if (pots.Count == 0)
+            {
+                continue;
+            }
+
+            throwers.Add(i);
+            potions[i] = pots;
+        }
+
+        need.Sort((ia, ib) =>
+        {
+            var a = _superAiUnits[ia];
+            var b = _superAiUnits[ib];
+            if (a.IsPlayer != b.IsPlayer)
+            {
+                return a.IsPlayer ? -1 : 1;
+            }
+
+            var ra = a.MaxHp > 0 ? a.Hp / (float)a.MaxHp : 1f;
+            var rb = b.MaxHp > 0 ? b.Hp / (float)b.MaxHp : 1f;
+            return ra.CompareTo(rb);
+        });
+
+        var usedThrower = new bool[_superAiUnits.Count];
+
+        // 1) 能行动的人优先自己吃药
+        for (var n = 0; n < need.Count; n++)
+        {
+            var ti = need[n];
+            var t = _superAiUnits[ti];
+            if (!t.IsPlayer || t.Unable || usedThrower[ti])
+            {
+                continue;
+            }
+
+            if (!potions.ContainsKey(ti) || potions[ti].Count == 0)
+            {
+                continue;
+            }
+
+            ApplyPotionSuggest(ti, ti, potions[ti]);
+            usedThrower[ti] = true;
+        }
+
+        // 2) 其余需求（含不能动的人、等位宠物）由还能丢药的人补
+        for (var n = 0; n < need.Count; n++)
+        {
+            var ti = need[n];
+            var t = _superAiUnits[ti];
+            if (!string.IsNullOrEmpty(t.Suggest) && t.Suggest.IndexOf("血瓶", StringComparison.Ordinal) >= 0)
+            {
+                continue;
+            }
+
+            var thrower = -1;
+            for (var k = 0; k < throwers.Count; k++)
+            {
+                var fi = throwers[k];
+                if (usedThrower[fi])
+                {
+                    continue;
+                }
+
+                List<SuperAiPotion> pots;
+                if (!potions.TryGetValue(fi, out pots) || pots == null || pots.Count == 0)
+                {
+                    continue;
+                }
+
+                thrower = fi;
+                break;
+            }
+
+            if (thrower < 0)
+            {
+                if (!t.Unable)
+                {
+                    t.Suggest = t.IsPlayer
+                        ? "需血瓶（无人可丢）"
+                        : "等位血瓶（无人可丢）";
+                    _superAiUnits[ti] = t;
+                }
+
+                continue;
+            }
+
+            List<SuperAiPotion> bag;
+            potions.TryGetValue(thrower, out bag);
+            ApplyPotionSuggest(thrower, ti, bag);
+            usedThrower[thrower] = true;
+        }
+    }
+
+    private static bool SuperAiNeedsPotion(SuperAiUnitSnap u)
+    {
+        if (!u.Mine || u.MaxHp <= 0)
+        {
+            return false;
+        }
+
+        if ((u.Bc & 2L) != 0 || u.Hp <= 0)
+        {
+            return false;
+        }
+
+        var ratio = u.Hp / (float)u.MaxHp;
+        if (u.IsPlayer)
+        {
+            return ratio < SuperAiPlayerPotionHpRatio;
+        }
+
+        return ratio < SuperAiPetPotionHpRatio;
+    }
+
+    private static void ApplyPotionSuggest(int throwerIdx, int targetIdx, List<SuperAiPotion> bag)
+    {
+        if (bag == null || bag.Count == 0)
         {
             return;
         }
 
-        _superAiLastDumpKey = key;
-        _superAiLastDumpMs = now;
-        var sim = SimulateSuperAiDecision(dump);
-        _superAiLastSimLine = sim;
-        WriteLog("===== SuperAI SNAPSHOT key=" + key + " =====");
-        WriteLog(dump);
-        WriteLog("===== SuperAI SIM: " + sim + " =====");
-        if (_tab == TabSuperAi && _visible && !_minimized)
+        var target = _superAiUnits[targetIdx];
+        var missing = Math.Max(1, target.MaxHp - target.Hp);
+        var rec = Math.Max(1, target.Rec);
+        var best = 0;
+        var bestScore = int.MaxValue;
+        for (var i = 0; i < bag.Count; i++)
         {
-            RefreshSuperAiBattlefieldUi(true);
+            var heal = bag[i].Power * rec;
+            var over = Math.Abs(heal - missing);
+            if (over < bestScore)
+            {
+                bestScore = over;
+                best = i;
+            }
         }
+
+        var pot = bag[best];
+        var est = pot.Power * rec;
+        var thrower = _superAiUnits[throwerIdx];
+        var self = throwerIdx == targetIdx;
+        var line = (self ? "吃血瓶 " : "丢血瓶给" + (target.Name ?? "?") + " ")
+                   + pot.Name
+                   + " 估回" + est
+                   + "(×回复" + rec + ")";
+        thrower.Suggest = line;
+        _superAiUnits[throwerIdx] = thrower;
+        if (!self)
+        {
+            if (!target.Unable)
+            {
+                target.Suggest = "等待" + (thrower.Name ?? "?") + "丢血瓶";
+                _superAiUnits[targetIdx] = target;
+            }
+        }
+
+        pot.Count--;
+        if (pot.Count <= 0)
+        {
+            bag.RemoveAt(best);
+        }
+        else
+        {
+            bag[best] = pot;
+        }
+    }
+
+    private static List<SuperAiPotion> ScanSuperAiHpPotions(string uid)
+    {
+        var list = new List<SuperAiPotion>();
+        if (string.IsNullOrEmpty(uid))
+        {
+            return list;
+        }
+
+        try
+        {
+            var getItems = FindType("PlayerDataHolder")?.GetMethod(
+                "GetItemDatasFromUid",
+                BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic);
+            var items = getItems?.Invoke(null, new object[] { uid }) as IList;
+            if (items == null)
+            {
+                return list;
+            }
+
+            for (var i = 8; i < items.Count && i <= 67; i++)
+            {
+                var it = items[i];
+                if (it == null || Convert.ToInt32(GetMember(it, "useFlag") ?? 0) != 1)
+                {
+                    continue;
+                }
+
+                var data = GetMember(it, "data");
+                SuperAiPotion pot;
+                if (!TryParseSuperAiHpPotion(data, i, out pot))
+                {
+                    continue;
+                }
+
+                list.Add(pot);
+            }
+        }
+        catch (Exception ex)
+        {
+            WriteLog("ScanSuperAiHpPotions EX: " + RootMessage(ex));
+        }
+
+        return list;
+    }
+
+    private static bool TryParseSuperAiHpPotion(object data, int bagIndex, out SuperAiPotion pot)
+    {
+        pot = new SuperAiPotion();
+        if (data == null)
+        {
+            return false;
+        }
+
+        var name = Convert.ToString(GetMember(data, "Name") ?? "") ?? "";
+        var secret = Convert.ToString(GetMember(data, "Secretname") ?? "") ?? "";
+        var label = Convert.ToString(GetMember(data, "Label") ?? "") ?? "";
+        var raw = secret.Length > 0 ? secret : name;
+        if (raw.IndexOf(SuperAiPotionNamePrefix, StringComparison.Ordinal) < 0
+            && name.IndexOf(SuperAiPotionNamePrefix, StringComparison.Ordinal) < 0)
+        {
+            return false;
+        }
+
+        var power = ParseTrailingNumber(raw);
+        if (power <= 0)
+        {
+            power = ParseTrailingNumber(name);
+        }
+
+        if (power <= 0)
+        {
+            power = ParseTrailingNumber(label);
+        }
+
+        if (power <= 0)
+        {
+            return false;
+        }
+
+        var shown = name.IndexOf(SuperAiPotionNamePrefix, StringComparison.Ordinal) >= 0
+            ? name
+            : SuperAiPotionNamePrefix + power;
+        pot.Name = shown;
+        pot.Power = power;
+        pot.Count = Math.Max(1, Convert.ToInt32(GetMember(data, "Pile") ?? 1));
+        pot.BagIndex = bagIndex;
+        return true;
+    }
+
+    private static int ParseTrailingNumber(string s)
+    {
+        if (string.IsNullOrEmpty(s))
+        {
+            return 0;
+        }
+
+        var i = s.Length - 1;
+        while (i >= 0 && s[i] >= '0' && s[i] <= '9')
+        {
+            i--;
+        }
+
+        if (i == s.Length - 1)
+        {
+            return 0;
+        }
+
+        var num = 0;
+        for (var k = i + 1; k < s.Length; k++)
+        {
+            num = num * 10 + (s[k] - '0');
+        }
+
+        return num;
     }
 
     /// <summary>模拟决策占位：不发包、不改 Auto 配置。</summary>
     private static string SimulateSuperAiDecision(string dump)
     {
-        // 后续按你给的规则填；现阶段只声明「已看到快照」
-        var hasPray = dump.IndexOf("fieldPray=", StringComparison.Ordinal) >= 0
-                      && dump.IndexOf("fieldPray=none", StringComparison.Ordinal) < 0
-                      && dump.IndexOf("fieldPray=?", StringComparison.Ordinal) < 0;
-        var hasRcv = dump.IndexOf("RCV_UP", StringComparison.Ordinal) >= 0;
-        return "SIM(不执行) 见快照; 场上属性祈祷=" + (hasPray ? "有" : "无")
-               + "; 我方RCV_UP=" + (hasRcv ? "有" : "无")
-               + "; 策略=待定";
+        return dump ?? "";
     }
 
     private static bool TryBuildSuperAiBattlefieldDump(out string dump, out string key)
@@ -16937,7 +17685,7 @@ public static class SeqChapterTestUi
         }
 
         WriteLog("minimized=" + _minimized);
-        Tip(_minimized ? "面板已最小化（左上角）" : "面板已展开");
+        Tip(_minimized ? "面板已最小化（右上角）" : "面板已展开");
     }
 
     private static void ApplyMinimizedVisual()
@@ -17184,6 +17932,24 @@ public static class SeqChapterTestUi
         SetProp(rt, "anchorMin", Vec2(0f, 1f));
         SetProp(rt, "anchorMax", Vec2(0f, 1f));
         SetProp(rt, "pivot", Vec2(0f, 1f));
+        SetProp(rt, "sizeDelta", Vec2(w, h));
+        SetProp(rt, "anchoredPosition", Vec2(x, y));
+    }
+
+    private static void SetAnchoredTopRight(object rt, float x, float y, float w, float h)
+    {
+        SetProp(rt, "anchorMin", Vec2(1f, 1f));
+        SetProp(rt, "anchorMax", Vec2(1f, 1f));
+        SetProp(rt, "pivot", Vec2(1f, 1f));
+        SetProp(rt, "sizeDelta", Vec2(w, h));
+        SetProp(rt, "anchoredPosition", Vec2(x, y));
+    }
+
+    private static void SetAnchoredBottomLeft(object rt, float x, float y, float w, float h)
+    {
+        SetProp(rt, "anchorMin", Vec2(0f, 0f));
+        SetProp(rt, "anchorMax", Vec2(0f, 0f));
+        SetProp(rt, "pivot", Vec2(0f, 0f));
         SetProp(rt, "sizeDelta", Vec2(w, h));
         SetProp(rt, "anchoredPosition", Vec2(x, y));
     }
