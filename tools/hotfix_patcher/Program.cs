@@ -265,6 +265,11 @@ internal static class Program
             return PetRecycleShowIlPatcher.Run(args.Skip(1).ToArray());
         }
 
+        if (args.Length > 0 && args[0] == "pet-recycle-capture-allow-patch")
+        {
+            return PetRecycleCaptureAllowIlPatcher.Run(args.Skip(1).ToArray());
+        }
+
         if (args.Length > 0 && args[0] == "wiki-download-res-patch")
         {
             return WikiOpenDownloadResIlPatcher.Run(args.Skip(1).ToArray());

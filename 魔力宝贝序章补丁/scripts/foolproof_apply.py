@@ -190,6 +190,7 @@ def run_foolproof_patch(
     kwargs["inject_bridge"] = bool(inject_bridge)
     kwargs["daily_claim"] = bool(daily_claim)
     kwargs["newbie_gift_code"] = bool(newbie_gift_code)
+    kwargs["pet_recycle_capture_allow"] = False  # 傻瓜包不打捕捉金卡回收
     kwargs["gift_codes"] = gift_codes
     kwargs["game_root"] = root
     kwargs["on_log"] = on_log

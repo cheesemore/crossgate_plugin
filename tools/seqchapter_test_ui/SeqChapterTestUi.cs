@@ -17,6 +17,8 @@ public static class SeqChapterTestUi
 {
     public const string AssetPath = "hotfixdata/SeqChapterTestUi.dll.bytes";
     public const string LogFileName = "SeqChapterTestUi.log";
+    /// <summary>官方单回合 180s 超时（即将断线）单独记一笔，不跟主日志混在一起。</summary>
+    public const string RoundTimeoutLogFileName = "SeqChapterTestUi.round_timeout.log";
 
     private const int TabOverview = 0;
     private const int TabBattle = 1;
@@ -40,9 +42,11 @@ public static class SeqChapterTestUi
     private const string ModeCountFarm = "count_farm";
 
     private static readonly object LogLock = new object();
+    private static readonly object RoundTimeoutLogLock = new object();
     private static readonly Dictionary<string, long> MoshiBuffReqMs =
         new Dictionary<string, long>(StringComparer.Ordinal);
     private static string _logPath;
+    private static string _roundTimeoutLogPath;
     private static bool _bootLogged;
     private static bool _visible;
     /// <summary>面板收缩到左上角小按钮。</summary>
@@ -59,8 +63,8 @@ public static class SeqChapterTestUi
     /// <summary>两次对话面板弹出间隔实测约 0.5s；0.8s 足够，不必等 SendWindows 的 2s 冷却。</summary>
     private const long DialogueClickIntervalMs = 800;
     private const long StuckIdleMs = 5000;
-    /// <summary>卡图判定后，阶段1：先等这么久再只点任务。</summary>
-    private const long StuckNavOnlyWaitMs = 2000;
+    /// <summary>本步骤第 1 次卡位：清路径后等这么久再官方点任务。</summary>
+    private const long EscortStuckFirstAbortWaitMs = 500;
     /// <summary>挪格后短观察，再点任务 / 再走回原格。</summary>
     private const long StuckResumeDelayMs = 1500;
     /// <summary>阶段2：挪动+点任务 最多次数；满后进入阶段3（挪动+走回原格+点任务）。</summary>
@@ -181,24 +185,30 @@ public static class SeqChapterTestUi
     private static long _skipBattleAnimLastFlushMs;
     private static long _skipBattleAnimAllEndStuckSinceMs;
     private static long _skipBattleAnimAllEndTipMs;
-    /// <summary>flush 后禁止 UnableAct 抢发 N / 禁止判选指令卡住（毫秒）。</summary>
+    /// <summary>flush 后短时间内不把 AllEnd 空队列当卡死（毫秒）。</summary>
     private const long SkipAnimFlushCooldownMs = 2500;
-    /// <summary>石化/死亡刚走官方 DoAutoFight：禁止马上 flush，否则 AllEnd 被当成播表现、其余账号发不出包。</summary>
-    private const long SkipAnimHoldFlushAfterUnableActMs = 4000;
-    private static long _skipBattleAnimHoldFlushUntilMs;
-    /// <summary>本回合本地选指令已走完（见过 AllEnd 且 acctQ=0）。播表现时下一回合账号会再灌进 AcountList。</summary>
-    private static bool _skipBattleAnimSelectDone;
-    private static long _skipBattleAnimSelectDoneAtMs;
-    private static int _skipBattleAnimCmdQAtSelectDone;
-    /// <summary>本回合队长及其宠都无法行动：等第一个单位开播再 flush（ACTION 已解析完）。</summary>
-    private static bool _skipBattleAnimLeadSlotUnable;
-    private static long _skipBattleAnimSelectHoldMs;
-    /// <summary>队长还能动（或宠还能动）：选完后短等 ACTION。</summary>
-    private const long SkipAnimHoldFlushAfterSelectAbleMs = 100;
+    /// <summary>上一拍 select-done 队长是否无法行动（用来抓石化边沿：刚中 / 刚结束）。</summary>
+    private static bool _skipBattleAnimPrevPlayerUnable;
+    private static bool _skipBattleAnimHasPrevPlayerUnable;
+    private static long _skipBattleAnimPrevSelectAtMs;
     /// <summary>AllEnd+空队列空等 ACTION 多久后 Tip。只提示，不在这里强退。</summary>
     private const long SkipAnimAllEndStuckTipMs = 8000;
+    /// <summary>官方 m_SingleRoundMonitorTime 到此秒数写独立超时日志（180 会断线）。</summary>
+    private const int OfficialSingleRoundTimeoutSec = 180;
+    private const int RoundTimeoutLogAtSec = 170;
+    private static int _roundTimeoutLoggedTurn = int.MinValue;
     /// <summary>表现队列已 Stop 仍不 OnCompleted 才补一次（过短会双开 NextRound）。</summary>
     private const long SkipAnimForceFinishMs = 3000;
+    /// <summary>
+    /// flush+Stop 会立刻 OnCompleted→NextRound。若 CHAR 已在队里，石化号 RefreshOtherBattleUI 会马上发 N，
+    /// 服务端还没收齐上一拍就丢指令，之后不再下 ACTION。先把 CHAR 拿开，等 PLAYER 入队；
+    /// 首号 PLAYER_MENU_NON 再多等 SkipAnimMenuNonHoldMs（对齐官方首号 AutoFight 3 秒）。
+    /// </summary>
+    private static readonly List<object> _skipAnimHeldChars = new List<object>();
+    private static bool _skipAnimHoldActive;
+    private static long _skipAnimHoldSinceMs;
+    private const long SkipAnimMenuNonHoldMs = 3000;
+    private const long SkipAnimHoldMaxMs = 8000;
     /// <summary>无法行动容错：按账号+回合去重。</summary>
     private static string _battleUnableActFixKey = "";
     private static bool _battleUnableActInjected;
@@ -232,7 +242,7 @@ public static class SeqChapterTestUi
     /// <summary>遇敌步骤：必须先到达本步导航点附近才开遇敌（格）。</summary>
     private const int EscortEncounterArriveNear = 4;
     /// <summary>
-    /// 中秋 #119 月宫救兔护航特例（步骤 5 挂机传送布朗山；步骤 2 回登入点+赤凤之翼；步骤 7 挂机传送奇怪的洞窟怪）。
+    /// 中秋 #119 月宫救兔护航特例（步骤 6 挂机传送哈巴鲁洞穴；步骤 5 挂机传送布朗山；步骤 2 回登入点+赤凤之翼；步骤 7 挂机传送奇怪的洞窟怪）。
     /// 两个傻瓜包都带（助手面板 wiki_test_ui）。临时活动：等用户明确下令后再永久删除本开关及全部 119 特例。
     /// </summary>
     private const bool TempMidAutumnEscort119 = true;
@@ -262,8 +272,61 @@ public static class SeqChapterTestUi
     /// <summary>脚本页「测试赤凤之翼」：独立点分页窗，不推进护航。</summary>
     private static bool _scriptWingTestPending;
     private static long _scriptWingTestAtMs;
+    /// <summary>通用法兰治疗：回城点2 → 1000(82,83)切图1111 → (7,33) → 点迪拉 → 全队回复。脚本页与七夕循环共用。</summary>
+    private const int FloraHealRecordIndex = 2;
+    private const int FloraHealReturnFloor = 1000;
+    private const int FloraHealReturnX = 63;
+    private const int FloraHealReturnY = 79;
+    private const int FloraHealDoorFloor = 1000;
+    private const int FloraHealDoorX = 82;
+    private const int FloraHealDoorY = 83;
+    private const int FloraHealHospitalFloor = 1111;
+    private const int FloraHealStandX = 7;
+    private const int FloraHealStandY = 33;
+    private const int FloraHealNpcX = 7;
+    private const int FloraHealNpcY = 32;
+    private const string FloraHealNpcName = "资深护士迪拉";
+    private const string FloraHealNpcShortName = "迪拉";
+    private const string FloraHealOptionName = "全队回复";
+    private const int FloraHealOptionIndex = 2;
+    private const int FloraHealMaxTries = 3;
+    private const long FloraHealStepDelayMs = 1000;
+    private const long FloraHealReturnWaitMs = 8000;
+    private const long FloraHealDoorWaitMs = 25000;
+    private const long FloraHealStandWaitMs = 20000;
+    private const long FloraHealLookRetryMs = 2500;
+    private const int FloraHealPhaseIdle = 0;
+    private const int FloraHealPhaseReturn = 1;
+    private const int FloraHealPhaseDelayAfterReturn = 2;
+    private const int FloraHealPhaseToDoor = 3;
+    private const int FloraHealPhaseDelayAfterDoor = 4;
+    private const int FloraHealPhaseToStand = 5;
+    private const int FloraHealPhaseDelayAfterStand = 6;
+    private const int FloraHealPhaseLookNpc = 7;
+    private const int FloraHealPhaseDelayAfterLook = 8;
+    private const int FloraHealPhasePick = 9;
+    private static bool _floraHealActive;
+    private static bool _floraHealResumeEscort;
+    private static bool _floraHealNeedRetry;
+    private static int _floraHealPhase;
+    private static int _floraHealStepTries;
+    private static long _floraHealDelayUntilMs;
+    private static long _floraHealActionAtMs;
+    private static long _floraHealLastLookMs;
+    private static string _floraHealNote = "";
+    private static object _floraHealStatusText;
     private const int MoonRabbitMissionId = 119;
     private const int MoonRabbitLoginGateStep2 = 2;
+    /// <summary>调查星月落痕·石碑（执行序 StepID=6）：挂机传送哈巴鲁洞穴后再导航。</summary>
+    private const int MoonRabbitSteleStep = 6;
+    /// <summary>battle_tbautobattlenavigationconfig Id=1「哈巴鲁洞穴」。</summary>
+    private const int MoonRabbitHabaruTeleportId = 1;
+    /// <summary>哈巴鲁洞穴 传送落点 floor（配置 Map.floor=11003）。</summary>
+    private const int MoonRabbitHabaruTeleportFloor = 11003;
+    private const int MoonRabbitSteleMapFloor = 100;
+    private const int MoonRabbitSteleX = 695;
+    private const int MoonRabbitSteleY = 333;
+    private const int MoonRabbitSteleNearDist = 25;
     /// <summary>挑战暗影巡卫（执行序 StepID=5）：挂机传送布朗山后再导航。</summary>
     private const int MoonRabbitBrownMountainStep = 5;
     /// <summary>battle_tbautobattlenavigationconfig Id=6「布朗山」。</summary>
@@ -331,6 +394,7 @@ public static class SeqChapterTestUi
     private const long EscortTicketBankAccountGapMs = 2000;
     private const int EscortTicketBankMaxFails = 5;
     private static bool _escort119GateDone2;
+    private static bool _escort119TeleportDone6;
     private static bool _escort119TeleportDone5;
     private static bool _escort119TeleportDone7;
     private static bool _escortHangupTeleportPending;
@@ -344,6 +408,9 @@ public static class SeqChapterTestUi
     private static long _lastActivityMs;
     private static long _stuckMoveAtMs;
     private static bool _stuckResumePending;
+    /// <summary>本步骤第 1 次卡位：清路径后等 2 秒再官方点任务（与 15000/传送相同）。</summary>
+    private static bool _escortStuckAbortResumePending;
+    private static long _escortStuckAbortResumeAtMs;
     private static int _stuckResumeKind;
     /// <summary>阶段3：随机挪格前的坐标，用于走回原格。</summary>
     private static int _stuckReturnX;
@@ -670,10 +737,12 @@ public static class SeqChapterTestUi
             TickSuperAi();
             TickPetNamer();
             TickScriptWingTest();
+            TickFloraHeal();
             // 跳过动画：只清表现队列；选指令交给官方 AutoFight，禁止回合间隙乱踢 DoAutoFight。
             TickSkipBattleAnim();
             // 跳过动画开着时仍跑无法行动兜底（石化/死亡漏 N）；与清队列不冲突。
             TickBattleUnableActFix();
+            TickBattleRoundTimeoutLog();
         }
         catch (Exception ex)
         {
@@ -724,6 +793,11 @@ public static class SeqChapterTestUi
         if (_tab == TabScript && _petNamerStatusText != null && !IsUnityNull(_petNamerStatusText))
         {
             SetText(_petNamerStatusText, FormatPetNamerStatus(), 12);
+        }
+
+        if (_tab == TabScript && _floraHealStatusText != null && !IsUnityNull(_floraHealStatusText))
+        {
+            SetText(_floraHealStatusText, FormatFloraHealStatus(), 12);
         }
 
         if (_tab == TabSuperAi && _superAiActive)
@@ -3061,6 +3135,7 @@ public static class SeqChapterTestUi
         _catchSellYInput = null;
         _lingTangStatusText = null;
         _petNamerStatusText = null;
+        _floraHealStatusText = null;
         _superAiStatusText = null;
         _superAiBattleRoot = null;
         _appearStatusText = null;
@@ -3205,7 +3280,7 @@ public static class SeqChapterTestUi
         var lab = CreateUiChild(row, "L", rtType);
         StretchFull(RequireRect(lab, "sbal"));
         var text = AddText(lab);
-        SetText(text, (_skipBattleAnim ? "● " : "○ ") + "跳过动画（清队列等自然结束，防第二回合卡）", 13);
+        SetText(text, (_skipBattleAnim ? "● " : "○ ") + "跳过动画（清播放；石化等官方首号节奏再选指令）", 13);
         BindButton(row, img, ToggleSkipBattleAnimFromUi);
 
         y -= 34f;
@@ -3217,6 +3292,10 @@ public static class SeqChapterTestUi
         _skipBattleAnimFlushLogged = false;
         _skipBattleAnimCmdSinceMs = 0;
         _skipBattleAnimManualDone = false;
+        if (!_skipBattleAnim)
+        {
+            ReleaseHeldBattleChars("toggle-off");
+        }
         Tip(_skipBattleAnim ? "跳过动画已开启" : "跳过动画已关闭");
         WriteLog("ToggleSkipBattleAnim=" + _skipBattleAnim);
         if (_tab == TabBattle)
@@ -3228,9 +3307,8 @@ public static class SeqChapterTestUi
     }
 
     /// <summary>
-    /// 跳过动画：CmdRunning 时清表现队列，让 RunProcess 自然 OnCompleted。
-    /// 选指令完全交给官方 AutoFight（首号有 3 秒倒计时，禁止再踢 DoAutoFight，否则与官方抢跑→空等 ACTION）。
-    /// AllEnd+空队列过久只 Tip，不在这里强退。
+    /// 跳过动画：见到播放队列立刻清掉并 Stop。CHAR 先暂存，等 PLAYER 入队；
+    /// 首号 MENU_NON（石化等）再等 3 秒才还给 NextRound，避免立刻发 N 把回合打丢。
     /// </summary>
     private static void TickSkipBattleAnim()
     {
@@ -3238,9 +3316,7 @@ public static class SeqChapterTestUi
         {
             _skipBattleAnimFlushLogged = false;
             _skipBattleAnimAllEndStuckSinceMs = 0;
-            _skipBattleAnimHoldFlushUntilMs = 0;
-            _skipBattleAnimSelectDone = false;
-            _skipBattleAnimSelectDoneAtMs = 0;
+            ReleaseHeldBattleChars("skip-off");
             return;
         }
 
@@ -3253,9 +3329,10 @@ public static class SeqChapterTestUi
                 _skipBattleAnimManualDone = false;
                 _skipBattleAnimLastFlushMs = 0;
                 _skipBattleAnimAllEndStuckSinceMs = 0;
-                _skipBattleAnimHoldFlushUntilMs = 0;
-                _skipBattleAnimSelectDone = false;
-                _skipBattleAnimSelectDoneAtMs = 0;
+                _skipBattleAnimHasPrevPlayerUnable = false;
+                _skipBattleAnimPrevSelectAtMs = 0;
+                _roundTimeoutLoggedTurn = int.MinValue;
+                ReleaseHeldBattleChars("out-of-battle");
                 return;
             }
 
@@ -3271,30 +3348,8 @@ public static class SeqChapterTestUi
                 return;
             }
 
-            var fight = Convert.ToInt32(GetMember(bm, "FightProcessFlag") ?? 0);
-            var acctQ = GetBattleAccountQueueCount();
-            // 单个账号 DoAutoFight 也会把 fight 标成 AllEnd，此时 AcountList 里还有队友。
-            // 必须先见过「AllEnd 且 acctQ=0」（本回合选完），才允许 flush。
-            // 播表现时下一回合 PLAYER 会再灌进 AcountList，那时 selectDone 仍为 true。
-            if (fight != FightProcessAllEnd)
-            {
-                _skipBattleAnimSelectDone = false;
-                _skipBattleAnimSelectDoneAtMs = 0;
-            }
-            else if (acctQ == 0)
-            {
-                if (!_skipBattleAnimSelectDone)
-                {
-                    SnapSkipAnimLeadUnable(bm);
-                    _skipBattleAnimSelectDone = true;
-                    _skipBattleAnimSelectDoneAtMs = NowMs();
-                    _skipBattleAnimCmdQAtSelectDone = GetBattleCommandQueueCount();
-                    WriteLog("SkipAnim: select done, hold="
-                             + (_skipBattleAnimLeadSlotUnable ? "first-anim" : (_skipBattleAnimSelectHoldMs + "ms"))
-                             + " cmdQ=" + _skipBattleAnimCmdQAtSelectDone
-                             + " leadSlotUnable=" + _skipBattleAnimLeadSlotUnable);
-                }
-            }
+            DrainBattleStatusQueueIntoHold();
+            TryReleaseHeldBattleChars();
 
             var cmdRunning = Convert.ToBoolean(GetMember(bm, "CmdRunningFlag") ?? false);
             if (!cmdRunning)
@@ -3302,92 +3357,42 @@ public static class SeqChapterTestUi
                 _skipBattleAnimFlushLogged = false;
                 _skipBattleAnimCmdSinceMs = 0;
                 _skipBattleAnimManualDone = false;
-                // 不踢 DoAutoFight：官方首号 AutoFight 自带 3s 倒计时，踢会与之抢跑。
                 TryRescueSkipAnimAllEndStuck(bm);
                 MaybeLogSkipBattleDiag(bm);
                 return;
             }
 
             _skipBattleAnimAllEndStuckSinceMs = 0;
-
-            // 选指令时 fight≠AllEnd。下一回合 PLAYER 包会在播动画时提前灌进 AcountList，
-            // 所以不能要求 acctQ==0，否则跳过动画永远不 flush。
-            if (fight != FightProcessAllEnd)
-            {
-                MaybeLogSkipBattleDiag(bm);
-                return;
-            }
-
-            var now = NowMs();
-            // 刚给无法行动账号走官方 DoAutoFight：本地会先标 AllEnd，其余账号还在选。
-            // 这时 flush 会 OnCompleted→NextRound，服务端永远等不齐指令。
-            if (_skipBattleAnimHoldFlushUntilMs > 0 && now < _skipBattleAnimHoldFlushUntilMs)
-            {
-                MaybeLogSkipBattleDiag(bm);
-                return;
-            }
-
-            if (!_skipBattleAnimSelectDone)
-            {
-                MaybeLogSkipBattleDiag(bm);
-                return;
-            }
-
-            if (_skipBattleAnimLeadSlotUnable)
-            {
-                // 队长槽不能动：等第一个单位真正开播。ParseCommand 已把整包 ACTION 填进队列。
-                if (!IsFirstBattleUnitAnimStarting())
-                {
-                    MaybeLogSkipBattleDiag(bm);
-                    return;
-                }
-            }
-            else
-            {
-                if (_skipBattleAnimSelectDoneAtMs > 0
-                    && now - _skipBattleAnimSelectDoneAtMs < _skipBattleAnimSelectHoldMs)
-                {
-                    MaybeLogSkipBattleDiag(bm);
-                    return;
-                }
-
-                var actQ = GetBattleActionQueueCount();
-                var cmdQ = GetBattleCommandQueueCount();
-                // 选完瞬间的 cmdQ 多半是遇敌残留或半截 ACTION；等队列增长或 ACTION 到达再清。
-                if (actQ <= 0 && cmdQ <= _skipBattleAnimCmdQAtSelectDone
-                    && !IsFirstBattleUnitAnimStarting())
-                {
-                    MaybeLogSkipBattleDiag(bm);
-                    return;
-                }
-            }
-
-            // 仅播表现时拉 timescale / 归位，避免选指令阶段每拍 AllRoleReturn 捣乱
             ForceBattleGlobalTimeScale(1f);
-            ForceSkipAnimRolesReady();
 
-            if (_skipBattleAnimCmdSinceMs <= 0)
-            {
-                _skipBattleAnimCmdSinceMs = now;
-            }
+            var cmdQ = GetBattleCommandQueueCount();
+            var cur = GetBattleCurCmdCount();
+            var luan = GetBattleLuanCount();
+            var hasPresentation = cmdQ > 0 || cur > 0 || luan > 0;
+            var now = NowMs();
 
-            if (!_skipBattleAnimFlushLogged)
+            if (!_skipBattleAnimFlushLogged && hasPresentation)
             {
-                var qBefore = GetBattleCommandQueueCount();
-                var curBefore = GetBattleCurCmdCount();
-                var luanBefore = GetBattleLuanCount();
+                SnapSkipAnimLeadUnable(bm);
+                BeginHoldBattleChars();
+                ForceSkipAnimRolesReady();
                 FlushBattlePresentationQueue();
                 _skipBattleAnimLastFlushMs = now;
-                WriteLog("SkipAnim: flush cmdQ " + qBefore + "->" + GetBattleCommandQueueCount()
-                         + " cur=" + curBefore + " luan=" + luanBefore
-                         + " (wait natural OnCompleted) statusQ=" + GetBattleStatusQueueCount());
+                _skipBattleAnimCmdSinceMs = now;
                 _skipBattleAnimFlushLogged = true;
+                WriteLog("SkipAnim: flush after ACTION cmdQ " + cmdQ + "->" + GetBattleCommandQueueCount()
+                         + " cur=" + cur + " luan=" + luan
+                         + " statusQ=" + GetBattleStatusQueueCount()
+                         + " held=" + _skipAnimHeldChars.Count
+                         + " pendingMenuNon=" + FirstPendingPlayerMenuNon());
+                TryReleaseHeldBattleChars();
             }
 
-            if (!_skipBattleAnimManualDone
-                && now - _skipBattleAnimCmdSinceMs > SkipAnimForceFinishMs
-                && Convert.ToBoolean(GetMember(bm, "CmdRunningFlag") ?? false)
-                && Convert.ToInt32(GetMember(bm, "FightProcessFlag") ?? 0) == FightProcessAllEnd)
+            if (_skipBattleAnimFlushLogged
+                && !_skipBattleAnimManualDone
+                && !_skipAnimHoldActive
+                && _skipBattleAnimCmdSinceMs > 0
+                && now - _skipBattleAnimCmdSinceMs > SkipAnimForceFinishMs)
             {
                 WriteLog("SkipAnim: RunProcess 超时，补一次 OnCompleted");
                 ForceFinishPresentationRun(bm);
@@ -3429,7 +3434,10 @@ public static class SeqChapterTestUi
                      + " cmdQ=" + GetBattleCommandQueueCount()
                      + " cur=" + GetBattleCurCmdCount()
                      + " luan=" + GetBattleLuanCount()
-                     + " statusQ=" + GetBattleStatusQueueCount());
+                     + " statusQ=" + GetBattleStatusQueueCount()
+                     + " hold=" + _skipAnimHoldActive
+                     + " held=" + _skipAnimHeldChars.Count
+                     + " pendingMenuNon=" + FirstPendingPlayerMenuNon());
         }
         catch
         {
@@ -3503,14 +3511,43 @@ public static class SeqChapterTestUi
         var playerUnable = IsBattleRoleTrulyUnableToAct(playerRole);
         var hasPet = petRole != null;
         var petUnable = !hasPet || IsBattleRoleTrulyUnableToAct(petRole);
-        _skipBattleAnimLeadSlotUnable = playerUnable && petUnable;
-        _skipBattleAnimSelectHoldMs = _skipBattleAnimLeadSlotUnable
-            ? 0
-            : SkipAnimHoldFlushAfterSelectAbleMs;
+        var bc = GetBattleRoleStatus(playerRole);
+        var bp = GetBattleBpFlag();
+        var menuNon = HasBpFlag(bp, BpFlagPlayerMenuNon);
+        var petMenuNon = HasBpFlag(bp, BpFlagPetMenuNon);
+        var turn = 0;
+        try
+        {
+            turn = Convert.ToInt32(GetMember(TryGetBattleProcesser(), "m_BattleSvTurnIndex") ?? 0);
+        }
+        catch
+        {
+            // ignore
+        }
+
+        var edge = "";
+        var dtPrev = 0L;
+        if (_skipBattleAnimHasPrevPlayerUnable
+            && _skipBattleAnimPrevPlayerUnable != playerUnable
+            && _skipBattleAnimPrevSelectAtMs > 0)
+        {
+            dtPrev = NowMs() - _skipBattleAnimPrevSelectAtMs;
+            edge = playerUnable ? "stone-on" : "stone-off";
+        }
+
         WriteLog("SkipAnim: lead snap playerUnable=" + playerUnable
                  + " hasPet=" + hasPet
                  + " petUnable=" + petUnable
-                 + " hold=" + (_skipBattleAnimLeadSlotUnable ? "first-anim" : (_skipBattleAnimSelectHoldMs + "ms")));
+                 + " turn=" + turn
+                 + " bc=0x" + bc.ToString("X") + "(" + FormatBcStatus(bc) + ")"
+                 + " bp=0x" + bp.ToString("X")
+                 + " playerMenuNon=" + menuNon
+                 + " petMenuNon=" + petMenuNon
+                 + (edge.Length > 0 ? " edge=" + edge + " dtPrev=" + dtPrev + "ms" : "")
+                 + (playerUnable != menuNon ? " MISMATCH-stone-vs-MENU_NON" : ""));
+        _skipBattleAnimPrevPlayerUnable = playerUnable;
+        _skipBattleAnimHasPrevPlayerUnable = true;
+        _skipBattleAnimPrevSelectAtMs = NowMs();
     }
 
     /// <summary>先清队列再 Stop，让 RunProcess 自然 OnCompleted。</summary>
@@ -3528,6 +3565,177 @@ public static class SeqChapterTestUi
         runner.GetType().GetMethod("Stop",
                 BindingFlags.Public | BindingFlags.Instance, null, Type.EmptyTypes, null)
             ?.Invoke(runner, null);
+    }
+
+    /// <summary>把已到的 CHAR 从 BattleStatusQueue 挪到暂存，阻止 NextRound 立刻 RefreshData。</summary>
+    private static void BeginHoldBattleChars()
+    {
+        _skipAnimHoldActive = true;
+        _skipAnimHoldSinceMs = NowMs();
+        DrainBattleStatusQueueIntoHold();
+        WriteLog("SkipAnim: hold CHAR start n=" + _skipAnimHeldChars.Count
+                 + " acctQ=" + GetBattleAccountQueueCount()
+                 + " pendingMenuNon=" + FirstPendingPlayerMenuNon());
+    }
+
+    private static void DrainBattleStatusQueueIntoHold()
+    {
+        if (!_skipAnimHoldActive)
+        {
+            return;
+        }
+
+        var q = GetBattleStatusQueue();
+        if (q == null)
+        {
+            return;
+        }
+
+        var n = 0;
+        try
+        {
+            var dequeue = q.GetType().GetMethod("Dequeue", Type.EmptyTypes);
+            if (dequeue == null)
+            {
+                return;
+            }
+
+            while ((q as ICollection)?.Count > 0)
+            {
+                var item = dequeue.Invoke(q, null);
+                if (item != null)
+                {
+                    _skipAnimHeldChars.Add(item);
+                    n++;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            WriteLog("SkipAnim: drain CHAR EX: " + RootMessage(ex));
+        }
+
+        if (n > 0)
+        {
+            WriteLog("SkipAnim: drain CHAR +" + n + " held=" + _skipAnimHeldChars.Count);
+        }
+    }
+
+    private static void TryReleaseHeldBattleChars()
+    {
+        if (!_skipAnimHoldActive)
+        {
+            return;
+        }
+
+        var now = NowMs();
+        var elapsed = _skipAnimHoldSinceMs > 0 ? now - _skipAnimHoldSinceMs : 0;
+        var acctQ = GetBattleAccountQueueCount();
+        var menuNon = FirstPendingPlayerMenuNon();
+        var ready = acctQ > 0 && (!menuNon || elapsed >= SkipAnimMenuNonHoldMs);
+        if (!ready && elapsed < SkipAnimHoldMaxMs)
+        {
+            return;
+        }
+
+        var reason = ready
+            ? (menuNon ? "menu-non-waited" : "player-ready")
+            : "hold-max";
+        ReleaseHeldBattleChars(reason + " elapsed=" + elapsed + "ms acctQ=" + acctQ + " menuNon=" + menuNon);
+    }
+
+    private static void ReleaseHeldBattleChars(string reason)
+    {
+        if (!_skipAnimHoldActive && _skipAnimHeldChars.Count == 0)
+        {
+            return;
+        }
+
+        DrainBattleStatusQueueIntoHold();
+        var n = _skipAnimHeldChars.Count;
+        var drop = reason != null && reason.IndexOf("out-of-battle", StringComparison.Ordinal) >= 0;
+        try
+        {
+            if (!drop)
+            {
+                var q = GetBattleStatusQueue();
+                var enqueue = q?.GetType().GetMethod("Enqueue");
+                if (enqueue != null)
+                {
+                    for (var i = 0; i < _skipAnimHeldChars.Count; i++)
+                    {
+                        enqueue.Invoke(q, new[] { _skipAnimHeldChars[i] });
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            WriteLog("SkipAnim: release CHAR EX: " + RootMessage(ex));
+        }
+
+        _skipAnimHeldChars.Clear();
+        _skipAnimHoldActive = false;
+        _skipAnimHoldSinceMs = 0;
+        if (n > 0 || !string.IsNullOrEmpty(reason))
+        {
+            WriteLog("SkipAnim: release CHAR n=" + n
+                     + " statusQ=" + GetBattleStatusQueueCount()
+                     + " drop=" + drop
+                     + " reason=" + reason);
+        }
+    }
+
+    /// <summary>下一拍将选的首号是否 PLAYER_MENU_NON（来自已入队的 PLAYER，不看当前 BPFlag）。</summary>
+    private static bool FirstPendingPlayerMenuNon()
+    {
+        try
+        {
+            var list = GetStaticMember("BattleDataHolder", "AcountList") as IList;
+            if (list == null || list.Count == 0)
+            {
+                return false;
+            }
+
+            var uid = Convert.ToString(list[0] ?? "") ?? "";
+            if (uid.Length == 0)
+            {
+                return false;
+            }
+
+            var brc = FindType("BattleRoleContainer");
+            var acctDic = brc?.GetField("AccountIndexDic", BindingFlags.Public | BindingFlags.Static)
+                ?.GetValue(null) as IDictionary;
+            if (acctDic == null || !acctDic.Contains(uid))
+            {
+                return false;
+            }
+
+            var idx = Convert.ToInt32(acctDic[uid] ?? -1);
+            var arrObj = GetStaticMember("BattleDataHolder", "BPFlagArray");
+            if (!(arrObj is Array arr) || idx < 0 || idx >= arr.Length)
+            {
+                return false;
+            }
+
+            return HasBpFlag(Convert.ToInt32(arr.GetValue(idx) ?? 0), BpFlagPlayerMenuNon);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static object GetBattleStatusQueue()
+    {
+        try
+        {
+            return GetMember(TryGetBattleProcesser(), "BattleStatusQueue");
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     /// <summary>
@@ -3574,6 +3782,113 @@ public static class SeqChapterTestUi
         catch (Exception ex)
         {
             WriteLog("TryRescueSkipAnimAllEndStuck EX: " + RootMessage(ex));
+        }
+    }
+
+    /// <summary>
+    /// 官方单回合监视器 m_SingleRoundMonitorTime ≥ 180 会断线。到 170s 写独立日志，方便和 AllEnd-empty 对照。
+    /// </summary>
+    private static void TickBattleRoundTimeoutLog()
+    {
+        try
+        {
+            if (!Convert.ToBoolean(GetStaticMember("BattleDataHolder", "IsInBattle") ?? false))
+            {
+                _roundTimeoutLoggedTurn = int.MinValue;
+                return;
+            }
+
+            var proc = TryGetBattleProcesser();
+            if (proc == null)
+            {
+                return;
+            }
+
+            var monitorSec = Convert.ToInt32(GetMember(proc, "m_SingleRoundMonitorTime") ?? 0);
+            var turn = Convert.ToInt32(GetMember(proc, "m_BattleSvTurnIndex") ?? 0);
+            if (monitorSec < RoundTimeoutLogAtSec)
+            {
+                if (monitorSec <= 1 && _roundTimeoutLoggedTurn == turn)
+                {
+                    _roundTimeoutLoggedTurn = int.MinValue;
+                }
+
+                return;
+            }
+
+            if (_roundTimeoutLoggedTurn == turn)
+            {
+                return;
+            }
+
+            _roundTimeoutLoggedTurn = turn;
+            var bm = GetManagerInstance("BattleManager");
+            var fight = bm != null ? Convert.ToInt32(GetMember(bm, "FightProcessFlag") ?? 0) : -1;
+            var bc = GetBattleRoleStatus(GetCurrentBattlePlayerRole());
+            var bp = GetBattleBpFlag();
+            var stuckMs = _skipBattleAnimAllEndStuckSinceMs > 0
+                ? (NowMs() - _skipBattleAnimAllEndStuckSinceMs)
+                : 0;
+            var line = "round-timeout monitor=" + monitorSec + "s/" + OfficialSingleRoundTimeoutSec
+                       + " turn=" + turn
+                       + " uid=" + (GetCaptainUid() ?? "")
+                       + " pid=" + Process.GetCurrentProcess().Id
+                       + " fight=" + fight
+                       + " acctQ=" + GetBattleAccountQueueCount()
+                       + " actQ=" + GetBattleActionQueueCount()
+                       + " cmdQ=" + GetBattleCommandQueueCount()
+                       + " statusQ=" + GetBattleStatusQueueCount()
+                       + " cmdRun=" + (bm != null ? GetMember(bm, "CmdRunningFlag") : "")
+                       + " skipAnim=" + _skipBattleAnim
+                       + " playerUnable=" + IsBattleRoleTrulyUnableToAct(GetCurrentBattlePlayerRole())
+                       + " bc=0x" + bc.ToString("X") + "(" + FormatBcStatus(bc) + ")"
+                       + " bp=0x" + bp.ToString("X")
+                       + " playerMenuNon=" + HasBpFlag(bp, BpFlagPlayerMenuNon)
+                       + " petMenuNon=" + HasBpFlag(bp, BpFlagPetMenuNon)
+                       + " allEndEmptyMs=" + stuckMs
+                       + " mission=" + _escortMissionId;
+            WriteLog("SkipAnim: " + line);
+            WriteRoundTimeoutLog(line);
+        }
+        catch (Exception ex)
+        {
+            WriteLog("TickBattleRoundTimeoutLog EX: " + RootMessage(ex));
+        }
+    }
+
+    private static void WriteRoundTimeoutLog(string message)
+    {
+        try
+        {
+            EnsureLogPath();
+            if (string.IsNullOrEmpty(_roundTimeoutLogPath))
+            {
+                var dir = Path.GetDirectoryName(_logPath ?? "") ?? "";
+                _roundTimeoutLogPath = string.IsNullOrEmpty(dir)
+                    ? RoundTimeoutLogFileName
+                    : Path.Combine(dir, RoundTimeoutLogFileName);
+            }
+
+            var line = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff")
+                       + " [pid=" + Process.GetCurrentProcess().Id + "] "
+                       + (message ?? "")
+                       + Environment.NewLine;
+            lock (RoundTimeoutLogLock)
+            {
+                using (var fs = new FileStream(
+                           _roundTimeoutLogPath,
+                           FileMode.Append,
+                           FileAccess.Write,
+                           FileShare.ReadWrite))
+                using (var sw = new StreamWriter(fs, Encoding.UTF8))
+                {
+                    sw.Write(line);
+                }
+            }
+        }
+        catch
+        {
+            // ignore
         }
     }
 
@@ -3759,11 +4074,9 @@ public static class SeqChapterTestUi
                 && !string.Equals(playerKey, _battleUnableActPlayerIdleKey, StringComparison.Ordinal))
             {
                 _battleUnableActPlayerIdleKey = playerKey;
-                _skipBattleAnimHoldFlushUntilMs = NowMs() + SkipAnimHoldFlushAfterUnableActMs;
                 WriteLog("UnableAct: skip extra N (skip-anim, official DoAutoFight) uid=" + acct
                          + " turn=" + turn + " fight=" + fight
-                         + " playerEnd=" + playerEnd + " petUnable=" + petUnable
-                         + " holdFlush=" + SkipAnimHoldFlushAfterUnableActMs + "ms");
+                         + " playerEnd=" + playerEnd + " petUnable=" + petUnable);
             }
 
             return;
@@ -7658,7 +7971,7 @@ public static class SeqChapterTestUi
         BindButton(bearSlayer, bsImg, RunBearSlayer);
 
         var petNamer = CreateUiChild(_bodyRoot, "PetNamer", rtType);
-        SetAnchoredTop(RequireRect(petNamer, "pnb"), -130f, -368f, 220f, 40f);
+        SetAnchoredTop(RequireRect(petNamer, "pnb"), 0f, -368f, 240f, 40f);
         var pnImg = AddComp(petNamer, "UnityEngine.UI.Image");
         SetColor(pnImg, 0.20f, 0.45f, 0.60f, 1f);
         var pnLab = CreateUiChild(petNamer, "L", rtType);
@@ -7666,19 +7979,24 @@ public static class SeqChapterTestUi
         SetText(AddText(pnLab), "一键命名（开/停）", 15);
         BindButton(petNamer, pnImg, RunPetNamer);
 
-        var wingTest = CreateUiChild(_bodyRoot, "WingTest", rtType);
-        SetAnchoredTop(RequireRect(wingTest, "wtb"), 130f, -368f, 220f, 40f);
-        var wtImg = AddComp(wingTest, "UnityEngine.UI.Image");
-        SetColor(wtImg, 0.62f, 0.28f, 0.18f, 1f);
-        var wtLab = CreateUiChild(wingTest, "L", rtType);
-        StretchFull(RequireRect(wtLab, "wtl"));
-        SetText(AddText(wtLab), _scriptWingTestPending ? "赤凤之翼（点窗中）" : "测试赤凤之翼", 14);
-        BindButton(wingTest, wtImg, RunScriptWingTest);
-
         var pnStatus = CreateUiChild(_bodyRoot, "PetNamerStatus", rtType);
         SetAnchoredTop(RequireRect(pnStatus, "pns"), 0f, -418f, 500f, 56f);
         _petNamerStatusText = AddText(pnStatus);
         SetText(_petNamerStatusText, FormatPetNamerStatus(), 12);
+
+        var floraHeal = CreateUiChild(_bodyRoot, "FloraHealTest", rtType);
+        SetAnchoredTop(RequireRect(floraHeal, "fht"), 0f, -484f, 240f, 40f);
+        var fhImg = AddComp(floraHeal, "UnityEngine.UI.Image");
+        SetColor(fhImg, 0.22f, 0.48f, 0.40f, 1f);
+        var fhLab = CreateUiChild(floraHeal, "L", rtType);
+        StretchFull(RequireRect(fhLab, "fhl"));
+        SetText(AddText(fhLab), _floraHealActive ? "法兰治疗（停止）" : "法兰治疗测试", 15);
+        BindButton(floraHeal, fhImg, ToggleFloraHeal);
+
+        var fhStatus = CreateUiChild(_bodyRoot, "FloraHealStatus", rtType);
+        SetAnchoredTop(RequireRect(fhStatus, "fhs"), 0f, -534f, 500f, 52f);
+        _floraHealStatusText = AddText(fhStatus);
+        SetText(_floraHealStatusText, FormatFloraHealStatus(), 12);
 
         // 「测试铃声」「刷灵堂」入口隐藏（逻辑保留，不在此页展示）
         _lingTangStatusText = null;
@@ -8942,7 +9260,7 @@ public static class SeqChapterTestUi
             "队列护航：可塞未接；完成一项后等 5 秒再下一项。\n"
             + "手动暂停不清铃；自动暂停约每2秒响铃，点「我知道了」或停止才停。静止5秒尝试恢复，连挪5次后改为直接续任务再观察5秒；本步骤连续20次失败自动暂停。\n"
             + (TempMidAutumnEscort119
-                ? "七夕循环：阿凯版=回登入点+赤凤之翼；哥拉尔版=登入点在哥拉尔、不用赤凤之翼。最后一步分账号存兑换券后才计一轮。\n"
+                ? "七夕循环：阿凯版=回登入点+赤凤之翼；哥拉尔版=登入点在哥拉尔、不用赤凤之翼。石碑步先挂机传送哈巴鲁洞穴。最后一步分账号存兑换券后计一轮，再去法兰治疗，然后下一轮。\n"
                 : "")
             + (dragonLoopUi
                 ? "龙族循环A：自动重置龙4→按序执行龙族纷争1-4→宠物位满停止。\n"
@@ -10562,6 +10880,10 @@ public static class SeqChapterTestUi
                         ? "（遇敌中，等待任务道具…）"
                         : ("（遇敌中，等待获得" + _escortWaitItemName + "…）");
                 }
+                else if (_floraHealActive && _floraHealResumeEscort)
+                {
+                    state += "（法兰治疗：" + FloraHealPhaseName(_floraHealPhase) + "）";
+                }
                 else if (_escort119TicketBankPending)
                 {
                     var n = _escort119TicketBankUids.Count;
@@ -10624,11 +10946,12 @@ public static class SeqChapterTestUi
                + "\n对话自动点: " + _dialogueAutoClicks + " 次"
                + idleLine
                + "\n本步骤恢复: " + _escortRecoverAttempts + " / " + EscortMaxRecoverFails
-               + "（换步骤重置；卡楼梯：挪格后点任务）"
+               + "（换步骤重置；第1次清路径点任务，其后挪格）"
                + "\n" + GetEscortSpecialNote()
                + (_dragonLoopActive ? "\n龙族循环: 已循环 " + _dragonLoopCount + " 轮" : "")
                + (_midAutumnLoopActive ? "\n七夕循环: 已完成 " + _midAutumnLoopCount + " 轮（存券后计）" : "")
-               + (_stuckResumePending ? "\n卡楼梯：恢复动作进行中…" : "");
+               + (_escortStuckAbortResumePending ? "\n卡位：清路径后点任务…" : "")
+               + (_stuckResumePending ? "\n卡楼梯：挪格后点任务…" : "");
     }
 
     /// <summary>
@@ -10649,7 +10972,7 @@ public static class SeqChapterTestUi
             {
                 return "特殊处理: 七夕#119 "
                        + (_midAutumnGoralEdition ? "哥拉尔版(回登入点、不用赤凤之翼)" : "阿凯版(回登入点+赤凤之翼)")
-                       + "；步骤7洞窟传送；步骤5布朗山；仅15000先取消回程再走15001；最后一步存兑换券才计一轮";
+                       + "；步骤6哈巴鲁洞穴；步骤7洞窟传送；步骤5布朗山；仅15000先取消回程再走15001；存兑换券计一轮后法兰治疗再下一轮";
             }
 
             return "特殊处理: 无 #" + id;
@@ -11106,7 +11429,7 @@ public static class SeqChapterTestUi
         var item = _escortQueue[index];
         _escortMissionId = item.Id;
         _escortMissionTitle = item.Title ?? ("#" + item.Id);
-        _stuckResumePending = false;
+        ClearEscortStuckPending();
         _escortFinishWaitMs = 0;
         _escortBetweenTasksWaitMs = 0;
         _escortRecoverAttempts = 0;
@@ -11152,6 +11475,7 @@ public static class SeqChapterTestUi
                 var sn = GetEscortMissionStepNum();
                 _escortLastStepNum = sn;
                 if (TryStartMoonRabbitStepSpecial(sn, "begin")
+                    || TryStartMoonRabbitSteleTeleport(sn, "begin")
                     || TryStartMoonRabbitBrownTeleport(sn, "begin")
                     || TryStartMoonRabbitReefTeleport(sn, "begin")
                     || TryStartMoonRabbitLastStepBank(sn, "begin"))
@@ -11243,7 +11567,7 @@ public static class SeqChapterTestUi
         WriteLog("escort done missionId=" + doneId + " idx=" + _escortQueueIndex);
         StopEscortEncounterWait("mission-done", false);
         StopTaskNavigation();
-        _stuckResumePending = false;
+        ClearEscortStuckPending();
         _escortFinishWaitMs = 0;
         _escortAwaitingReadyMs = 0;
         _escortRecoverAttempts = 0;
@@ -11330,7 +11654,7 @@ public static class SeqChapterTestUi
         _escortBetweenTasksWaitMs = 0;
         _escortAwaitingReadyMs = 0;
         _escortRecoverAttempts = 0;
-        _stuckResumePending = false;
+        ClearEscortStuckPending();
         _escortFinishWaitMs = 0;
         ResetMoonRabbitEscortFlags();
         StopEscortEncounterWait("cleanup", false);
@@ -11409,7 +11733,7 @@ public static class SeqChapterTestUi
         _escortBetweenTasksWaitMs = 0;
         _escortAwaitingReadyMs = 0;
         _escortRecoverAttempts = 0;
-        _stuckResumePending = false;
+        ClearEscortStuckPending();
         _escortFinishWaitMs = 0;
         _escortQueue.Clear();
         _prevRunTaskId = GetRunTaskId();
@@ -11472,7 +11796,7 @@ public static class SeqChapterTestUi
         _escortBetweenTasksWaitMs = 0;
         _escortAwaitingReadyMs = 0;
         _escortRecoverAttempts = 0;
-        _stuckResumePending = false;
+        ClearEscortStuckPending();
         _escortFinishWaitMs = 0;
         ResetMoonRabbitEscortFlags();
         StopEscortEncounterWait("cancel", false);
@@ -11948,6 +12272,11 @@ public static class SeqChapterTestUi
             return;
         }
 
+        if (_floraHealActive)
+        {
+            return;
+        }
+
         var now = NowMs();
         var skipMoonRabbitLastDialogue = TempMidAutumnEscort119 && _midAutumnLoopActive
             && _escortMissionId == MoonRabbitMissionId
@@ -12031,6 +12360,12 @@ public static class SeqChapterTestUi
                 PauseEscortOnConditionFail("119-official-resume");
             }
 
+            return;
+        }
+
+        if (_escortStuckAbortResumePending)
+        {
+            TickEscortStuckAbortResume(now);
             return;
         }
 
@@ -12121,6 +12456,7 @@ public static class SeqChapterTestUi
             {
                 var sn = GetEscortMissionStepNum();
                 if (TryStartMoonRabbitStepSpecial(sn, "tick")
+                    || TryStartMoonRabbitSteleTeleport(sn, "tick")
                     || TryStartMoonRabbitBrownTeleport(sn, "tick")
                     || TryStartMoonRabbitReefTeleport(sn, "tick")
                     || TryStartMoonRabbitLastStepBank(sn, "tick"))
@@ -12306,6 +12642,7 @@ public static class SeqChapterTestUi
             if (TempMidAutumnEscort119 && _escortMissionId == MoonRabbitMissionId && prevStep >= 0)
             {
                 if (TryStartMoonRabbitStepSpecial(stepNum, "step-change")
+                    || TryStartMoonRabbitSteleTeleport(stepNum, "step-change")
                     || TryStartMoonRabbitBrownTeleport(stepNum, "step-change")
                     || TryStartMoonRabbitReefTeleport(stepNum, "step-change")
                     || TryStartMoonRabbitLastStepBank(stepNum, "step-change"))
@@ -12411,15 +12748,20 @@ public static class SeqChapterTestUi
 
     private static void ResetEscortStuckState()
     {
-        _stuckResumePending = false;
+        ClearEscortStuckPending();
     }
 
     private static void ClearEscortStuckPending()
     {
         _stuckResumePending = false;
+        _escortStuckAbortResumePending = false;
+        _escortStuckAbortResumeAtMs = 0;
     }
 
-    /// <summary>卡楼梯：随机挪 1 格后点任务（与改 15000 特例之前一致）。</summary>
+    /// <summary>
+    /// 本步骤第 1 次卡位：清路径 → 等 0.5 秒（期间继续 abort）→ 官方点任务（与 15000/传送相同，等待更短）。
+    /// 第 2 次起：随机挪 1 格后再点任务。
+    /// </summary>
     private static void BeginEscortStuckRecovery(long now)
     {
         _escortRecoverAttempts++;
@@ -12429,6 +12771,20 @@ public static class SeqChapterTestUi
         {
             _escortPauseReason = "本步骤累计" + EscortMaxRecoverFails + "次尝试恢复失败";
             PauseEscort(_escortPauseReason + "，已暂停，请手动处理", true);
+            return;
+        }
+
+        if (_escortRecoverAttempts == 1)
+        {
+            AbortEscortTaskPathFully("stuck-first-abort");
+            _escortStuckAbortResumePending = true;
+            _escortStuckAbortResumeAtMs = now;
+            _stuckResumePending = false;
+            _lastActivityMs = now;
+            WriteLog("escort stuck first: abort then wait "
+                     + EscortStuckFirstAbortWaitMs + "ms official nav");
+            Tip("任务护航：卡位，清路径后点任务（本步骤 1/"
+                + EscortMaxRecoverFails + "）");
             return;
         }
 
@@ -12447,6 +12803,27 @@ public static class SeqChapterTestUi
             {
                 PauseEscortOnConditionFail("stuck-resume-fallback");
             }
+        }
+    }
+
+    /// <summary>第 1 次卡位：等待期间每拍继续 abort，满 0.5 秒再官方点任务。</summary>
+    private static void TickEscortStuckAbortResume(long now)
+    {
+        AbortEscortTaskPathFully("stuck-first-abort-wait");
+        if (now - _escortStuckAbortResumeAtMs < EscortStuckFirstAbortWaitMs)
+        {
+            _escortLastDiag = "清路径后点任务";
+            return;
+        }
+
+        _escortStuckAbortResumePending = false;
+        _escortStuckAbortResumeAtMs = 0;
+        _escortLastDiag = "";
+        _lastActivityMs = now;
+        Tip("任务护航：重新点任务");
+        if (!ClickEscortTaskLikeMouse())
+        {
+            PauseEscortOnConditionFail("stuck-first-abort-resume");
         }
     }
 
@@ -14284,6 +14661,7 @@ public static class SeqChapterTestUi
         _escort119ResumeUseWing = false;
         ResetWingWizardState();
         _escort119GateDone2 = false;
+        _escort119TeleportDone6 = false;
         _escort119TeleportDone5 = false;
         _escort119TeleportDone7 = false;
         _escortHangupTeleportPending = false;
@@ -14868,6 +15246,89 @@ public static class SeqChapterTestUi
     }
 
     /// <summary>
+    /// 中秋 #119 步骤 6 调查星月落痕·石碑：开始前挂机传送「哈巴鲁洞穴」（SendMisc Id=1），到图后再点任务导航。
+    /// 已在洞穴或已靠近石碑则跳过。战斗中不标记完成，出战后重试。
+    /// </summary>
+    private static bool TryStartMoonRabbitSteleTeleport(int stepNum, string reason)
+    {
+        if (!TempMidAutumnEscort119 || _escortMissionId != MoonRabbitMissionId)
+        {
+            return false;
+        }
+
+        if (stepNum != MoonRabbitSteleStep || _escort119TeleportDone6 || _escortHangupTeleportPending)
+        {
+            return false;
+        }
+
+        if (!IsLocalCaptain())
+        {
+            return false;
+        }
+
+        if (IsNearMoonRabbitSteleOrHabaru())
+        {
+            _escort119TeleportDone6 = true;
+            WriteLog("119 hangup-teleport habaru skip already-near reason=" + reason);
+            return false;
+        }
+
+        try
+        {
+            if (Convert.ToBoolean(GetStaticMember("BattleDataHolder", "IsInBattle") ?? false))
+            {
+                WriteLog("119 hangup-teleport habaru wait in-battle");
+                return false;
+            }
+        }
+        catch
+        {
+            // ignore
+        }
+
+        if (!TrySendHangupTeleport(MoonRabbitHabaruTeleportId))
+        {
+            return false;
+        }
+
+        _escort119TeleportDone6 = true;
+        _escortHangupTeleportPending = true;
+        _escortHangupTeleportAtMs = NowMs();
+        _escortHangupTeleportExpectFloor = MoonRabbitHabaruTeleportFloor;
+        Tip("任务护航：已传送哈巴鲁洞穴");
+        WriteLog("119 hangup-teleport habaru " + reason + " id=" + MoonRabbitHabaruTeleportId);
+        return true;
+    }
+
+    private static bool IsNearMoonRabbitSteleOrHabaru()
+    {
+        try
+        {
+            int floor;
+            string floorName;
+            int mapResId;
+            if (TryGetCurrentMapInfo(out floor, out floorName, out mapResId)
+                && floor == MoonRabbitHabaruTeleportFloor)
+            {
+                return true;
+            }
+
+            if (floor == MoonRabbitSteleMapFloor && TryGetPlayerXY(out var x, out var y))
+            {
+                var dx = x - MoonRabbitSteleX;
+                var dy = y - MoonRabbitSteleY;
+                return dx * dx + dy * dy <= MoonRabbitSteleNearDist * MoonRabbitSteleNearDist;
+            }
+        }
+        catch
+        {
+            // ignore
+        }
+
+        return false;
+    }
+
+    /// <summary>
     /// 中秋 #119 步骤 5 挑战暗影巡卫：开始前挂机传送「布朗山」（SendMisc Id=6），到图后再点任务导航。
     /// 已在布朗山则跳过。战斗中不标记完成，出战后重试。
     /// </summary>
@@ -15183,7 +15644,7 @@ public static class SeqChapterTestUi
         ResetMoonRabbitEscortFlags();
         _escortLastStepNum = GetEscortMissionStepNum();
         _lastActivityMs = now;
-        Tip("七夕循环：已存兑换券，完成第 " + _midAutumnLoopCount + " 轮，继续…");
+        Tip("七夕循环：已存兑换券，完成第 " + _midAutumnLoopCount + " 轮，去治疗…");
         WriteLog("qixi ticket-bank next-round count=" + _midAutumnLoopCount + " step=" + _escortLastStepNum);
         try
         {
@@ -15194,10 +15655,7 @@ public static class SeqChapterTestUi
             // ignore
         }
 
-        if (!ClickEscortTaskNav("119-after-ticket-bank"))
-        {
-            PauseEscortOnConditionFail("119-after-ticket-bank");
-        }
+        StartFloraHeal(true);
 
         if (_visible && _tab == TabEscort)
         {
@@ -15799,6 +16257,764 @@ public static class SeqChapterTestUi
         {
             // ignore
         }
+    }
+
+    /// <summary>脚本页法兰治疗：回城点2 → 1000(82,83)切图 → (7,33) → 迪拉全队回复。</summary>
+    private static string FormatFloraHealStatus()
+    {
+        if (!_floraHealActive)
+        {
+            return "法兰治疗: 未启动\n回城点2 → 1000(82,83)切图1111 → (7,33) → 迪拉全队回复；回城/导航不到位单步最多3次";
+        }
+
+        return "法兰治疗: " + FloraHealPhaseName(_floraHealPhase)
+               + " 尝试" + _floraHealStepTries + "/" + FloraHealMaxTries
+               + "\n" + (_floraHealNote ?? "")
+               + "\n" + FormatNavPosLine();
+    }
+
+    private static string FloraHealPhaseName(int phase)
+    {
+        switch (phase)
+        {
+            case FloraHealPhaseReturn: return "回城记录点2";
+            case FloraHealPhaseDelayAfterReturn: return "回城后等待 1 秒";
+            case FloraHealPhaseToDoor: return "导航 1000 (82,83) 等切图";
+            case FloraHealPhaseDelayAfterDoor: return "切图后等待 1 秒";
+            case FloraHealPhaseToStand: return "导航 1111 (7,33)";
+            case FloraHealPhaseDelayAfterStand: return "到位后等待 1 秒";
+            case FloraHealPhaseLookNpc: return "点资深护士迪拉";
+            case FloraHealPhaseDelayAfterLook: return "对话后等待 1 秒";
+            case FloraHealPhasePick: return "选全队回复";
+            default: return "准备中";
+        }
+    }
+
+    private static void ToggleFloraHeal()
+    {
+        if (_floraHealActive)
+        {
+            StopFloraHeal("已手动停止", false);
+            RefreshScriptTabIfVisible();
+            return;
+        }
+
+        StartFloraHeal(false);
+        RefreshScriptTabIfVisible();
+    }
+
+    /// <summary>
+    /// 通用法兰治疗。脚本页按钮与七夕每轮存券后都走这里（resumeEscort=true 时治完再点任务）。
+    /// 回城点2 → 1000(82,83)切图1111 → (7,33) → 点迪拉 → 全队回复。
+    /// </summary>
+    private static void StartFloraHeal(bool resumeEscort)
+    {
+        if (_floraHealActive)
+        {
+            return;
+        }
+
+        if (GetEncounterStatus() != 0)
+        {
+            TrySendEscortAutoBattle("停止挂机");
+        }
+
+        if (resumeEscort)
+        {
+            AbortEscortTaskPathFully("119-before-flora-heal");
+        }
+
+        _floraHealResumeEscort = resumeEscort;
+        _floraHealActive = true;
+        _floraHealPhase = FloraHealPhaseReturn;
+        _floraHealStepTries = 0;
+        _floraHealActionAtMs = 0;
+        _floraHealNeedRetry = false;
+        _floraHealLastLookMs = 0;
+        _floraHealDelayUntilMs = 0;
+        _floraHealNote = "回城记录点2";
+        Tip(resumeEscort ? "七夕循环：去法兰治疗" : "法兰治疗：已启动");
+        WriteLog("flora-heal start resumeEscort=" + resumeEscort);
+        try
+        {
+            if (Convert.ToBoolean(GetStaticMember("BattleDataHolder", "IsInBattle") ?? false))
+            {
+                _floraHealNote = "战斗中，等出战再回城";
+                return;
+            }
+        }
+        catch
+        {
+            // ignore
+        }
+
+        FloraHealDoReturn();
+    }
+
+    private static void StopFloraHeal(string reason, bool success)
+    {
+        if (!_floraHealActive && _floraHealPhase == FloraHealPhaseIdle)
+        {
+            return;
+        }
+
+        var resume = _floraHealResumeEscort;
+        _floraHealActive = false;
+        _floraHealPhase = FloraHealPhaseIdle;
+        _floraHealResumeEscort = false;
+        _floraHealNeedRetry = false;
+        _floraHealNote = reason ?? "";
+        try
+        {
+            StopTaskNavigation(false);
+        }
+        catch
+        {
+            // ignore
+        }
+
+        WriteLog("flora-heal stop ok=" + success + " resume=" + resume + " " + reason);
+        Tip("法兰治疗：" + reason);
+
+        if (!resume || !_midAutumnLoopActive || !_escortActive || _escortPaused)
+        {
+            RefreshScriptTabIfVisible();
+            return;
+        }
+
+        if (success)
+        {
+            AbortEscortTaskPathFully("119-after-flora-heal");
+            Tip("七夕循环：治疗完成，开始下一轮");
+            if (!ClickEscortTaskNav("119-after-flora-heal"))
+            {
+                PauseEscortOnConditionFail("119-after-flora-heal");
+            }
+        }
+        else
+        {
+            PauseEscortOnConditionFail("119-flora-heal");
+        }
+
+        RefreshScriptTabIfVisible();
+    }
+
+    private static void TickFloraHeal()
+    {
+        if (!_floraHealActive)
+        {
+            return;
+        }
+
+        var now = NowMs();
+        int floor;
+        string floorName;
+        int mapResId;
+        TryGetCurrentMapInfo(out floor, out floorName, out mapResId);
+        TryGetPlayerXY(out var x, out var y);
+        var inBattle = false;
+        try
+        {
+            inBattle = Convert.ToBoolean(GetStaticMember("BattleDataHolder", "IsInBattle") ?? false);
+        }
+        catch
+        {
+            // ignore
+        }
+
+        if (inBattle)
+        {
+            _floraHealNote = "战斗中，等出战";
+            return;
+        }
+
+        if (_floraHealDelayUntilMs > 0 && now < _floraHealDelayUntilMs)
+        {
+            return;
+        }
+
+        _floraHealDelayUntilMs = 0;
+        if (_floraHealNeedRetry)
+        {
+            _floraHealNeedRetry = false;
+            FloraHealRetryCurrentStep();
+            return;
+        }
+
+        switch (_floraHealPhase)
+        {
+            case FloraHealPhaseReturn:
+                if (IsAtFloraHealReturn(floor, x, y))
+                {
+                    _floraHealStepTries = 0;
+                    FloraHealBeginDelay(FloraHealPhaseDelayAfterReturn, "已回城点2，等 1 秒");
+                    return;
+                }
+
+                FloraHealWaitOrRetry(now, FloraHealReturnWaitMs, "回城点2");
+                break;
+
+            case FloraHealPhaseDelayAfterReturn:
+                FloraHealEnterStep(FloraHealPhaseToDoor, "导航 1000 (82,83)");
+                FloraHealDoDoorNav();
+                break;
+
+            case FloraHealPhaseToDoor:
+                if (floor == FloraHealHospitalFloor)
+                {
+                    _floraHealStepTries = 0;
+                    FloraHealBeginDelay(FloraHealPhaseDelayAfterDoor, "已到 1111，等 1 秒");
+                    return;
+                }
+
+                FloraHealWaitOrRetry(now, FloraHealDoorWaitMs, "切图 1111");
+                break;
+
+            case FloraHealPhaseDelayAfterDoor:
+                FloraHealEnterStep(FloraHealPhaseToStand, "导航 (7,33)");
+                FloraHealDoStandNav();
+                break;
+
+            case FloraHealPhaseToStand:
+                if (IsAtFloraHealStand(floor, x, y))
+                {
+                    _floraHealStepTries = 0;
+                    FloraHealBeginDelay(FloraHealPhaseDelayAfterStand, "已到护士旁，等 1 秒");
+                    return;
+                }
+
+                FloraHealWaitOrRetry(now, FloraHealStandWaitMs, "1111 (7,33)");
+                break;
+
+            case FloraHealPhaseDelayAfterStand:
+                _floraHealPhase = FloraHealPhaseLookNpc;
+                _floraHealLastLookMs = 0;
+                _floraHealNote = "点迪拉";
+                WriteLog("flora-heal phase -> look npc");
+                break;
+
+            case FloraHealPhaseLookNpc:
+                if (IsDialoguePanelOpen())
+                {
+                    FloraHealBeginDelay(FloraHealPhaseDelayAfterLook, "对话已开，等 1 秒");
+                    return;
+                }
+
+                if (_floraHealLastLookMs > 0 && now - _floraHealLastLookMs < FloraHealLookRetryMs)
+                {
+                    return;
+                }
+
+                _floraHealLastLookMs = now;
+                if (TryLookFloraHealNpc())
+                {
+                    _floraHealNote = "已点迪拉，等对话";
+                    WriteLog("flora-heal LookNpc ok");
+                }
+                else
+                {
+                    _floraHealNote = "没找到迪拉，重试";
+                    WriteLog("flora-heal LookNpc miss");
+                }
+
+                break;
+
+            case FloraHealPhaseDelayAfterLook:
+                _floraHealPhase = FloraHealPhasePick;
+                _floraHealNote = "选全队回复";
+                WriteLog("flora-heal phase -> pick");
+                break;
+
+            case FloraHealPhasePick:
+                if (!IsDialoguePanelOpen())
+                {
+                    _floraHealPhase = FloraHealPhaseLookNpc;
+                    _floraHealLastLookMs = 0;
+                    _floraHealNote = "对话关了，再点迪拉";
+                    return;
+                }
+
+                if (TryPickFloraHealOption())
+                {
+                    StopFloraHeal("已选全队回复", true);
+                    return;
+                }
+
+                _floraHealNote = "选项未出现，等待";
+                break;
+        }
+    }
+
+    private static bool IsAtFloraHealReturn(int floor, int x, int y)
+    {
+        return floor == FloraHealReturnFloor
+               && Math.Abs(x - FloraHealReturnX) + Math.Abs(y - FloraHealReturnY) <= 1;
+    }
+
+    private static bool IsAtFloraHealStand(int floor, int x, int y)
+    {
+        return floor == FloraHealHospitalFloor
+               && Math.Abs(x - FloraHealStandX) + Math.Abs(y - FloraHealStandY) <= 1;
+    }
+
+    private static void FloraHealEnterStep(int phase, string note)
+    {
+        _floraHealPhase = phase;
+        _floraHealStepTries = 0;
+        _floraHealActionAtMs = 0;
+        _floraHealNeedRetry = false;
+        _floraHealNote = note;
+        WriteLog("flora-heal phase -> " + FloraHealPhaseName(phase));
+    }
+
+    private static void FloraHealWaitOrRetry(long now, long waitMs, string label)
+    {
+        if (_floraHealActionAtMs == 0)
+        {
+            FloraHealRetryCurrentStep();
+            return;
+        }
+
+        if (now - _floraHealActionAtMs < waitMs)
+        {
+            _floraHealNote = label + " 等待到位 " + _floraHealStepTries + "/" + FloraHealMaxTries;
+            return;
+        }
+
+        if (_floraHealStepTries >= FloraHealMaxTries)
+        {
+            StopFloraHeal(label + " 三次未到位", false);
+            return;
+        }
+
+        _floraHealNeedRetry = true;
+        _floraHealDelayUntilMs = now + FloraHealStepDelayMs;
+        _floraHealNote = label + " 未到位，1秒后第 " + (_floraHealStepTries + 1) + " 次";
+        WriteLog("flora-heal retry wait " + label + " tries=" + _floraHealStepTries);
+    }
+
+    private static void FloraHealRetryCurrentStep()
+    {
+        switch (_floraHealPhase)
+        {
+            case FloraHealPhaseReturn:
+                FloraHealDoReturn();
+                break;
+            case FloraHealPhaseToDoor:
+                FloraHealDoDoorNav();
+                break;
+            case FloraHealPhaseToStand:
+                FloraHealDoStandNav();
+                break;
+        }
+    }
+
+    private static void FloraHealBeginDelay(int nextPhase, string note)
+    {
+        _floraHealPhase = nextPhase;
+        _floraHealDelayUntilMs = NowMs() + FloraHealStepDelayMs;
+        _floraHealNote = note;
+        WriteLog("flora-heal delay 1s -> " + FloraHealPhaseName(nextPhase));
+        try
+        {
+            StopTaskNavigation(false);
+        }
+        catch
+        {
+            // ignore
+        }
+    }
+
+    private static void FloraHealDoReturn()
+    {
+        if (_floraHealStepTries >= FloraHealMaxTries)
+        {
+            StopFloraHeal("回城点2 三次未到位", false);
+            return;
+        }
+
+        _floraHealStepTries++;
+        _floraHealActionAtMs = NowMs();
+        if (!FloraHealSendReturnCity())
+        {
+            _floraHealNote = "回城发包失败 " + _floraHealStepTries + "/" + FloraHealMaxTries;
+            WriteLog("flora-heal return send fail try=" + _floraHealStepTries);
+            return;
+        }
+
+        _floraHealNote = "已发回城点2 " + _floraHealStepTries + "/" + FloraHealMaxTries;
+        WriteLog("flora-heal return SendMenu(3,2) try=" + _floraHealStepTries);
+    }
+
+    private static bool FloraHealSendReturnCity()
+    {
+        var role = GetManagerInstance("RoleManager");
+        if (role == null)
+        {
+            return false;
+        }
+
+        try
+        {
+            var data = FloraHealRecordIndex.ToString();
+            var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+            var send = role.GetType().GetMethod(
+                "SendMenu", flags, null, new[] { typeof(int), typeof(string) }, null);
+            if (send != null)
+            {
+                send.Invoke(role, new object[] { 3, data });
+                return true;
+            }
+
+            send = role.GetType().GetMethod(
+                "SendMenu",
+                flags,
+                null,
+                new[] { typeof(int), typeof(string), typeof(string), typeof(string) },
+                null);
+            if (send == null)
+            {
+                return false;
+            }
+
+            send.Invoke(role, new object[] { 3, data, "", "" });
+            return true;
+        }
+        catch (Exception ex)
+        {
+            WriteLog("flora-heal SendMenu EX: " + RootMessage(ex));
+            return false;
+        }
+    }
+
+    private static void FloraHealDoDoorNav()
+    {
+        FloraHealDoNav(FloraHealDoorFloor, FloraHealDoorX, FloraHealDoorY, "门口");
+    }
+
+    private static void FloraHealDoStandNav()
+    {
+        FloraHealDoNav(FloraHealHospitalFloor, FloraHealStandX, FloraHealStandY, "护士旁");
+    }
+
+    private static void FloraHealDoNav(int floor, int x, int y, string label)
+    {
+        if (_floraHealStepTries >= FloraHealMaxTries)
+        {
+            StopFloraHeal(label + " 三次未到位", false);
+            return;
+        }
+
+        _floraHealStepTries++;
+        _floraHealActionAtMs = NowMs();
+        string how;
+        if (TryNavigateTo(floor, x, y, out how))
+        {
+            _floraHealNote = "导航" + label + " " + _floraHealStepTries + "/" + FloraHealMaxTries;
+            WriteLog("flora-heal nav " + label + " " + floor + " (" + x + "," + y + ") "
+                     + how + " try=" + _floraHealStepTries);
+        }
+        else
+        {
+            _floraHealNote = "导航失败: " + how;
+            WriteLog("flora-heal nav fail " + label + " " + how + " try=" + _floraHealStepTries);
+        }
+    }
+
+    private static bool TryLookFloraHealNpc()
+    {
+        var objindex = FindNpcObjIndexByNameOrPos(FloraHealNpcName, FloraHealNpcShortName, FloraHealNpcX, FloraHealNpcY);
+        if (objindex < 0)
+        {
+            return false;
+        }
+
+        try
+        {
+            var npcMgr = GetManagerInstance("NpcManager");
+            if (npcMgr == null)
+            {
+                return false;
+            }
+
+            var dir = 0;
+            try
+            {
+                var pm = GetManagerInstance("PlayerManager");
+                var entity = GetProp(pm, "playerEntity") ?? GetMember(pm, "playerEntity");
+                dir = Convert.ToInt32(GetProp(entity, "direction") ?? GetMember(entity, "direction") ?? 0);
+            }
+            catch
+            {
+                // ignore
+            }
+
+            var look = npcMgr.GetType().GetMethod(
+                "SendLookNpc",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            if (look == null)
+            {
+                return false;
+            }
+
+            look.Invoke(npcMgr, new object[] { dir, objindex });
+            WriteLog("flora-heal SendLookNpc obj=" + objindex + " dir=" + dir);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            WriteLog("TryLookFloraHealNpc EX: " + RootMessage(ex));
+            return false;
+        }
+    }
+
+    /// <summary>优先按名字找迪拉，找不到再用 (7,32) 附近的 NPC。</summary>
+    private static int FindNpcObjIndexByNameOrPos(string fullName, string shortName, int nx, int ny)
+    {
+        try
+        {
+            var holder = FindType("EntityDataHolder");
+            object dictObj = holder?.GetProperty(
+                "characterDatas",
+                BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic)
+                ?.GetValue(null, null);
+            if (dictObj == null)
+            {
+                dictObj = GetStaticMember("EntityDataHolder", "characterDatas");
+            }
+
+            var dict = dictObj as System.Collections.IDictionary;
+            if (dict == null)
+            {
+                return -1;
+            }
+
+            var bestName = -1;
+            var bestNameDist = int.MaxValue;
+            var bestPos = -1;
+            var bestPosDist = int.MaxValue;
+            foreach (System.Collections.DictionaryEntry e in dict)
+            {
+                var cd = e.Value;
+                if (cd == null)
+                {
+                    continue;
+                }
+
+                var npcindex = Convert.ToInt32(GetMember(cd, "npcindex") ?? GetProp(cd, "npcindex") ?? -1);
+                if (npcindex == -1)
+                {
+                    continue;
+                }
+
+                var objindex = Convert.ToInt32(GetMember(cd, "objindex") ?? GetProp(cd, "objindex") ?? -1);
+                if (objindex < 0)
+                {
+                    continue;
+                }
+
+                var name = (Convert.ToString(GetMember(cd, "name") ?? GetProp(cd, "name") ?? "") ?? "").Trim();
+                var ox = Convert.ToInt32(GetMember(cd, "x") ?? GetProp(cd, "x") ?? -999);
+                var oy = Convert.ToInt32(GetMember(cd, "y") ?? GetProp(cd, "y") ?? -999);
+                var dist = Math.Abs(ox - nx) + Math.Abs(oy - ny);
+                var nameHit = (!string.IsNullOrEmpty(fullName) && name.IndexOf(fullName, StringComparison.Ordinal) >= 0)
+                              || (!string.IsNullOrEmpty(shortName) && name.IndexOf(shortName, StringComparison.Ordinal) >= 0);
+                if (nameHit && dist < bestNameDist)
+                {
+                    bestNameDist = dist;
+                    bestName = objindex;
+                }
+
+                if (dist <= 1 && dist < bestPosDist)
+                {
+                    bestPosDist = dist;
+                    bestPos = objindex;
+                }
+            }
+
+            if (bestName >= 0)
+            {
+                WriteLog("flora-heal npc by name obj=" + bestName + " dist=" + bestNameDist);
+                return bestName;
+            }
+
+            if (bestPos >= 0)
+            {
+                WriteLog("flora-heal npc by pos obj=" + bestPos);
+                return bestPos;
+            }
+        }
+        catch (Exception ex)
+        {
+            WriteLog("FindNpcObjIndexByNameOrPos EX: " + RootMessage(ex));
+        }
+
+        return -1;
+    }
+
+    private static bool TryPickFloraHealOption()
+    {
+        try
+        {
+            var npcMgr = GetManagerInstance("NpcManager");
+            if (npcMgr == null)
+            {
+                return false;
+            }
+
+            var wmdb = GetMember(npcMgr, "wmdb");
+            if (wmdb == null)
+            {
+                return false;
+            }
+
+            var buttonData = GetMember(wmdb, "buttonData") as Array;
+            if (buttonData == null || buttonData.Length == 0)
+            {
+                return false;
+            }
+
+            int pickValue;
+            string pickName;
+            if (!TryChooseFloraHealButton(buttonData, out pickValue, out pickName))
+            {
+                return false;
+            }
+
+            var seqno = Convert.ToInt32(GetMember(wmdb, "seqno") ?? 0);
+            var windowTypeObj = GetMember(wmdb, "windowType");
+            var windowType = Convert.ToInt32(windowTypeObj ?? 0);
+            int select;
+            string data;
+            if (pickValue > 64)
+            {
+                select = 0;
+                data = (pickValue - 64).ToString();
+            }
+            else
+            {
+                select = pickValue;
+                data = "";
+            }
+
+            var loc = GetStaticMember("PlayerDataHolder", "location");
+            var x = Convert.ToInt32(GetMember(loc, "x") ?? GetMember(loc, "X") ?? 0);
+            var y = Convert.ToInt32(GetMember(loc, "y") ?? GetMember(loc, "Y") ?? 0);
+            var objindex = Convert.ToInt32(GetMember(wmdb, "objindex") ?? 0);
+            var uid = Convert.ToString(GetMember(wmdb, "m_Uid") ?? "") ?? "";
+
+            MethodInfo send8 = null;
+            foreach (var m in npcMgr.GetType().GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+            {
+                if (m.Name != "SendWindows")
+                {
+                    continue;
+                }
+
+                var ps = m.GetParameters();
+                if (ps.Length >= 8)
+                {
+                    send8 = m;
+                    break;
+                }
+            }
+
+            if (send8 == null)
+            {
+                WriteLog("flora-heal SendWindows missing");
+                return false;
+            }
+
+            var psAll = send8.GetParameters();
+            var args = new object[psAll.Length];
+            args[0] = x;
+            args[1] = y;
+            args[2] = seqno;
+            args[3] = objindex;
+            args[4] = select;
+            args[5] = data ?? "";
+            args[6] = windowType;
+            args[7] = uid;
+            for (var i = 8; i < psAll.Length; i++)
+            {
+                if (psAll[i].ParameterType.IsEnum || psAll[i].ParameterType.IsValueType)
+                {
+                    args[i] = Activator.CreateInstance(psAll[i].ParameterType);
+                }
+                else
+                {
+                    args[i] = null;
+                }
+            }
+
+            send8.Invoke(npcMgr, args);
+            WriteLog("flora-heal pick " + pickName + " v=" + pickValue + " seq=" + seqno);
+            Tip("法兰治疗：已选" + pickName);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            WriteLog("TryPickFloraHealOption EX: " + RootMessage(ex));
+            return false;
+        }
+    }
+
+    private static bool TryChooseFloraHealButton(Array buttonData, out int pickValue, out string pickName)
+    {
+        pickValue = -1;
+        pickName = null;
+        var options = new System.Collections.Generic.List<System.Collections.Generic.KeyValuePair<int, string>>();
+        var dump = "";
+        for (var i = 0; i < buttonData.Length && i < 9; i++)
+        {
+            var btn = buttonData.GetValue(i);
+            if (btn == null)
+            {
+                continue;
+            }
+
+            var name = (Convert.ToString(GetMember(btn, "name") ?? "") ?? "").Trim();
+            var value = Convert.ToInt32(GetMember(btn, "value") ?? -1);
+            if (string.IsNullOrEmpty(name) || value < 0)
+            {
+                continue;
+            }
+
+            if (dump.Length > 0)
+            {
+                dump += ",";
+            }
+
+            dump += name + "=" + value;
+            if (IsDialogueCancelName(name))
+            {
+                continue;
+            }
+
+            options.Add(new System.Collections.Generic.KeyValuePair<int, string>(value, name));
+        }
+
+        WriteLog("flora-heal buttons " + dump);
+        for (var i = 0; i < options.Count; i++)
+        {
+            var n = NormalizeDialogueBtnName(options[i].Value);
+            if (n.IndexOf(FloraHealOptionName, StringComparison.Ordinal) >= 0)
+            {
+                pickValue = options[i].Key;
+                pickName = options[i].Value;
+                return true;
+            }
+        }
+
+        var idx = FloraHealOptionIndex - 1;
+        if (idx >= 0 && idx < options.Count)
+        {
+            pickValue = options[idx].Key;
+            pickName = options[idx].Value;
+            return true;
+        }
+
+        return false;
     }
 
     private static void RunScriptWingTest()

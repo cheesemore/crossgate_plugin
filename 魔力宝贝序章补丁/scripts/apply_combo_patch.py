@@ -324,6 +324,27 @@ def apply_level_one_include_all(hotfix: Path, source: Path) -> tuple[bool, str]:
     return True, "遇敌一级停止：哥布林/迷你蝙蝠也会计入（不再排除）"
 
 
+def apply_pet_recycle_capture_allow(hotfix: Path, source: Path) -> tuple[bool, str]:
+    """去掉宠物面板「捕捉的金卡宠物无法回收」拦截。体积不变。"""
+    proc = run_patcher_capture(
+        [
+            "pet-recycle-capture-allow-patch",
+            "--hotfix",
+            str(source),
+            "--output",
+            str(hotfix),
+        ]
+    )
+    out = (proc.stdout or "") + (proc.stderr or "")
+    if proc.returncode != 0:
+        if "[SKIP]" in out or "已包含" in out or "已去掉" in out:
+            return True, "捕捉金卡回收：已去掉拦截（跳过）"
+        return False, out.strip() or "捕捉金卡回收补丁失败"
+    if "[SKIP]" in out:
+        return True, "捕捉金卡回收：已去掉拦截（跳过）"
+    return True, "捕捉金卡回收：去掉客户端拦截（服务端仍可能拒绝）"
+
+
 def apply_transition_speed(hotfix: Path, source: Path, scale: float = 0.4) -> tuple[bool, str]:
     if scale not in TRANSITION_SPEED_SCALES:
         return False, f"无效过场时长: {scale}"
@@ -632,7 +653,7 @@ def apply_kill_timescale_report(hotfix: Path, source: Path) -> tuple[bool, str]:
         return False, out.strip() or "上报拦截补丁失败"
     if "已是空方法" in out and "文件大小不变" in out:
         return True, "上报拦截：两个方法均已为空方法（跳过）"
-    return True, "上报拦截：CheckTimeScaleWarning / SendTimeScaleWarning 打成空方法"
+    return True, "上报拦截：CheckTimeScaleWarning / SendTimeScaleWarning / TryReportBattleAnimSkipWarning 打成空方法"
 
 
 def apply_auto_seal_external(
@@ -951,6 +972,7 @@ def _apply_gameplay_patches(
     wiki_test_ui: bool = False,
     battle_appear: bool = False,
     kill_timescale_report: bool = True,
+    pet_recycle_capture_allow: bool = False,
     on_log=None,
 ) -> tuple[list[str], Path]:
     """在现有 hotfix 上叠加玩法补丁（不还原 .orig）。返回 (messages, work_path)。"""
@@ -1270,6 +1292,14 @@ def _apply_gameplay_patches(
     _emit_combo(messages, on_log, msg)
     work = hotfix
 
+    if pet_recycle_capture_allow:
+        _emit_combo(messages, on_log, "正在打：捕捉金卡可回收…")
+        ok, msg = apply_pet_recycle_capture_allow(hotfix, work)
+        if not ok:
+            raise RuntimeError(msg)
+        _emit_combo(messages, on_log, msg)
+        work = hotfix
+
     if pet_equip_unlock:
         raise RuntimeError("宠物四装备孔补丁已停用（会导致宠物界面崩溃）")
 
@@ -1322,6 +1352,7 @@ def apply_combo(
     wiki_test_ui: bool = False,
     battle_appear: bool = False,
     kill_timescale_report: bool = True,
+    pet_recycle_capture_allow: bool = False,
     inject_bridge: bool = False,
     from_orig: bool = False,
     game_root: Path | None = None,
@@ -1491,6 +1522,7 @@ def apply_combo(
         or wiki_test_ui
         or battle_appear
         or kill_timescale_report
+        or pet_recycle_capture_allow
     )
 
     patch_kwargs = dict(
@@ -1535,6 +1567,7 @@ def apply_combo(
         wiki_test_ui=wiki_test_ui,
         battle_appear=battle_appear,
         kill_timescale_report=kill_timescale_report,
+        pet_recycle_capture_allow=pet_recycle_capture_allow,
         on_log=on_log,
     )
 
@@ -1618,6 +1651,7 @@ def apply_combo(
         "wiki_test_ui": wiki_test_ui,
         "battle_appear": battle_appear,
         "kill_timescale_report": kill_timescale_report,
+        "pet_recycle_capture_allow": pet_recycle_capture_allow,
         "inject_bridge": inject_bridge,
         "bridge_patched": is_bridge_patched(game_root),
         "bridge_variant": detect_bridge_variant(game_root),
@@ -1699,6 +1733,12 @@ def main() -> int:
         "--battle-longpress",
         action="store_true",
         help="任意战斗类型长按单位可打开 BattleMessageTips 详情",
+    )
+    parser.add_argument(
+        "--pet-recycle-capture-allow",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="去掉宠物面板「捕捉的金卡宠物无法回收」拦截（默认关）",
     )
     parser.add_argument(
         "--level-one-include-all",
@@ -1783,6 +1823,7 @@ def main() -> int:
             map_sprint=args.map_sprint,
             map_sprint_scale=args.map_sprint_scale,
             battle_longpress=args.battle_longpress,
+            pet_recycle_capture_allow=args.pet_recycle_capture_allow,
             level_one_include_all=args.level_one_include_all,
             transition_speed=args.transition_speed,
             transition_speed_scale=args.transition_speed_scale,

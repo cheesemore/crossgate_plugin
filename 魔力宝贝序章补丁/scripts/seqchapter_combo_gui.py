@@ -168,6 +168,7 @@ class ComboPatchApp:
         self.wiki_test_ui_var = tk.BooleanVar(value=True)
         self.battle_appear_var = tk.BooleanVar(value=False)
         self.kill_timescale_report_var = tk.BooleanVar(value=True)  # 默认勾选：总是拦截倍速检测上报
+        self.pet_recycle_capture_allow_var = tk.BooleanVar(value=False)
 
         notebook = ttk.Notebook(body)
         notebook.pack(fill=tk.BOTH, expand=True, pady=(0, 8))
@@ -199,7 +200,7 @@ class ComboPatchApp:
 
         ttk.Checkbutton(
             tab_common,
-            text="拦截倍速检测上报（默认开：CheckTimeScaleWarning/SendTimeScaleWarning 空方法，防检测）",
+            text="拦截倍速/跳过动画上报（默认开：Check/SendTimeScaleWarning + TryReportBattleAnimSkip 空方法）",
             variable=self.kill_timescale_report_var,
         ).pack(anchor=tk.W, pady=(8, 0))
 
@@ -300,6 +301,11 @@ class ComboPatchApp:
             tab_common,
             text="新手礼包码领取（默认开；与日常同分享切页；最多5角色）",
             variable=self.newbie_gift_code_var,
+        ).pack(anchor=tk.W, pady=(4, 0))
+        ttk.Checkbutton(
+            tab_common,
+            text="允许回收捕捉金卡（默认关；傻瓜包不带此项）",
+            variable=self.pet_recycle_capture_allow_var,
         ).pack(anchor=tk.W, pady=(4, 0))
         ttk.Label(
             tab_common,
@@ -895,6 +901,8 @@ class ComboPatchApp:
                 or self.wiki_fps_var.get()
                 or self.wiki_test_ui_var.get()
                 or self.battle_appear_var.get()
+                or self.kill_timescale_report_var.get()
+                or self.pet_recycle_capture_allow_var.get()
                 or self.inject_bridge_var.get()
             ):
                 messagebox.showwarning("未选择", "请至少勾选一项补丁")
@@ -981,6 +989,7 @@ class ComboPatchApp:
                 wiki_test_ui=self.wiki_test_ui_var.get(),
                 battle_appear=self.battle_appear_var.get(),
                 kill_timescale_report=self.kill_timescale_report_var.get(),
+                pet_recycle_capture_allow=self.pet_recycle_capture_allow_var.get(),
                 inject_bridge=self.inject_bridge_var.get(),
                 from_orig=True,
                 game_root=root,

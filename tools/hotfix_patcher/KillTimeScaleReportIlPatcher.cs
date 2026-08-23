@@ -4,16 +4,18 @@ using Mono.Cecil.Cil;
 namespace CrossgateMod.Patcher;
 
 /// <summary>
-/// 倍速检测上报拦截（kill-report，独立补丁）：
-/// 把 GmManager.CheckTimeScaleWarning 与 NetManager.SendTimeScaleWarning 打成空方法（首指令 ret）。
+/// 倍速/跳过动画检测上报拦截（kill-report，独立补丁）：
+/// 把 GmManager.CheckTimeScaleWarning、NetManager.SendTimeScaleWarning，
+/// 以及 BattleManager.TryReportBattleAnimSkipWarning（若存在）打成空方法（首指令 ret）。
 ///
 /// 背景：客户端内置倍速检测（StartTimeScaleCheck 定时调 CheckTimeScaleWarning，
 /// 战斗中读 BattleTimeScale&gt;1.0 阈值约 1.00003 即触发 SendTimeScaleWarning
-/// Web 上报：HTTP + MD5 签名 + 时间戳）。默认组合（即使加速关）也拦截上报出口，
-/// 避免任何倍速/变速相关改动触发服务端检测上报。
+/// Web 上报：HTTP + MD5 签名 + 时间戳）。2026-08-22 官方另加跳过战斗动画检测：
+/// 连续 5 场判定异常后 TryReportBattleAnimSkipWarning，仍走 SendTimeScaleWarning
+/// （reason=BattleAnimSkipWarning）。默认组合（即使加速关）也拦截上报出口。
 ///
 /// 幂等：已为空方法时跳过。与 VipTimeScaleIlPatcher / CombatAccelIlPatcher 自带
-/// kill-report 逻辑并存（三者互相跳过）。
+/// kill-report 逻辑并存（三者互相跳过）。TryReport 在旧体积上可能不存在，找不到则跳过。
 /// </summary>
 internal static class KillTimeScaleReportIlPatcher
 {
@@ -79,9 +81,16 @@ internal static class KillTimeScaleReportIlPatcher
             new ReaderParameters { InMemory = true });
         var check = FindMethod(asm.MainModule, "GmManager", "CheckTimeScaleWarning");
         var send = FindMethod(asm.MainModule, "NetManager", "SendTimeScaleWarning");
-        return check != null && send != null
-            && IsEarlyReturn(ReadMethodBodyFromPe(data, check.RVA))
-            && IsEarlyReturn(ReadMethodBodyFromPe(data, send.RVA));
+        if (check == null || send == null
+            || !IsEarlyReturn(ReadMethodBodyFromPe(data, check.RVA))
+            || !IsEarlyReturn(ReadMethodBodyFromPe(data, send.RVA)))
+        {
+            return false;
+        }
+
+        var tryReport = FindMethod(asm.MainModule, "BattleManager", "TryReportBattleAnimSkipWarning");
+        return tryReport == null
+            || IsEarlyReturn(ReadMethodBodyFromPe(data, tryReport.RVA));
     }
 
     public static void Apply(string sourcePath, string outputPath)
@@ -94,17 +103,26 @@ internal static class KillTimeScaleReportIlPatcher
             new ReaderParameters { InMemory = true });
 
         var wrote = false;
-        foreach (var (method, label) in new[]
+        foreach (var (method, label, isRequired) in new[]
                  {
                      (Method: FindMethod(asm.MainModule, "GmManager", "CheckTimeScaleWarning"),
-                         Label: "GmManager.CheckTimeScaleWarning"),
+                         Label: "GmManager.CheckTimeScaleWarning", IsRequired: true),
                      (Method: FindMethod(asm.MainModule, "NetManager", "SendTimeScaleWarning"),
-                         Label: "NetManager.SendTimeScaleWarning"),
+                         Label: "NetManager.SendTimeScaleWarning", IsRequired: true),
+                     (Method: FindMethod(asm.MainModule, "BattleManager", "TryReportBattleAnimSkipWarning"),
+                         Label: "BattleManager.TryReportBattleAnimSkipWarning", IsRequired: false),
                  })
         {
             if (method == null)
             {
-                Console.WriteLine($"[WARN] 未找到 {label}，跳过");
+                if (isRequired)
+                {
+                    Console.WriteLine($"[WARN] 未找到 {label}，跳过");
+                }
+                else
+                {
+                    Console.WriteLine($"[SKIP] 未找到 {label}（旧版本无跳过动画上报）");
+                }
                 continue;
             }
 
@@ -129,7 +147,7 @@ internal static class KillTimeScaleReportIlPatcher
 
         if (!wrote)
         {
-            throw new InvalidOperationException("倍速上报拦截补丁可能已打过（两个方法均已为空方法）");
+            throw new InvalidOperationException("倍速/跳过动画上报拦截补丁可能已打过（目标方法均已为空方法）");
         }
 
         HotfixSize.EnsureUnchanged(data, expectedSize);

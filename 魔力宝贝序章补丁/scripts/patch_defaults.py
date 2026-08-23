@@ -46,7 +46,8 @@ DEFAULT_COMBO_KWARGS = {
     "wiki_fps": False,
     "wiki_test_ui": True,  # 百科 → 助手面板（含七夕 #119 临时护航特例，等用户下令再移除）
     "battle_appear": False,  # 进战形象钩子：总是部署（游戏内可开），勾选=打补丁后默认开启形象
-    "kill_timescale_report": True,  # 默认拦截倍速检测上报（即使加速关也掐断 Check/SendTimeScaleWarning）
+    "kill_timescale_report": True,  # 默认拦截倍速/跳过动画上报（Check/SendTimeScaleWarning + TryReportBattleAnimSkip）
+    "pet_recycle_capture_allow": False,  # 捕捉金卡可回收：默认关（需显式勾选）
     "inject_bridge": True,  # 注入精简多开桥接（登录/拉多控/一键召唤，供新序章多开器直接驱动；默认开启）
     "from_orig": True,
 }
@@ -76,6 +77,7 @@ FOOLPROOF_COMBO_KWARGS = {
     "map_sprint": False,  # 移动加速默认关
     "dragon_loop_ui": False,  # 融合版默认不显示；带龙族版由 flag 覆盖
     "skip_battle_anim_default": False,  # 傻瓜包：跳过动画默认关（面板内手动开）
+    "pet_recycle_capture_allow": False,  # 傻瓜包不打捕捉金卡回收
 }
 
 FOOLPROOF_NO_NINE_COMBO_KWARGS = {
@@ -157,6 +159,7 @@ LAUNCH_INJECT_PRESET = {
     "wiki_label": False,
     "daily_claim": True,
     "newbie_gift_code": True,
+    "pet_recycle_capture_allow": False,
     "boss_key_fps": True,  # 切后台 / 老板键隐藏 → 30 FPS
     "wiki_fps": False,
     "wiki_test_ui": True,
