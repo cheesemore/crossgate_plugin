@@ -26,6 +26,7 @@ KEEP_CHANNELS = frozenset({"1100", "1102"})
 DEFAULT_CHANNEL = "1101"
 OLD_HOTFIX_SIZE = 6_879_744
 EXPECTED_SIZE = 7_177_216
+PATCHER_TIMEOUT_SEC = 60
 KNOWN_OLD_SIZES: dict[int, str] = {
     7_175_680: "自动标记：更新前旧版",
     7_175_168: "自动标记：更新前旧版",
@@ -716,13 +717,33 @@ def rebuild_patcher_engine() -> list[str]:
     return messages
 
 
-def run_patcher_capture(args: list[str]) -> subprocess.CompletedProcess:
+def run_patcher_capture(
+    args: list[str],
+    *,
+    timeout: float | None = PATCHER_TIMEOUT_SEC,
+) -> subprocess.CompletedProcess:
     cmd = [*ensure_patcher(), *args]
-    proc = subprocess.run(
-        cmd,
-        check=False,
-        capture_output=True,
-    )
+    try:
+        proc = subprocess.run(
+            cmd,
+            check=False,
+            capture_output=True,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired as exc:
+        stdout = _decode_patcher_bytes(exc.stdout or b"")
+        stderr = _decode_patcher_bytes(exc.stderr or b"")
+        step = args[0] if args else "patcher"
+        msg = (
+            f"补丁引擎超时（{int(timeout or 0)} 秒未结束）：{step}。"
+            "已中止该步，请重试；若多次失败可先取消「战斗加速」再打。"
+        )
+        return subprocess.CompletedProcess(
+            cmd,
+            124,
+            stdout,
+            (stderr + "\n" + msg).strip() if stderr else msg,
+        )
     stdout = _decode_patcher_bytes(proc.stdout or b"")
     stderr = _decode_patcher_bytes(proc.stderr or b"")
     return subprocess.CompletedProcess(

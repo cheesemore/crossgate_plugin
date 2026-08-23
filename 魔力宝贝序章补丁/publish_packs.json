@@ -1,12 +1,12 @@
 {
   "version": 2,
-  "description": "傻瓜补丁默认发布清单。fusion=一次打出融合版+带龙族两 zip；skin=换装包。改此文件后提交 git。",
+  "description": "傻瓜补丁默认发布清单。fusion=只打融合版 zip；skin=换装包。改此文件后提交 git。",
   "default_publish": ["fusion", "skin"],
   "packs": {
     "fusion": {
       "enabled": true,
       "label": "傻瓜补丁_融合版",
-      "note": "publish_foolproof.py 一次产出 融合版 + 带龙族 两个 zip",
+      "note": "publish_foolproof.py 只产融合版 zip",
       "script": "scripts/publish_foolproof.py",
       "args": []
     },

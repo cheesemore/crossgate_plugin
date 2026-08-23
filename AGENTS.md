@@ -11,7 +11,7 @@
 | 看状态 | `python tools/workflow.py status` |
 | crosscopy 已更新 → 一条龙 | `python tools/workflow.py update`（先可 `--dry-run`；反外挂误报加 `--confirm-anticheat`） |
 | 只重打 cross 默认补丁 | `python tools/workflow.py repatch`（需关游戏） |
-| 打傻瓜补丁两版 | `python tools/workflow.py publish-foolproof` |
+| 打傻瓜补丁融合版 | `python tools/workflow.py publish-foolproof` |
 | 按配置默认发布 | `python tools/workflow.py publish-all` |
 
 ## 铁律（详见规范文档与 `.cursor/rules/`）
@@ -23,15 +23,14 @@
 5. 新功能先查 `tools/常用反射方法速查.md`，复用已有协议片段。
 6. 废弃模块见 `tools/DEPRECATED.md`，默认不打开。
 
-## 傻瓜补丁两版
+## 傻瓜补丁
 
-`publish_foolproof.py` **一次产出**（至游戏目录上一级 `发布plugin/`，相对 `../发布plugin`）：
+`publish_foolproof.py` **只产融合版**（至游戏目录上一级 `发布plugin/`，相对 `../发布plugin`）：
 
 - `傻瓜补丁_融合版_*.zip`（护航无龙族按钮）
-- `傻瓜补丁_带龙族_*.zip`（包内 `带龙族.flag` → 打补丁写 `seqchapter_dragon_loop.flag`）
 
-包内含多开器、窗口监视。说明文件**不提**龙族差异、**不提**九动。
-七夕 #119 护航循环在助手面板（阿凯版/哥拉尔版；**存兑换券后才计一轮**，标题 `★七夕N轮★`）；临时活动，**等用户下令再永久移除**。
+包内含多开器、窗口监视。说明文件**不提**龙族。
+七夕 #119 护航循环在助手面板（阿凯版/哥拉尔版；**存兑换券后才计一轮**，丢队长绿/红头盔，再走通用法兰治疗，然后下一轮；标题 `★七夕N轮★`）；临时活动，**等用户下令再永久移除**。
 
 ## 协议复用
 

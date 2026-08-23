@@ -52,6 +52,11 @@ internal static class SkillEffectSpeedIlPatcher
             Console.WriteLine("[SKIP] " + ex.Message);
             return 0;
         }
+        catch (InvalidOperationException ex)
+        {
+            Console.WriteLine("[FAIL] " + ex.Message);
+            return 1;
+        }
     }
 
     public static void Apply(string sourcePath, string outputPath, float effectScale = 1.5f)
@@ -117,7 +122,12 @@ internal static class SkillEffectSpeedIlPatcher
 
         IlSerializer.RecalculateOffsets(playMethod.Body);
         var newBody = IlSerializer.Serialize(playMethod.Body, snapshot);
-        BinaryPeWriter.ReplaceMethodBody(data, playMethod.RVA, snapshot, newBody);
+        BinaryPeWriter.ReplaceMethodBody(
+            data,
+            playMethod.RVA,
+            snapshot,
+            newBody,
+            playMethod.MetadataToken.ToUInt32());
 
         HotfixSize.EnsureUnchanged(data, expectedSize);
 

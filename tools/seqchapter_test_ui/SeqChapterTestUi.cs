@@ -305,6 +305,11 @@ public static class SeqChapterTestUi
     private const int FloraHealPhaseLookNpc = 7;
     private const int FloraHealPhaseDelayAfterLook = 8;
     private const int FloraHealPhasePick = 9;
+    /// <summary>治疗前回队长背包丢名字为「绿头盔」「红头盔」的道具（七夕每轮；一件一丢）。</summary>
+    private const int FloraHealPhaseDropHelmets = 10;
+    private const int FloraHealBagStart = 8;
+    private const int FloraHealBagEnd = 68;
+    private const long FloraHealDropDelayMs = 1000;
     private static bool _floraHealActive;
     private static bool _floraHealResumeEscort;
     private static bool _floraHealNeedRetry;
@@ -9260,7 +9265,7 @@ public static class SeqChapterTestUi
             "队列护航：可塞未接；完成一项后等 5 秒再下一项。\n"
             + "手动暂停不清铃；自动暂停约每2秒响铃，点「我知道了」或停止才停。静止5秒尝试恢复，连挪5次后改为直接续任务再观察5秒；本步骤连续20次失败自动暂停。\n"
             + (TempMidAutumnEscort119
-                ? "七夕循环：阿凯版=回登入点+赤凤之翼；哥拉尔版=登入点在哥拉尔、不用赤凤之翼。石碑步先挂机传送哈巴鲁洞穴。最后一步分账号存兑换券后计一轮，再去法兰治疗，然后下一轮。\n"
+                ? "七夕循环：阿凯版=回登入点+赤凤之翼；哥拉尔版=登入点在哥拉尔、不用赤凤之翼。石碑步先挂机传送哈巴鲁洞穴。最后一步分账号存兑换券后计一轮，丢队长包里绿/红头盔（一件一丢，间隔1秒），再去法兰治疗，然后下一轮。\n"
                 : "")
             + (dragonLoopUi
                 ? "龙族循环A：自动重置龙4→按序执行龙族纷争1-4→宠物位满停止。\n"
@@ -10137,26 +10142,7 @@ public static class SeqChapterTestUi
             }
 
             // 找 SendBackPackMessage(string, int, int, string)
-            MethodInfo send = null;
-            foreach (var m in itemMgr.GetType().GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
-            {
-                if (m.Name != "SendBackPackMessage")
-                {
-                    continue;
-                }
-
-                var ps = m.GetParameters();
-                if (ps.Length == 4
-                    && ps[0].ParameterType.FullName == "System.String"
-                    && ps[1].ParameterType.FullName == "System.Int32"
-                    && ps[2].ParameterType.FullName == "System.Int32"
-                    && ps[3].ParameterType.FullName == "System.String")
-                {
-                    send = m;
-                    break;
-                }
-            }
-
+            var send = FindSendBackPackMessage(itemMgr);
             if (send == null)
             {
                 return 0;
@@ -10194,6 +10180,34 @@ public static class SeqChapterTestUi
         }
 
         return dropped;
+    }
+
+    private static MethodInfo FindSendBackPackMessage(object itemMgr)
+    {
+        if (itemMgr == null)
+        {
+            return null;
+        }
+
+        foreach (var m in itemMgr.GetType().GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+        {
+            if (m.Name != "SendBackPackMessage")
+            {
+                continue;
+            }
+
+            var ps = m.GetParameters();
+            if (ps.Length == 4
+                && ps[0].ParameterType.FullName == "System.String"
+                && ps[1].ParameterType.FullName == "System.Int32"
+                && ps[2].ParameterType.FullName == "System.Int32"
+                && ps[3].ParameterType.FullName == "System.String")
+            {
+                return m;
+            }
+        }
+
+        return null;
     }
 
     /// <summary>龙1/2 特例：丢弃所有队员背包中的黑之记忆/白之记忆。</summary>
@@ -15644,7 +15658,7 @@ public static class SeqChapterTestUi
         ResetMoonRabbitEscortFlags();
         _escortLastStepNum = GetEscortMissionStepNum();
         _lastActivityMs = now;
-        Tip("七夕循环：已存兑换券，完成第 " + _midAutumnLoopCount + " 轮，去治疗…");
+        Tip("七夕循环：已存兑换券，完成第 " + _midAutumnLoopCount + " 轮，先丢绿/红头盔再治疗…");
         WriteLog("qixi ticket-bank next-round count=" + _midAutumnLoopCount + " step=" + _escortLastStepNum);
         try
         {
@@ -16286,6 +16300,7 @@ public static class SeqChapterTestUi
             case FloraHealPhaseLookNpc: return "点资深护士迪拉";
             case FloraHealPhaseDelayAfterLook: return "对话后等待 1 秒";
             case FloraHealPhasePick: return "选全队回复";
+            case FloraHealPhaseDropHelmets: return "丢弃绿/红头盔";
             default: return "准备中";
         }
     }
@@ -16305,7 +16320,7 @@ public static class SeqChapterTestUi
 
     /// <summary>
     /// 通用法兰治疗。脚本页按钮与七夕每轮存券后都走这里（resumeEscort=true 时治完再点任务）。
-    /// 回城点2 → 1000(82,83)切图1111 → (7,33) → 点迪拉 → 全队回复。
+    /// 七夕：先丢队长背包里名字为「绿头盔」「红头盔」的道具（一件一丢，间隔 1 秒）→ 回城点2 → 1000(82,83)切图1111 → (7,33) → 点迪拉 → 全队回复。
     /// </summary>
     private static void StartFloraHeal(bool resumeEscort)
     {
@@ -16326,26 +16341,31 @@ public static class SeqChapterTestUi
 
         _floraHealResumeEscort = resumeEscort;
         _floraHealActive = true;
-        _floraHealPhase = FloraHealPhaseReturn;
+        _floraHealPhase = resumeEscort ? FloraHealPhaseDropHelmets : FloraHealPhaseReturn;
         _floraHealStepTries = 0;
         _floraHealActionAtMs = 0;
         _floraHealNeedRetry = false;
         _floraHealLastLookMs = 0;
         _floraHealDelayUntilMs = 0;
-        _floraHealNote = "回城记录点2";
-        Tip(resumeEscort ? "七夕循环：去法兰治疗" : "法兰治疗：已启动");
-        WriteLog("flora-heal start resumeEscort=" + resumeEscort);
+        _floraHealNote = resumeEscort ? "丢弃绿/红头盔" : "回城记录点2";
+        Tip(resumeEscort ? "七夕循环：先丢绿/红头盔再治疗" : "法兰治疗：已启动");
+        WriteLog("flora-heal start resumeEscort=" + resumeEscort + " phase=" + _floraHealPhase);
         try
         {
             if (Convert.ToBoolean(GetStaticMember("BattleDataHolder", "IsInBattle") ?? false))
             {
-                _floraHealNote = "战斗中，等出战再回城";
+                _floraHealNote = resumeEscort ? "战斗中，等出战再丢头盔" : "战斗中，等出战再回城";
                 return;
             }
         }
         catch
         {
             // ignore
+        }
+
+        if (resumeEscort)
+        {
+            return;
         }
 
         FloraHealDoReturn();
@@ -16443,6 +16463,10 @@ public static class SeqChapterTestUi
 
         switch (_floraHealPhase)
         {
+            case FloraHealPhaseDropHelmets:
+                FloraHealTickDropHelmets(now);
+                break;
+
             case FloraHealPhaseReturn:
                 if (IsAtFloraHealReturn(floor, x, y))
                 {
@@ -16543,6 +16567,99 @@ public static class SeqChapterTestUi
                 _floraHealNote = "选项未出现，等待";
                 break;
         }
+    }
+
+    private static void FloraHealTickDropHelmets(long now)
+    {
+        if (TryDropOneCaptainGreenOrRedHelmet())
+        {
+            _floraHealDelayUntilMs = now + FloraHealDropDelayMs;
+            return;
+        }
+
+        FloraHealEnterStep(FloraHealPhaseReturn, "回城记录点2");
+        FloraHealDoReturn();
+    }
+
+    /// <summary>
+    /// 队长背包 [8..67] 丢一件名字固定为「绿头盔」或「红头盔」的道具。
+    /// </summary>
+    private static bool TryDropOneCaptainGreenOrRedHelmet()
+    {
+        try
+        {
+            var uid = GetCaptainUid();
+            if (string.IsNullOrEmpty(uid))
+            {
+                WriteLog("flora-heal drop-helm skip: no captain uid");
+                return false;
+            }
+
+            var items = FindType("PlayerDataHolder")?.GetMethod(
+                "GetItemDatasFromUid", BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic)
+                ?.Invoke(null, new object[] { uid }) as System.Collections.IList;
+            if (items == null)
+            {
+                return false;
+            }
+
+            var itemMgr = GetManagerInstance("ItemManager");
+            var send = FindSendBackPackMessage(itemMgr);
+            if (send == null)
+            {
+                WriteLog("flora-heal drop-helm skip: SendBackPackMessage missing");
+                return false;
+            }
+
+            var end = Math.Min(FloraHealBagEnd, items.Count);
+            for (var i = FloraHealBagStart; i < end; i++)
+            {
+                var item = items[i];
+                if (item == null)
+                {
+                    continue;
+                }
+
+                var useFlag = Convert.ToInt32(GetMember(item, "useFlag") ?? 0);
+                if (useFlag != 1)
+                {
+                    continue;
+                }
+
+                var data = GetMember(item, "data");
+                if (data == null || !IsGreenOrRedHelmet(data))
+                {
+                    continue;
+                }
+
+                var locked = Convert.ToInt32(GetMember(data, "Locked") ?? 0);
+                if (locked != 0)
+                {
+                    continue;
+                }
+
+                var name = Convert.ToString(GetMember(data, "Name") ?? "") ?? "";
+                send.Invoke(itemMgr, new object[] { "丢弃道具", i, 1, uid });
+                _floraHealStepTries++;
+                _floraHealNote = "已丢[" + name + "] 第 " + _floraHealStepTries + " 件，等 1 秒";
+                Tip("已丢弃[" + name + "]");
+                WriteLog("flora-heal drop-helm idx=" + i + " name=" + name
+                         + " n=" + _floraHealStepTries);
+                return true;
+            }
+        }
+        catch (Exception ex)
+        {
+            WriteLog("flora-heal drop-helm EX " + RootMessage(ex));
+        }
+
+        return false;
+    }
+
+    private static bool IsGreenOrRedHelmet(object data)
+    {
+        var name = Convert.ToString(GetMember(data, "Name") ?? "") ?? "";
+        return name == "绿头盔" || name == "红头盔";
     }
 
     private static bool IsAtFloraHealReturn(int floor, int x, int y)

@@ -2,9 +2,7 @@
 # -*- coding: utf-8 -*-
 """构建「傻瓜补丁」独立包 → <游戏目录上级>/发布plugin/*.zip。
 
-一次产出两版（说明文件不提差异）：
-  - 傻瓜补丁_融合版_*   （护航面板无龙族按钮）
-  - 傻瓜补丁_带龙族_*   （包内带龙族.flag → 打补丁写 hotfixdata 标记）
+只产融合版（护航面板无龙族按钮）。说明不提龙族。
 
 发布目录：相对游戏根的上一级 ``发布plugin``（本机常见为 ``../发布plugin``，
 勿写死盘符；也可用环境变量 SEQCHAPTER_RELEASE_DIR 覆盖）。
@@ -140,7 +138,7 @@ def _readme_content(app_name: str) -> str:
 · 面板「脚本」页：做日常 / 礼包码 / 立刻提取采集物
 · 助手战斗页「跳过动画」：默认关闭（PVE 可在面板内手动开）
 · 外层「移动加速」：可选地图 Sprint 8 倍（默认不勾）
-· 护航面板含七夕 #119 循环（阿凯版/哥拉尔版；存兑换券后才计一轮；临时活动）
+· 护航面板含七夕 #119 循环（阿凯版/哥拉尔版；存兑换券后计一轮，丢队长绿/红头盔后再法兰治疗，然后下一轮；临时活动）
 · 界面外层选项：「战斗加速」（默认关：开启→战斗倍速+心跳回传1.5x，会连带掐断倍速检测上报；关→原速+心跳回传1.0x）、「跳帧（切后台/老板键限帧 30FPS）」与「多开器适配功能」（默认不打：勾选=注入精简桥接，供包内「多开器」登录/拉多控/一键召唤；占 hotfixdata 容量）
 · 默认含：分享改日常、礼包码
 · 随包附「多开器」（多开器\多开器.exe，界面「启动多开器」按钮）：多开器需要打「多开器适配功能」才能连接游戏
@@ -665,12 +663,11 @@ def main() -> int:
     cleanup_series_old_releases(RELEASE_DIR, SERIES_CLEANUP_PREFIXES)
 
     publish_patcher()
-    # 两版：原版（护航面板无龙族按钮）+ 带龙族（护航面板有龙族循环 A/B 按钮）。
-    # 唯一差别是包内「带龙族.flag」→ GUI 打补丁时写入 hotfixdata 标记，DLL 据此显示按钮。
-    variants = [(APP_NAME, False), (DRAGON_APP_NAME, True)]
+    # 只产融合版。带龙族.zip 不再构建；清理前缀仍含旧「带龙族」以便发布目录不堆积。
+    variants = [(APP_NAME, False)]
     zipped: list[Path] = []
     for app_name, dragon_loop_ui in variants:
-        print(f"\n--- 构建 {app_name}（带龙族={dragon_loop_ui}）---")
+        print(f"\n--- 构建 {app_name} ---")
         out_dir = build_exe(app_name, dragon_loop_ui=dragon_loop_ui)
         zip_path = RELEASE_DIR / f"{app_name}_{stamp}.zip"
         zip_folder(out_dir, zip_path)

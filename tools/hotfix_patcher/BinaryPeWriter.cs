@@ -107,7 +107,7 @@ internal static class BinaryPeWriter
 
     public static void ReplaceMethodBody(byte[] pe, MethodDefinition method, byte[] oldBodySnapshot, byte[] newBody)
     {
-        ReplaceMethodBody(pe, method.RVA, oldBodySnapshot, newBody, null);
+        ReplaceMethodBody(pe, method.RVA, oldBodySnapshot, newBody, method.MetadataToken.ToUInt32());
     }
 
     public static void ReplaceMethodBody(byte[] pe, int oldRva, byte[] oldBodySnapshot, byte[] newBody)
@@ -190,17 +190,27 @@ internal static class BinaryPeWriter
             return;
         }
 
+        if (methodDefToken != null
+            && CliMetadata.TryGetAccurateMethodDefRvaFileOffset(pe, methodDefToken.Value, out var accurateOff))
+        {
+            var current = BitConverter.ToInt32(pe, accurateOff);
+            if (current == oldRva)
+            {
+                BitConverter.GetBytes(newRva).CopyTo(pe, accurateOff);
+                Console.WriteLine(
+                    $"[META] MethodDef 0x{methodDefToken.Value:X8} RVA 0x{oldRva:X} -> 0x{newRva:X} (file 0x{accurateOff:X}, accurate)");
+                return;
+            }
+        }
+
         if (methodDefToken != null)
         {
             var current = CliMetadata.ReadMethodDefRva(pe, methodDefToken.Value);
-            if (current != oldRva)
+            if (current == oldRva)
             {
-                throw new InvalidOperationException(
-                    $"MethodDef token 0x{methodDefToken.Value:X8} 当前 RVA 0x{current:X} 与期望 0x{oldRva:X} 不符");
+                CliMetadata.PatchMethodDefRva(pe, methodDefToken.Value, newRva);
+                return;
             }
-
-            CliMetadata.PatchMethodDefRva(pe, methodDefToken.Value, newRva);
-            return;
         }
 
         if (CliMetadata.TryPatchMethodDefRvaByOldRva(pe, oldRva, newRva, out _))
@@ -227,19 +237,41 @@ internal static class BinaryPeWriter
     {
         fileOffset = -1;
         var pattern = BitConverter.GetBytes(oldRva);
-        var hits = 0;
-        for (var i = 0; i <= pe.Length - 4; i++)
+        var methodDefLike = -1;
+        var methodDefLikeHits = 0;
+        var anyHits = 0;
+        var lastHit = -1;
+        for (var i = 0; i <= pe.Length - 8; i++)
         {
             if (pe[i] != pattern[0] || pe[i + 1] != pattern[1] || pe[i + 2] != pattern[2] || pe[i + 3] != pattern[3])
             {
                 continue;
             }
 
-            hits++;
-            fileOffset = i;
+            anyHits++;
+            lastHit = i;
+            var implFlags = BitConverter.ToUInt16(pe, i + 4);
+            var flags = BitConverter.ToUInt16(pe, i + 6);
+            if (implFlags == 0 && (flags & 0x0007) != 0)
+            {
+                methodDefLikeHits++;
+                methodDefLike = i;
+            }
         }
 
-        return hits == 1;
+        if (methodDefLikeHits == 1)
+        {
+            fileOffset = methodDefLike;
+            return true;
+        }
+
+        if (anyHits == 1)
+        {
+            fileOffset = lastHit;
+            return true;
+        }
+
+        return false;
     }
 
     private static int FindWritableOffset(byte[] pe, int start, int end, int length)

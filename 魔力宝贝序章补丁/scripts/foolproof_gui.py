@@ -243,10 +243,19 @@ class FoolproofApp(tk.Tk):
             foreground="#666666",
         ).pack(side=tk.RIGHT)
 
-        self.log = scrolledtext.ScrolledText(body, height=16, wrap=tk.WORD)
+        self.log = scrolledtext.ScrolledText(body, height=14, wrap=tk.WORD)
         self.log.pack(fill=tk.BOTH, expand=True)
 
+        prog = ttk.Frame(body)
+        prog.pack(fill=tk.X, pady=(8, 0))
+        self.progress_label = ttk.Label(prog, text="就绪", foreground="#555555")
+        self.progress_label.pack(anchor=tk.W)
+        self.progress = ttk.Progressbar(prog, mode="determinate", maximum=100)
+        self.progress.pack(fill=tk.X, pady=(4, 0))
+
         self._busy = False
+        self._progress_step = 0
+        self._progress_total = 32
         self._load_default_path()
 
     def _load_default_path(self) -> None:
@@ -267,6 +276,29 @@ class FoolproofApp(tk.Tk):
         self.log.insert(tk.END, line + "\n")
         self.log.see(tk.END)
 
+    def _reset_progress(self) -> None:
+        self._progress_step = 0
+        self._progress_total = 32
+        self.progress["value"] = 0
+        self.progress_label.config(text="准备打补丁…")
+
+    def _set_progress(self, text: str, *, done: bool = False, failed: bool = False) -> None:
+        if done:
+            self.progress["value"] = 100
+            self.progress_label.config(text="完成")
+            return
+        if failed:
+            self.progress_label.config(text=("失败：" + text)[:80])
+            return
+        self._progress_step += 1
+        if self._progress_step >= self._progress_total:
+            self._progress_total = self._progress_step + 4
+        pct = min(99.0, 100.0 * self._progress_step / self._progress_total)
+        self.progress["value"] = pct
+        self.progress_label.config(
+            text=f"{self._progress_step}/{self._progress_total}  {text[:64]}"
+        )
+
     def _game_root(self) -> Path | None:
         raw = self.path_var.get().strip()
         return Path(raw) if raw else None
@@ -279,6 +311,9 @@ class FoolproofApp(tk.Tk):
         self.animator_btn.state(state)
         self.launcher_btn.state(state)
         self.window_monitor_btn.state(state)
+        if not busy and self.progress["value"] < 100:
+            if self.progress_label.cget("text") in ("准备打补丁…", "就绪"):
+                self.progress_label.config(text="就绪")
 
     def _animator_candidates(self) -> list[Path]:
         cands: list[Path] = []
@@ -550,6 +585,11 @@ class FoolproofApp(tk.Tk):
     def _apply_core(self) -> None:
         game_root = self._game_root()
 
+        def on_log(line: str) -> None:
+            self.after(0, self._append, line)
+            if line.startswith("正在") or line.startswith("加速") or line.startswith("开始叠加"):
+                self.after(0, self._set_progress, line.splitlines()[0])
+
         def work() -> None:
             try:
                 msgs = run_foolproof_patch(
@@ -562,8 +602,9 @@ class FoolproofApp(tk.Tk):
                     dragon_loop_ui=DRAGON_LOOP_PACK,
                     apply_frameskip=bool(self.apply_frameskip_var.get()),
                     inject_bridge=bool(self.inject_bridge_var.get()),
-                    on_log=lambda line: self.after(0, self._append, line),
+                    on_log=on_log,
                 )
+                self.after(0, lambda: self._set_progress("", done=True))
                 self.after(
                     0,
                     lambda: messagebox.showinfo(
@@ -574,6 +615,7 @@ class FoolproofApp(tk.Tk):
                 self.after(0, lambda: self._set_busy(False))
             except FoolproofError as exc:
                 self.after(0, self._append, str(exc))
+                self.after(0, lambda: self._set_progress(str(exc), failed=True))
 
                 def on_err() -> None:
                     self._set_busy(False)
@@ -582,6 +624,7 @@ class FoolproofApp(tk.Tk):
                 self.after(0, on_err)
             except Exception as exc:
                 self.after(0, self._append, str(exc))
+                self.after(0, lambda: self._set_progress(str(exc), failed=True))
                 self.after(
                     0,
                     lambda: messagebox.showerror(f"{_profile_title()} — 失败", str(exc)),
@@ -595,6 +638,7 @@ class FoolproofApp(tk.Tk):
             return
         self._set_busy(True)
         self.log.delete("1.0", tk.END)
+        self._reset_progress()
         self._apply_core()
 
 
