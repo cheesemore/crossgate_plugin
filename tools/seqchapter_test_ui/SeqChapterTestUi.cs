@@ -134,7 +134,7 @@ public static class SeqChapterTestUi
     private static string _wildPetName = "";
     private static object _wildPetNameInput;
     /// <summary>
-    /// 兑换野生宠（仅1号点一次，不切号）：回城点2 → 1500(47,75) → 找中元使者
+    /// 兑换野生宠（仅1号点一次，不切号，不抓宠）：回城点2 → 1500(47,75) → 找中元使者
     /// → 仓检234个人仓 → 远程从234个人仓各取1只存账号仓 → 1号取3只
     /// → NPC第2项 → 循环到凑不齐一套 → 1号把中元礼盒兑换券存账号道具仓。
     /// 开仓后必关仓。
@@ -201,6 +201,7 @@ public static class SeqChapterTestUi
     private static readonly List<int> _wildExBankIndexes = new List<int>();
     private static int _wildExTakePos;
     private static int _wildExAccountOpenTries;
+    private static long _lastPetStorageAccountTabMs;
     private static string _lastAppliedWildCatchName = "";
     private static object _wildExInfoBefore;
     private static object _wildExStoreBefore;
@@ -12561,7 +12562,7 @@ public static class SeqChapterTestUi
             case WildExCapOpenAccount:
             case WildExCapWaitAccount:
             case WildExCapTake:
-                return "1号从账号仓取3只";
+                return "1号从超银取3只";
             case WildExLookNpc:
                 return "点中元使者";
             case WildExPickOption:
@@ -12613,6 +12614,7 @@ public static class SeqChapterTestUi
             }
 
             TryOpenRemoteAccountPetBank(openUid);
+            _lastPetStorageAccountTabMs = 0;
         }
         else
         {
@@ -12627,7 +12629,6 @@ public static class SeqChapterTestUi
 
     private static void WildExRetryAccountOpen(long now, int reopenPhase)
     {
-        TryDismissBankUiAfterStore();
         _wildExAccountOpenTries++;
         if (_wildExAccountOpenTries >= WildExAccountOpenMaxTries)
         {
@@ -12636,6 +12637,28 @@ public static class SeqChapterTestUi
             return;
         }
 
+        // PetStoragePanel.OnShow 默认勾个人仓。面板已开时点超银页签，不要关了重开再被切回普通银行。
+        if (TrySwitchPetStorageToAccountTab())
+        {
+            var waitPhase = reopenPhase;
+            if (reopenPhase == WildExCapOpenAccount)
+            {
+                waitPhase = WildExCapWaitAccount;
+            }
+            else if (reopenPhase == WildExMemOpenAccount)
+            {
+                waitPhase = WildExMemWaitAccount;
+            }
+
+            WildExSay("已点超银页签 " + _wildExAccountOpenTries + "/" + WildExAccountOpenMaxTries, true);
+            WriteLog("wild-ex retry click 超银 tab try=" + _wildExAccountOpenTries);
+            _wildExWaitListStartMs = now;
+            _wildExPhase = waitPhase;
+            _wildExDelayUntilMs = now + 600;
+            return;
+        }
+
+        TryDismissBankUiAfterStore();
         WildExSay("账号仓未开，重开 " + _wildExAccountOpenTries + "/" + WildExAccountOpenMaxTries, true);
         WriteLog("wild-ex retry account open try=" + _wildExAccountOpenTries);
         _wildExPhase = reopenPhase;
@@ -12865,7 +12888,7 @@ public static class SeqChapterTestUi
                 StopTaskNavigation(false);
                 WildExOpenBank(uid, true);
                 _wildExPhase = WildExCapWaitAccount;
-                WildExSay("开账号仓取3只", false);
+                WildExSay("开超银取3只", false);
                 _wildExDelayUntilMs = now + 400;
                 break;
             case WildExCapWaitAccount:
@@ -13238,6 +13261,7 @@ public static class SeqChapterTestUi
 
     private static void TickWildExMemWaitAccount(long now)
     {
+        TrySwitchPetStorageToAccountTab();
         int[] counts;
         List<int>[] indexes;
         int total;
@@ -13301,7 +13325,7 @@ public static class SeqChapterTestUi
             {
                 _wildExAccountOpenTries = 0;
                 _wildExPhase = WildExCapOpenAccount;
-                WildExSay("234已各存1只，1号取账号仓", true);
+                WildExSay("234已各存1只，1号开超银取", true);
                 _wildExDelayUntilMs = now + WildExProtocolGapMs;
                 return;
             }
@@ -13327,6 +13351,7 @@ public static class SeqChapterTestUi
 
     private static void TickWildExCapWaitAccount(string uid, long now)
     {
+        TrySwitchPetStorageToAccountTab();
         int[] counts;
         List<int>[] indexes;
         int total;
@@ -13338,7 +13363,7 @@ public static class SeqChapterTestUi
             }
             else
             {
-                WildExSayWait("等账号仓列表 " + ((now - _wildExWaitListStartMs) / 1000) + "秒", now);
+                WildExSayWait("等超银列表 " + ((now - _wildExWaitListStartMs) / 1000) + "秒", now);
             }
 
             return;
@@ -13348,7 +13373,7 @@ public static class SeqChapterTestUi
         {
             if (now - _wildExWaitListStartMs < WildExWaitListTimeoutMs)
             {
-                WildExSayWait("等账号仓三种 幽灵" + counts[0] + " 僵尸" + counts[1]
+                WildExSayWait("等超银三种 幽灵" + counts[0] + " 僵尸" + counts[1]
                               + " 骷髅" + counts[2], now);
                 return;
             }
@@ -14760,6 +14785,7 @@ public static class SeqChapterTestUi
 
     private static void TickZhongyuanLoopScanAccountWait(long now)
     {
+        TrySwitchPetStorageToAccountTab();
         List<int> matching;
         int total;
         var any = false;
@@ -16456,6 +16482,7 @@ public static class SeqChapterTestUi
 
     private static void TickZhongyuanPushWaitAccount(string uid, long now)
     {
+        TrySwitchPetStorageToAccountTab();
         List<int> matching;
         int total;
         if (!TryCollectOpenBankPets(
@@ -16707,6 +16734,7 @@ public static class SeqChapterTestUi
 
     private static void TickZhongyuanPullWaitAccount(string uid, long now)
     {
+        TrySwitchPetStorageToAccountTab();
         List<int> matching;
         int total;
         if (!TryCollectOpenBankPets(
@@ -16737,6 +16765,13 @@ public static class SeqChapterTestUi
 
         if (_zyAccountMatch <= 0)
         {
+            if (IsPetStorageOnPersonalTab() || TryReadOpenBankMax() >= ZhongyuanQuota)
+            {
+                TrySwitchPetStorageToAccountTab();
+                _zyNote = "个人仓误开，改点超银";
+                return;
+            }
+
             TryDismissBankUiAfterStore();
             var still = GetZyXferNeed() - _zyXferSent;
             if (!string.IsNullOrEmpty(_zyXferWorkUid) && still > 0)
@@ -16914,6 +16949,7 @@ public static class SeqChapterTestUi
             }
 
             TryOpenRemoteAccountPetBank(openUid);
+            _lastPetStorageAccountTabMs = 0;
         }
         else
         {
@@ -17514,6 +17550,24 @@ public static class SeqChapterTestUi
         return storeList;
     }
 
+    /// <summary>个人仓容量 15；超银 5。空个人仓 count=0 但 Max/GridNum 仍是 15，不能当超银。</summary>
+    private static bool IsLikelyPersonalBankUi(IList storeList, IList update)
+    {
+        if (IsPetStorageOnPersonalTab())
+        {
+            return true;
+        }
+
+        var max = TryReadOpenBankMax();
+        if (max >= ZhongyuanQuota)
+        {
+            return true;
+        }
+
+        var n = storeList != null ? storeList.Count : (update != null ? update.Count : 0);
+        return n > ZhongyuanAccountSlots;
+    }
+
     private static int TryReadOpenBankMax()
     {
         try
@@ -17523,6 +17577,7 @@ public static class SeqChapterTestUi
             var bank = GetUiPanel("BankPanel");
             var names = new[]
             {
+                "GridNum", "gridNum", "ApetSize", "apetSize",
                 "MaxCount", "maxCount", "PetMax", "petMax", "MaxPet", "maxPet",
                 "SlotCount", "slotCount", "MaxNum", "maxNum", "Capacity", "capacity",
                 "BankMax", "bankMax", "Max", "Size", "size"
@@ -17821,6 +17876,80 @@ public static class SeqChapterTestUi
         catch (Exception ex)
         {
             WriteLog("open account pet bank EX " + RootMessage(ex));
+        }
+    }
+
+    /// <summary>
+    /// PetStoragePanel 个人仓/超银是同一窗口的两个页签。
+    /// OnShow 默认勾个人仓并再发「远程个人宠物仓库」，所以 1 号开超银会停在普通银行。
+    /// 面板已显示后点账号仓页签（等同手工点超银）。
+    /// </summary>
+    private static bool IsPetStorageOnPersonalTab()
+    {
+        try
+        {
+            var panel = GetUiPanel("PetStoragePanel");
+            if (panel == null)
+            {
+                return false;
+            }
+
+            var mType = GetMember(panel, "m_Type");
+            var personal = ResolvePersonalBankType();
+            return mType != null && personal != null && Equals(mType, personal);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool TrySwitchPetStorageToAccountTab()
+    {
+        try
+        {
+            var panel = GetUiPanel("PetStoragePanel");
+            if (panel == null || GetMember(panel, "m_Menus") == null)
+            {
+                return false;
+            }
+
+            var now = NowMs();
+            if (_lastPetStorageAccountTabMs > 0 && now - _lastPetStorageAccountTabMs < 700)
+            {
+                return false;
+            }
+
+            var mType = GetMember(panel, "m_Type");
+            var accountType = ResolveAccountBankType();
+            if (mType != null && accountType != null && Equals(mType, accountType))
+            {
+                return false;
+            }
+
+            var tog = GetMember(panel, "m_Tog_Account");
+            if (tog != null)
+            {
+                SetMember(tog, "IsOn", true);
+                SetProp(tog, "IsOn", true);
+            }
+
+            var click = panel.GetType().GetMethod(
+                "OnClickMenus",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+                null,
+                new[] { typeof(int) },
+                null);
+            click?.Invoke(panel, new object[] { 1 });
+            _lastPetStorageAccountTabMs = now;
+            WriteLog("pet-storage click 超银 tab m_TypeWas=" + mType
+                     + " max=" + TryReadOpenBankMax());
+            return click != null || tog != null;
+        }
+        catch (Exception ex)
+        {
+            WriteLog("pet-storage click 超银 EX " + RootMessage(ex));
+            return false;
         }
     }
 
