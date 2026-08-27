@@ -3,14 +3,14 @@
 """GUI / 简单补丁 / 傻瓜补丁共用的默认组合选项。"""
 
 # 助手面板（百科入口）+ 抓宠/烧卡 DLL 面板模式：玩法开关在面板里切
-# 默认组合：不勾加速（vip / vip_non_vip / 心跳回传 / 技能特效均关）。
+# 本地默认组合：地图 Sprint 8 速开；战斗倍速 / 技能特效 / 心跳回传仍关。
 #   技能特效加速归属「战斗倍速」：勾选 vip 时由 apply_combo 自动带上（默认 3x）。
-#   原因：战斗倍速补丁默认连带掐断倍速检测上报（CheckTimeScaleWarning /
-#   SendTimeScaleWarning 打成空方法，防检测）；用户明确默认不打加速。
+#   战斗倍速补丁默认连带掐断倍速检测上报（CheckTimeScaleWarning /
+#   SendTimeScaleWarning 打成空方法）。傻瓜包仍默认不打加速（见 FOOLPROOF_*）。
 #   MAC 伪装（假设备指纹）默认不开（仅 --fake-mac 显式开启）。
 #   kill_timescale_report 默认仍开（与是否开倍速无关）。
 DEFAULT_COMBO_KWARGS = {
-    "vip": False,  # 默认不打战斗倍速（加速关闭）
+    "vip": False,  # 默认不打战斗倍速
     "vip_non_vip": False,  # 默认不启用非VIP倍速
     "vip_scale": 5,  # 仅勾选倍速时使用
     "battle_nine_action": False,
@@ -28,7 +28,7 @@ DEFAULT_COMBO_KWARGS = {
     "auto_sell_external": False,
     "customer_gm": True,
     "customer_gm_mode": "autoskill",
-    "map_sprint": False,  # 地图跑速默认关（属加速类）
+    "map_sprint": True,  # 本地默认打 8 速（官方 RUN 6 → 8）
     "map_sprint_scale": 8,
     "battle_longpress": True,
     "level_one_include_all": True,
@@ -39,7 +39,7 @@ DEFAULT_COMBO_KWARGS = {
     "pet_equip_unlock": False,
     "wiki_download_res": False,
     "wiki_label": False,
-    "dragon_loop_ui": True,  # 护航面板「龙族循环A」按钮（写 seqchapter_dragon_loop.flag）
+    "dragon_loop_ui": False,  # 龙族循环按钮已卸；flag 逻辑保留备用
     "daily_claim": True,
     "newbie_gift_code": True,
     "boss_key_fps": True,  # 切后台 / 老板键隐藏 → 30 FPS
@@ -144,7 +144,7 @@ LAUNCH_INJECT_PRESET = {
     "auto_catch_external": True,
     "customer_gm": True,
     "customer_gm_mode": "autoskill",
-    "map_sprint": False,  # 地图跑速默认关
+    "map_sprint": True,  # 与本地默认一致：Sprint 8 速
     "map_sprint_scale": 8,
     "battle_longpress": True,
     "level_one_include_all": True,

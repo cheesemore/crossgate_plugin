@@ -66,6 +66,18 @@ internal static class AutoCatchExternalIlPatcher
                 case "--hooks-only":
                     _panelMode = true;
                     break;
+                case "--dll-only":
+                    break;
+            }
+        }
+
+        var dllOnly = false;
+        for (var i = 0; i < args.Length; i++)
+        {
+            if (args[i] == "--dll-only")
+            {
+                dllOnly = true;
+                break;
             }
         }
 
@@ -94,6 +106,23 @@ internal static class AutoCatchExternalIlPatcher
             File.Copy(source, output, overwrite: true);
             Console.WriteLine("[RESTORE] 已从原版复制: " + output);
             return 0;
+        }
+
+        if (dllOnly)
+        {
+            try
+            {
+                var dllPath = BuildAutoCatchDll(source);
+                var assetOut = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(source))!, ActiveAssetFileName);
+                File.Copy(dllPath, assetOut, overwrite: true);
+                Console.WriteLine(LogTag + " 已重编译并部署 " + assetOut);
+                return 0;
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine("[FAIL] " + ex.Message);
+                return 1;
+            }
         }
 
         try

@@ -9,6 +9,7 @@ workflow_step1（登录→进游戏→拉起离线多控→一键召唤）。全
 """
 from __future__ import annotations
 
+import argparse
 import sys
 import threading
 import time
@@ -442,7 +443,85 @@ class MultiLauncherApp:
         self.root.after(0, _finish)
 
 
-def main() -> int:
+def find_account_by_query(query: str) -> AccountProfile:
+    q = (query or "").strip()
+    if not q:
+        raise ValueError("账号名为空")
+    accounts = load_accounts()
+    hits = [a for a in accounts if a.label == q or a.phone == q]
+    if not hits:
+        hits = [a for a in accounts if q in (a.label or "")]
+    if not hits:
+        names = "、".join((a.label or a.phone) for a in accounts) or "(空)"
+        raise ValueError(f"账号库没有「{q}」。现有：{names}")
+    if len(hits) > 1:
+        names = "、".join(a.label or a.phone for a in hits)
+        raise ValueError(f"「{q}」匹配到多个账号：{names}")
+    return hits[0]
+
+
+def cli_launch_and_login(label: str, *, login_only: bool = False) -> int:
+    """不打开 GUI：启动一个号并一键登录。默认登录后拉离线多控并一键召唤。"""
+    acc = find_account_by_query(label)
+    root = get_game_root()
+    name = acc.label or acc.phone
+    phone_mask = (acc.phone[:3] + "***") if acc.phone else ""
+    print(f"[INFO] 游戏目录 {root}", flush=True)
+    print(f"[INFO] 账号 {name} {phone_mask}", flush=True)
+    if not is_mini_bridge_ready(root):
+        print("[FAIL] 当前游戏目录未注入精简桥接，无法自动登录", flush=True)
+        return 1
+
+    inst = launch_game(root)
+    print(f"[OK] 已启动 pid={inst.pid} instance_id={inst.instance_id}", flush=True)
+    print(f"PID={inst.pid}", flush=True)
+
+    print(f"[INFO] [{name}] 等待精简桥接…", flush=True)
+    if not ipc.wait_for_bridge(inst.instance_id, timeout=240):
+        print(f"[FAIL] [{name}] 桥接连接超时 pid={inst.pid}", flush=True)
+        return 2
+
+    if login_only:
+        print(f"[INFO] [{name}] 一键登录…", flush=True)
+        ipc.workflow_login_enter(inst.instance_id, acc.phone, acc.password)
+        ok, msg, _st = ipc.wait_for_in_game(inst.instance_id, timeout=300)
+        if ok:
+            uid = str(msg or "")
+            tail = uid[-4:] if len(uid) > 4 else uid
+            print(f"[OK] [{name}] 已进游戏 pid={inst.pid} uid尾={tail}", flush=True)
+            return 0
+        print(f"[FAIL] [{name}] 登录失败 {msg} pid={inst.pid}", flush=True)
+        return 3
+
+    print(f"[INFO] [{name}] 登录→拉多控→召唤…", flush=True)
+    ipc.workflow_step1_five_chars(inst.instance_id, acc.phone, acc.password)
+    ok, msg = ipc.wait_workflow_done(inst.instance_id, timeout=600)
+    if ok:
+        print(f"[OK] [{name}] 流程完成 pid={inst.pid}", flush=True)
+        return 0
+    print(f"[FAIL] [{name}] {msg} pid={inst.pid}", flush=True)
+    return 3
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=APP_TITLE)
+    parser.add_argument(
+        "--launch",
+        metavar="账号备注",
+        help="启动指定账号：一键登录并拉多控+召唤（不打开 GUI）",
+    )
+    parser.add_argument(
+        "--login-only",
+        action="store_true",
+        help="只登录进游戏，不拉离线多控、不召唤",
+    )
+    args = parser.parse_args(argv)
+    if args.launch:
+        try:
+            return cli_launch_and_login(args.launch, login_only=args.login_only)
+        except Exception as exc:
+            print(f"[FAIL] {type(exc).__name__}: {exc}", flush=True)
+            return 1
     if not ensure_single_instance(
         APP_TITLE,
         message=(

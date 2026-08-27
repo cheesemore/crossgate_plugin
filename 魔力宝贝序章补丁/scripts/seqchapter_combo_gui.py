@@ -152,7 +152,7 @@ class ComboPatchApp:
         self.inject_bridge_var = tk.BooleanVar(value=True)
         self.customer_gm_var = tk.BooleanVar(value=True)
         self.customer_gm_mode_var = tk.StringVar(value="autoskill")
-        self.map_sprint_var = tk.BooleanVar(value=False)  # 地图跑速默认关（加速类）
+        self.map_sprint_var = tk.BooleanVar(value=True)  # 本地默认 8 速
         self.map_sprint_scale_var = tk.StringVar(value="8")
         self.battle_longpress_var = tk.BooleanVar(value=True)
         self.level_one_include_all_var = tk.BooleanVar(value=True)

@@ -20,7 +20,10 @@ using System.Threading;
 /// Pause 延迟加载后 Bootstrap；钩 AutoFight_PlayerAction / AutoFight_PlayerAction2 / AutoFight_PetAction。
 /// 侧栏百科 = 手动开关：默认 PipelineEnabled=false；点百科切换开/关，并用 NotifyManager.Tip 提示。
 /// 无「可抓一级」则走原自动。
-/// 退战后（仅队长，且 PipelineEnabled）：
+/// 抓野生宠（战斗页或脚本，默认幽灵+僵尸+骷髅战士都抓；地点不同、一战不混出）：
+/// 战斗中队长栏满则不抓、走原自动；
+/// 退战后仅当栏满才停挂机，存个人仓/凑满 15/账号仓倒腾交给 TestUi。
+/// 退战后（仅队长，且 PipelineEnabled；普通抓宠）：
 ///   1) 需停挂机时立刻发「停止挂机」；
 ///   2) 扫背包：仅 1 级未正确标记 → #档位，单项随机≥6 才加 @N（满档 #满 / #满@N）；
 ///   3) 满 5 宠 → 存仓→终检；未满无卡已停挂机；已停挂机则不做存仓。
@@ -45,6 +48,14 @@ public static class SeqChapterAutoCatch
     /// 默认关闭；点侧栏百科切换开/关。
     /// </summary>
     public static volatile bool PipelineEnabled = false;
+    /// <summary>抓野生宠：场上出现幽灵/僵尸/骷髅战士任一就抓（不限 1 级）；栏满停挂机，存仓由脚本负责。</summary>
+    public static volatile bool WildMode = false;
+    /// <summary>兼容旧面板参数，匹配时不使用（三种都抓）。</summary>
+    public static string WildTargetName = "";
+    /// <summary>中元抓宠仅这三只：A幽灵 B僵尸 C骷髅战士。</summary>
+    private const string WildPetA = "幽灵";
+    private const string WildPetB = "僵尸";
+    private const string WildPetC = "骷髅战士";
 
     private const int SealFlagMask = 0x100;
     /// <summary>
@@ -115,9 +126,25 @@ public static class SeqChapterAutoCatch
         {
             _levelOneMeetCount = 0;
             _countedLevelOneThisBattle = false;
+            SetWildCatchAllCopies(false, "");
         }
 
         RefreshWindowTitle();
+    }
+
+    /// <summary>助手面板：抓野生宠开/关。开启后三种都抓，name 仅兼容旧调用。</summary>
+    public static void SetWildCatch(bool enable, string name)
+    {
+        Bootstrap();
+        _ = name;
+        SetWildCatchAllCopies(enable, "");
+    }
+
+    private static bool IsAllowedWildPetName(string name)
+    {
+        return string.Equals(name, WildPetA, StringComparison.Ordinal)
+               || string.Equals(name, WildPetB, StringComparison.Ordinal)
+               || string.Equals(name, WildPetC, StringComparison.Ordinal);
     }
 
     /// <summary>本场首次发现可抓一级时 +1，并刷新标题 ★自动中★遇到1级N只。</summary>
@@ -288,6 +315,58 @@ public static class SeqChapterAutoCatch
         }
     }
 
+    private static void SetWildCatchAllCopies(bool enable, string name)
+    {
+        WildMode = enable;
+        WildTargetName = name ?? "";
+        try
+        {
+            foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+            {
+                Type t = null;
+                try
+                {
+                    t = asm.GetType(TypeName, false, false);
+                }
+                catch
+                {
+                    continue;
+                }
+
+                if (t == null || t == typeof(
+#if AUTO_CATCH_NOPET
+                    SeqChapterAutoCatchNoPet
+#else
+                    SeqChapterAutoCatch
+#endif
+                    ))
+                {
+                    continue;
+                }
+
+                var fMode = t.GetField(
+                    "WildMode",
+                    BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic);
+                if (fMode != null && fMode.FieldType == typeof(bool))
+                {
+                    fMode.SetValue(null, enable);
+                }
+
+                var fName = t.GetField(
+                    "WildTargetName",
+                    BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic);
+                if (fName != null && fName.FieldType == typeof(string))
+                {
+                    fName.SetValue(null, name ?? "");
+                }
+            }
+        }
+        catch
+        {
+            // ignore
+        }
+    }
+
     private static bool ReadPipelineEnabledFromAnyCopy()
     {
         try
@@ -343,12 +422,20 @@ public static class SeqChapterAutoCatch
 
         try
         {
-            if (!TryFindLevelOneEnemy(out var targetIndex))
+            if (IsCaptainPetBagFullForWild())
             {
                 return false;
             }
 
-            NoteLevelOneEncounterOnce();
+            if (!TryFindCatchTarget(out var targetIndex))
+            {
+                return false;
+            }
+
+            if (!IsWildCatchActive())
+            {
+                NoteLevelOneEncounterOnce();
+            }
 
             var uid = GetStaticString("BattleDataHolder", "CurrentAccount");
             if (string.IsNullOrEmpty(uid))
@@ -421,12 +508,20 @@ public static class SeqChapterAutoCatch
 
         try
         {
-            if (!TryFindLevelOneEnemy(out _))
+            if (IsCaptainPetBagFullForWild())
             {
                 return false;
             }
 
-            NoteLevelOneEncounterOnce();
+            if (!TryFindCatchTarget(out _))
+            {
+                return false;
+            }
+
+            if (!IsWildCatchActive())
+            {
+                NoteLevelOneEncounterOnce();
+            }
 
             var uid = GetStaticString("BattleDataHolder", "CurrentAccount");
             if (string.IsNullOrEmpty(uid))
@@ -458,12 +553,20 @@ public static class SeqChapterAutoCatch
 
         try
         {
-            if (!TryFindLevelOneEnemy(out _))
+            if (IsCaptainPetBagFullForWild())
             {
                 return false;
             }
 
-            NoteLevelOneEncounterOnce();
+            if (!TryFindCatchTarget(out _))
+            {
+                return false;
+            }
+
+            if (!IsWildCatchActive())
+            {
+                NoteLevelOneEncounterOnce();
+            }
 
             var uid = GetStaticString("BattleDataHolder", "CurrentAccount");
             if (string.IsNullOrEmpty(uid))
@@ -623,6 +726,12 @@ public static class SeqChapterAutoCatch
         }
 
         _exitNeedProtocolGap = false;
+
+        if (IsWildCatchActive())
+        {
+            RunWildExitPipeline(uid);
+            return;
+        }
 
         var encounterActive = IsEncounterActive(uid);
         var petFull = encounterActive && HavePetCount(uid) >= 5;
@@ -1123,6 +1232,43 @@ public static class SeqChapterAutoCatch
         RunProtocolStep(() => TrySendAutoBattle("开始挂机", uid));
     }
 
+    /// <summary>
+    /// 抓野生宠退战：栏未满则继续抓。栏满只停挂机，存个人仓/凑 15 由 TestUi 抓宠脚本做。
+    /// </summary>
+    private static void RunWildExitPipeline(string uid)
+    {
+        if (!IsPipelineActive() || string.IsNullOrEmpty(uid))
+        {
+            return;
+        }
+
+        if (!IsWildCatchActive())
+        {
+            return;
+        }
+
+        if (HavePetCount(uid) < 5)
+        {
+            return;
+        }
+
+        if (IsEncounterActive(uid))
+        {
+            try
+            {
+                TrySendAutoBattle("停止挂机", uid);
+            }
+            catch
+            {
+                // ignore
+            }
+
+            _exitNeedProtocolGap = true;
+        }
+
+        Tip("身上已满，已停挂机");
+    }
+
     private static void RunProtocolStep(Action send)
     {
         if (!IsPipelineActive() || send == null)
@@ -1304,20 +1450,14 @@ public static class SeqChapterAutoCatch
     }
 
 
-    private static void TryOpenRemotePersonalPetBank(string uid)
+    private static bool TrySendActivity(string type, string uid, int id, int activityId)
     {
         try
         {
-            var roleMgr = GetManagerInstance("RoleManager");
-            if (roleMgr != null)
-            {
-                SetMember(roleMgr, "OpenBankFromPet", true);
-            }
-
             var actMgr = GetManagerInstance("ActivityManager");
             if (actMgr == null)
             {
-                return;
+                return false;
             }
 
             MethodInfo send = null;
@@ -1330,15 +1470,20 @@ public static class SeqChapterAutoCatch
                 }
 
                 var ps = m.GetParameters();
-                if (ps.Length == 4
-                    && ps[0].ParameterType == typeof(string)
-                    && ps[1].ParameterType == typeof(string))
+                if (ps.Length < 2
+                    || ps[0].ParameterType != typeof(string)
+                    || ps[1].ParameterType != typeof(string))
+                {
+                    continue;
+                }
+
+                if (ps.Length >= 6)
                 {
                     send = m;
                     break;
                 }
 
-                if (send == null && ps.Length >= 2 && ps[0].ParameterType == typeof(string))
+                if (send == null)
                 {
                     send = m;
                 }
@@ -1346,23 +1491,63 @@ public static class SeqChapterAutoCatch
 
             if (send == null)
             {
-                return;
+                return false;
             }
 
             var ps2 = send.GetParameters();
-            // SendActivity("远程个人宠物仓库", uid, 0, 19)
-            if (ps2.Length >= 4)
+            var args = new object[ps2.Length];
+            args[0] = type;
+            args[1] = uid;
+            if (ps2.Length > 2)
             {
-                send.Invoke(actMgr, new object[] { "远程个人宠物仓库", uid, 0, 19 });
+                args[2] = id;
             }
-            else if (ps2.Length == 3)
+
+            if (ps2.Length > 3)
             {
-                send.Invoke(actMgr, new object[] { "远程个人宠物仓库", uid, 0 });
+                args[3] = activityId;
             }
-            else if (ps2.Length == 2)
+
+            for (var i = 4; i < ps2.Length; i++)
             {
-                send.Invoke(actMgr, new object[] { "远程个人宠物仓库", uid });
+                if (ps2[i].HasDefaultValue)
+                {
+                    args[i] = ps2[i].DefaultValue;
+                }
+                else if (ps2[i].ParameterType == typeof(string))
+                {
+                    args[i] = "";
+                }
+                else if (ps2[i].ParameterType == typeof(int))
+                {
+                    args[i] = 0;
+                }
+                else
+                {
+                    args[i] = Type.Missing;
+                }
             }
+
+            send.Invoke(actMgr, args);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static void TryOpenRemotePersonalPetBank(string uid)
+    {
+        try
+        {
+            var roleMgr = GetManagerInstance("RoleManager");
+            if (roleMgr != null)
+            {
+                SetMember(roleMgr, "OpenBankFromPet", true);
+            }
+
+            TrySendActivity("远程个人宠物仓库", uid, 0, 19);
         }
         catch
         {
@@ -1405,6 +1590,277 @@ public static class SeqChapterAutoCatch
         {
             return null;
         }
+    }
+
+    /// <summary>退战存账号仓：队长休息且名字匹配。打开远程账号宠物仓 + 每只存宠间隔 1 秒。不改本地 useFlag，以便复查是否真存进去。</summary>
+    private static void StoreCaptainMatchingPetsToAccountBank(string uid, string targetName)
+    {
+        if (!IsPipelineActive() || string.IsNullOrEmpty(uid) || string.IsNullOrEmpty(targetName))
+        {
+            return;
+        }
+
+        try
+        {
+            var storeIndexes = CollectMatchingRestPetIndexes(uid, targetName);
+            if (storeIndexes.Count == 0)
+            {
+                return;
+            }
+
+            RunProtocolStep(() => TryOpenRemoteAccountPetBank(uid));
+
+            var roleMgr = GetManagerInstance("RoleManager");
+            if (roleMgr == null)
+            {
+                return;
+            }
+
+            var bankType = ResolveAccountBankType();
+            if (bankType == null)
+            {
+                return;
+            }
+
+            MethodInfo sendBank = null;
+            foreach (var m in roleMgr.GetType().GetMethods(
+                         BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+            {
+                if (m.Name != "SendBankMessage")
+                {
+                    continue;
+                }
+
+                var ps = m.GetParameters();
+                if (ps.Length >= 4 && ps.Length <= 6)
+                {
+                    sendBank = m;
+                    break;
+                }
+            }
+
+            if (sendBank == null)
+            {
+                return;
+            }
+
+            for (var i = 0; i < storeIndexes.Count; i++)
+            {
+                if (!IsPipelineActive())
+                {
+                    return;
+                }
+
+                var index = storeIndexes[i];
+                var sendBankLocal = sendBank;
+                RunProtocolStep(() =>
+                {
+                    var ps = sendBankLocal.GetParameters();
+                    object[] args;
+                    if (ps.Length >= 6)
+                    {
+                        args = new object[] { bankType, uid, "存宠物", index, 0, null };
+                    }
+                    else if (ps.Length == 5)
+                    {
+                        args = new object[] { bankType, uid, "存宠物", index, 0 };
+                    }
+                    else
+                    {
+                        args = new object[] { bankType, uid, "存宠物", index };
+                    }
+
+                    sendBankLocal.Invoke(roleMgr, args);
+                });
+            }
+
+            try
+            {
+                Thread.Sleep(ProtocolGapMs * 2);
+            }
+            catch
+            {
+                // ignore
+            }
+        }
+        catch
+        {
+            // ignore
+        }
+    }
+
+    /// <summary>兜底：只丢目标名休息宠，不出战宠、不丢其它名字。</summary>
+    private static void DropMatchingRestPets(string uid, string targetName)
+    {
+        if (!IsPipelineActive() || string.IsNullOrEmpty(uid) || string.IsNullOrEmpty(targetName))
+        {
+            return;
+        }
+
+        try
+        {
+            var indexes = CollectMatchingRestPetIndexes(uid, targetName);
+            if (indexes.Count == 0)
+            {
+                return;
+            }
+
+            var petMgr = GetManagerInstance("PetManager");
+            if (petMgr == null)
+            {
+                return;
+            }
+
+            MethodInfo sendDrop = null;
+            foreach (var m in petMgr.GetType().GetMethods(
+                         BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+            {
+                if (m.Name != "SendDropPet")
+                {
+                    continue;
+                }
+
+                var ps = m.GetParameters();
+                if (ps.Length == 2)
+                {
+                    sendDrop = m;
+                    break;
+                }
+            }
+
+            if (sendDrop == null)
+            {
+                return;
+            }
+
+            for (var i = 0; i < indexes.Count; i++)
+            {
+                if (!IsPipelineActive())
+                {
+                    return;
+                }
+
+                var index = indexes[i];
+                var sendLocal = sendDrop;
+                RunProtocolStep(() =>
+                {
+                    sendLocal.Invoke(petMgr, new object[] { uid, index });
+                });
+            }
+
+            try
+            {
+                Thread.Sleep(ProtocolGapMs * 2);
+            }
+            catch
+            {
+                // ignore
+            }
+        }
+        catch
+        {
+            // ignore
+        }
+    }
+
+    private static List<int> CollectMatchingRestPetIndexes(string uid, string targetName)
+    {
+        var storeIndexes = new List<int>();
+        try
+        {
+            var pets = GetPetList(uid);
+            if (pets == null)
+            {
+                return storeIndexes;
+            }
+
+            for (var i = 0; i < pets.Count && i < 5; i++)
+            {
+                var pet = pets[i];
+                if (pet == null || Convert.ToInt32(GetMember(pet, "useFlag") ?? 0) != 1)
+                {
+                    continue;
+                }
+
+                var data = GetMember(pet, "data");
+                if (data == null)
+                {
+                    continue;
+                }
+
+                var status = Convert.ToInt32(GetMember(data, "DepartureBattleStatus") ?? -1);
+                if (status != PetStatusRest)
+                {
+                    continue;
+                }
+
+                if (!PetNameEquals(data, targetName))
+                {
+                    continue;
+                }
+
+                storeIndexes.Add(Convert.ToInt32(GetMember(data, "Index") ?? i));
+            }
+        }
+        catch
+        {
+            // ignore
+        }
+
+        return storeIndexes;
+    }
+
+    private static void TryOpenRemoteAccountPetBank(string uid)
+    {
+        try
+        {
+            var roleMgr = GetManagerInstance("RoleManager");
+            if (roleMgr != null)
+            {
+                SetMember(roleMgr, "OpenBankFromPet", true);
+            }
+
+            TrySendActivity("远程账号宠物仓库", uid, 0, 19);
+        }
+        catch
+        {
+            // 打不开远程仓也不阻断后续「存宠物」尝试
+        }
+    }
+
+    private static object ResolveAccountBankType()
+    {
+        try
+        {
+            var t = FindType("BANK_TYPE");
+            if (t == null || !t.IsEnum)
+            {
+                return null;
+            }
+
+            try
+            {
+                return Enum.Parse(t, "ACCOUNT_BANK", ignoreCase: true);
+            }
+            catch
+            {
+                // fall through
+            }
+
+            foreach (var name in Enum.GetNames(t))
+            {
+                if (name.IndexOf("ACCOUNT", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    return Enum.Parse(t, name);
+                }
+            }
+        }
+        catch
+        {
+            // ignore
+        }
+
+        return null;
     }
 
     private static void TrySendAutoBattle(string action, string mainUid)
@@ -1580,6 +2036,177 @@ public static class SeqChapterAutoCatch
 
         var playerRole = roleDic[playerIndex];
         return playerRole != null && !Convert.ToBoolean(GetMember(playerRole, "IsDead") ?? false);
+    }
+
+    private static bool IsWildCatchActive()
+    {
+        if (WildMode)
+        {
+            return true;
+        }
+
+        try
+        {
+            foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+            {
+                Type t = null;
+                try
+                {
+                    t = asm.GetType(TypeName, false, false);
+                }
+                catch
+                {
+                    continue;
+                }
+
+                if (t == null)
+                {
+                    continue;
+                }
+
+                var fMode = t.GetField(
+                    "WildMode",
+                    BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic);
+                if (fMode == null || fMode.FieldType != typeof(bool) || !Convert.ToBoolean(fMode.GetValue(null)))
+                {
+                    continue;
+                }
+
+                var fName = t.GetField(
+                    "WildTargetName",
+                    BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic);
+                var n = fName != null ? Convert.ToString(fName.GetValue(null) ?? "") ?? "" : "";
+                WildMode = true;
+                WildTargetName = n.Trim();
+                return true;
+            }
+        }
+        catch
+        {
+            // ignore
+        }
+
+        return false;
+    }
+
+    private static bool IsCaptainPetBagFullForWild()
+    {
+        if (!IsWildCatchActive())
+        {
+            return false;
+        }
+
+        var uid = GetStaticString("PlayerDataHolder", "MainPlayerUid");
+        return !string.IsNullOrEmpty(uid) && HavePetCount(uid) >= 5;
+    }
+
+    private static bool PetNameEquals(object petInfo, string target)
+    {
+        if (petInfo == null || string.IsNullOrEmpty(target))
+        {
+            return false;
+        }
+
+        var name = Convert.ToString(GetMember(petInfo, "Name") ?? "") ?? "";
+        var free = Convert.ToString(GetMember(petInfo, "FreeName") ?? "") ?? "";
+        return string.Equals(name, target, StringComparison.Ordinal)
+               || string.Equals(free, target, StringComparison.Ordinal);
+    }
+
+    private static bool HasMatchingRestPet(string uid, string targetName)
+    {
+        try
+        {
+            var pets = GetPetList(uid);
+            if (pets == null)
+            {
+                return false;
+            }
+
+            for (var i = 0; i < pets.Count && i < 5; i++)
+            {
+                var pet = pets[i];
+                if (pet == null || Convert.ToInt32(GetMember(pet, "useFlag") ?? 0) != 1)
+                {
+                    continue;
+                }
+
+                var data = GetMember(pet, "data");
+                if (data == null)
+                {
+                    continue;
+                }
+
+                var status = Convert.ToInt32(GetMember(data, "DepartureBattleStatus") ?? -1);
+                if (status != PetStatusRest)
+                {
+                    continue;
+                }
+
+                if (PetNameEquals(data, targetName))
+                {
+                    return true;
+                }
+            }
+        }
+        catch
+        {
+            // ignore
+        }
+
+        return false;
+    }
+
+    private static bool TryFindCatchTarget(out int targetIndex)
+    {
+        if (IsWildCatchActive())
+        {
+            return TryFindNamedEnemy(out targetIndex);
+        }
+
+        return TryFindLevelOneEnemy(out targetIndex);
+    }
+
+    /// <summary>场上幽灵/僵尸/骷髅战士任一即抓（不限等级；三种不同图，一战不混）。</summary>
+    private static bool TryFindNamedEnemy(out int targetIndex)
+    {
+        targetIndex = -1;
+        var roleDic = GetStaticField("BattleRoleContainer", "BattleRoleDic") as IDictionary;
+        if (roleDic == null)
+        {
+            return false;
+        }
+
+        var playerIndex = Convert.ToInt32(
+            GetStaticMember("BattleDataHolder", "battlePlayerIndex") ?? 0);
+        var enemyLo = playerIndex < 10 ? 10 : 0;
+        var enemyHi = playerIndex < 10 ? 20 : 10;
+
+        foreach (DictionaryEntry entry in roleDic)
+        {
+            var idx = Convert.ToInt32(entry.Key);
+            if (idx < enemyLo || idx >= enemyHi)
+            {
+                continue;
+            }
+
+            var role = entry.Value;
+            if (role == null || Convert.ToBoolean(GetMember(role, "IsDead") ?? false))
+            {
+                continue;
+            }
+
+            var roleData = GetMember(role, "RoleData");
+            var ch = GetMember(roleData, "Char");
+            var name = Convert.ToString(GetMember(ch, "Name") ?? "") ?? "";
+            if (IsAllowedWildPetName(name.Trim()))
+            {
+                targetIndex = idx;
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>

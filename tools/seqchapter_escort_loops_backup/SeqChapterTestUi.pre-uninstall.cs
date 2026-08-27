@@ -110,7 +110,7 @@ public static class SeqChapterTestUi
     private static object _catchSellYInput;
     private static string _catchSellYStr = "6";
     private const int CatchSellDefaultY = 6;
-    /// <summary>中元抓宠 A/B/C；抓野生宠默认三种都抓。</summary>
+    /// <summary>中元抓宠 A/B/C；抓野生宠模式只认这三只，仅脚本调用。</summary>
     private const string ZhongyuanPetA = "幽灵";
     private const string ZhongyuanPetB = "僵尸";
     private const string ZhongyuanPetC = "骷髅战士";
@@ -126,85 +126,34 @@ public static class SeqChapterTestUi
     {
         new NavWaypoint { Name = "402切4400", Floor = 402, X = 118, Y = 100 },
         new NavWaypoint { Name = "4400切4403", Floor = 4400, X = 106, Y = 54 },
-        new NavWaypoint { Name = "4403站位", Floor = 4403, X = 26, Y = 38 },
+        new NavWaypoint { Name = "4403靠墙", Floor = 4403, X = 26, Y = 38 },
         new NavWaypoint { Name = "快要崩裂的墙壁", Floor = 4403, X = 28, Y = 38 },
-        new NavWaypoint { Name = "过墙后(41,39)", Floor = 4403, X = 41, Y = 39 },
         new NavWaypoint { Name = "C落点", Floor = 4404, X = 70, Y = 8 }
     };
     private static string _wildPetName = "";
     private static object _wildPetNameInput;
-    /// <summary>
-    /// 兑换野生宠（仅1号点一次，不切号）：回城点2 → 1500(47,75) → 找中元使者
-    /// → 仓检234个人仓 → 远程从234个人仓各取1只存账号仓 → 1号取3只
-    /// → NPC第2项 → 循环到凑不齐一套 → 1号把中元礼盒兑换券存账号道具仓。
-    /// 开仓后必关仓。
-    /// </summary>
+    /// <summary>脚本指定的抓野生宠目标（幽灵/僵尸/骷髅战士）。</summary>
+    private static string _catchWildTargetName = "";
     private const int WildExIdle = 0;
-    private const int WildExReturn = 1;
-    private const int WildExNav = 2;
-    private const int WildExFindNpc = 3;
-    private const int WildExScanDestOpen = 10;
-    private const int WildExScanDestWait = 11;
-    private const int WildExMemOpenPersonal = 20;
-    private const int WildExMemWaitPersonal = 21;
-    private const int WildExMemTake = 22;
-    private const int WildExMemOpenAccount = 23;
-    private const int WildExMemWaitAccount = 24;
-    private const int WildExMemStore = 25;
-    private const int WildExCapOpenAccount = 30;
-    private const int WildExCapWaitAccount = 31;
-    private const int WildExCapTake = 32;
-    private const int WildExLookNpc = 40;
-    private const int WildExPickOption = 41;
-    private const int WildExConfirm = 42;
-    private const int WildExWaitDone = 43;
-    private const int WildExStoreTicket = 50;
+    private const int WildExOpenBank = 1;
+    private const int WildExWaitList = 2;
+    private const int WildExWithdraw = 3;
+    private const int WildExFakeNpc = 4;
     private const long WildExWaitListTimeoutMs = 8000;
-    /// <summary>账号仓刚开时常先刷出空列表，空仓至少等这么久才当真。</summary>
-    private const long WildExAccountEmptySettleMs = 1500;
     private const long WildExProtocolGapMs = 1000;
-    private const long WildExPollMs = 1500;
-    private const long WildExReturnWaitMs = 8000;
-    private const long WildExNavWaitMs = 60000;
-    private const long WildExNpcLookRetryMs = 2500;
-    private const long WildExNpcWaitMs = 15000;
-    private const int WildExMaxTries = 3;
-    private const int WildExNavMaxTries = 6;
-    private const int WildExAccountOpenMaxTries = 3;
-    private const int WildExNpcFloor = 1500;
-    private const int WildExNpcStandX = 47;
-    private const int WildExNpcStandY = 75;
-    private const string WildExNpcName = "中元使者";
-    private const int WildExOptionIndex = 2;
-    private const string WildExTicketKeyword = "中元礼盒兑换券";
+    private const long WildExFakeNpcMs = 1000;
     private const string AccountPetBankActivity = "远程账号宠物仓库";
     private static bool _wildExActive;
     private static int _wildExPhase;
     private static long _wildExDelayUntilMs;
     private static long _wildExWaitListStartMs;
-    private static long _wildExLastTipMs;
-    private static long _wildExActionAtMs;
-    private static long _wildExLastLookMs;
-    private static int _wildExStepTries;
-    private static int _wildExRound;
-    private static int _wildExNpcObj;
-    private static int _wildExNpcFoundX;
-    private static int _wildExNpcFoundY;
-    private static int _wildExPetsBeforeTalk;
-    private static bool _wildExInLoop;
-    private static string _wildExNote = "";
     private static string _wildExTargetName = "";
-    private static string _wildExWorkUid = "";
-    private static int _wildExScanIndex;
-    private static readonly int[] _wildExDestHave = new int[3];
-    private static readonly int[] _wildExDestTotal = new int[3];
     private static readonly List<int> _wildExBankIndexes = new List<int>();
     private static int _wildExTakePos;
-    private static int _wildExAccountOpenTries;
     private static string _lastAppliedWildCatchName = "";
     private static object _wildExInfoBefore;
     private static object _wildExStoreBefore;
-    /// <summary>中元抓宠：按 234 个人仓还缺几只来抓（兑换前各满 15）；可从半路接着跑。</summary>
+    /// <summary>中元抓宠：1号把目标名凑满 15（身上休息+个人仓），再交给倒腾脚本。</summary>
     private const int ZhongyuanQuota = 15;
     private const int ZhongyuanAccountSlots = 5;
     private const int ZyCatchIdle = 0;
@@ -221,8 +170,6 @@ public static class SeqChapterTestUi
     private const int ZyXferPushWaitAccount = 5;
     private const int ZyXferPushStore = 6;
     private const int ZyXferPushWaitEmpty = 7;
-    /// <summary>倒腾前先丢掉 1 号身上多余的幽灵/僵尸/骷髅战士，避免栏满卡死。</summary>
-    private const int ZyXferPushTrimBody = 8;
     private const int ZyXferPullOpenAccount = 20;
     private const int ZyXferPullWaitAccount = 21;
     private const int ZyXferPullTake = 22;
@@ -238,7 +185,6 @@ public static class SeqChapterTestUi
     private static bool _zyXferActive;
     private static int _zyXferPhase;
     private static bool _zyXferPush;
-    private static string _zyXferWorkUid = "";
     private static string _zyName = "";
     private static int _zyDestSlot = -1;
     private static string _zyNote = "";
@@ -248,26 +194,12 @@ public static class SeqChapterTestUi
     private static int _zyPersonalStart;
     private static int _zyAccountMatch;
     private static int _zyAccountTotal;
-    /// <summary>1 号身上+个人仓要凑到的只数（= 234 还缺 − 账号仓已有）。</summary>
-    private static int _zyCatchFill;
-    /// <summary>234 还缺几只（15 − 仓检已有）。</summary>
-    private static int _zyXferNeed;
-    /// <summary>本轮 1 号已推进账号仓的只数。</summary>
-    private static int _zyXferSent;
-    /// <summary>交够后把个人仓多余目标种取到身上再丢。</summary>
-    private static bool _zyXferTakeForDrop;
-    private static int _zyDestHave;
-    private static int _zyScanStep;
-    private static int _zyScanDestHave;
-    private static int _zyScanAccountHave;
     private static readonly List<int> _zyWorkIndexes = new List<int>();
     private static int _zyWorkPos;
-    private static int _zyCatchStuckStoreIndex = -1;
-    private static int _zyCatchStuckStoreCount;
     private static object _zyInfoBefore;
     private static object _zyStoreBefore;
     private static object _zyStatusText;
-    /// <summary>中元抓齐：仓检 234 后按缺额抓；已满 15 的种跳过。指定号只接收对应名字。</summary>
+    /// <summary>中元抓齐：1号按 幽灵→僵尸→骷髅战士 导航+抓满15+倒腾；指定号只接收对应名字。</summary>
     private static bool _zyAllActive;
     private static int _zyAllIndex;
     private static int _zyAllPhase;
@@ -281,49 +213,6 @@ public static class SeqChapterTestUi
     private static bool _zyAllCatchStarted;
     private static bool _zyAllXferStarted;
     private static bool _skCNavForAll;
-    /// <summary>中元幽灵：前往 WayId=1003 后临时占用护航队列，到 52018 再还。</summary>
-    private static bool _zyLingTangOwnsEscort;
-    private static readonly List<EscortCandidate> _zyLingTangSavedQueue = new List<EscortCandidate>();
-    private static int _zyLingTangSavedIndex = -1;
-    private static long _zyAllWaitBattleSinceMs;
-    /// <summary>中元循环：仓检 → 抓三种 → 兑换 → 再仓检。</summary>
-    private static bool _zyLoopActive;
-    private static int _zyLoopPhase;
-    private static int _zyLoopRound;
-    private static int _zyLoopScanIndex;
-    private static readonly int[] _zyLoopDestHave = new int[3];
-    private static readonly int[] _zyLoopDestBankMatch = new int[3];
-    private static readonly int[] _zyLoopDestBankTotal = new int[3];
-    private static readonly int[] _zyLoopDestBankCap = new int[3];
-    private static readonly int[] _zyLoopDestBankFree = new int[3];
-    private static readonly bool[] _zyLoopDestTimedOut = new bool[3];
-    private static readonly string[] _zyLoopDestOthers = new string[3];
-    private static readonly int[] _zyLoopAccountHave = new int[3];
-    private static readonly int[] _zyLoopLocalHave = new int[3];
-    private static int _zyLoopAccountTotal;
-    private static bool _zyLoopAccountTimedOut;
-    private static int _zyLoopAccountOpenTries;
-    private static int _zyLoopLocalBankTotal;
-    private static int _zyLoopLocalBankCap;
-    private static int _zyLoopLocalBankFree;
-    private static string _zyLoopReport = "";
-    private static string _zyLoopNote = "";
-    private static long _zyLoopLastTipMs;
-    private static bool _zyAllCompletedOk;
-    private static string _zyPendingBankUid = "";
-    private static string _zyBankFpBefore = "";
-    private static readonly List<string> _zyRecentBankUids = new List<string>();
-    private static readonly List<string> _zyRecentBankFps = new List<string>();
-    private static bool _zyDestFullVerifyPending;
-    private const int ZyLoopIdle = 0;
-    private const int ZyLoopScanDest = 1;
-    private const int ZyLoopScanDestWait = 2;
-    private const int ZyLoopScanAccount = 3;
-    private const int ZyLoopScanAccountWait = 4;
-    private const int ZyLoopScanLocal = 5;
-    private const int ZyLoopScanLocalWait = 6;
-    private const int ZyLoopCatch = 7;
-    private const int ZyLoopExchange = 8;
     private const int ZyAllIdle = 0;
     private const int ZyAllReturn = 1;
     private const int ZyAllWaitReturn = 2;
@@ -332,28 +221,12 @@ public static class SeqChapterTestUi
     private const int ZyAllNavC = 5;
     private const int ZyAllCatchWait = 6;
     private const int ZyAllXferWait = 7;
-    private const int ZyAllScan = 8;
-    private const int ZyScanDestOpen = 0;
-    private const int ZyScanDestWait = 1;
-    private const int ZyScanAccountOpen = 2;
-    private const int ZyScanAccountWait = 3;
-    private const int ZyScanLocalOpen = 4;
-    private const int ZyScanLocalWait = 5;
-    private const int ZhongyuanHangupAId = 3;
-    private const int ZhongyuanHangupAWayId = 1003;
-    private const int ZhongyuanHangupAFloor = 52018;
-    private const long ZhongyuanHangupGoTimeoutMs = 600000;
-    private const long ZhongyuanHangupTeleportTimeoutMs = 25000;
+    private const string ZhongyuanHangupAKeyword = "灵堂";
     private const int ZhongyuanHangupBId = 2;
     private const int ZhongyuanHangupBFloor = 52140;
-    /// <summary>骷髅战士导航：护航 #1008 到 402 打断，再走路切 4400→4403 点墙；(41,39) 再去 4404。15000/15001 按普通护航过图，不做掐路径特例。</summary>
+    /// <summary>骷髅战士导航：先护航 #1008，进 402 后停护航再走路点。不占用用户原护航队列。</summary>
     private const int SkCMissionId = 1008;
     private const int SkCStopEscortFloor = 402;
-    private const int SkCHangupFloor = 52418;
-    private const int SkCWarp402X = 118;
-    private const int SkCWarp402Y = 100;
-    private const int SkCWarp4400X = 106;
-    private const int SkCWarp4400Y = 54;
     private const int SkCPhaseIdle = 0;
     private const int SkCPhaseEscort = 1;
     private const int SkCPhaseAbortWait = 2;
@@ -361,19 +234,9 @@ public static class SeqChapterTestUi
     private const int SkCPhaseNav4400 = 4;
     private const int SkCPhaseNav4403 = 5;
     private const int SkCPhaseTalkWall = 6;
-    /// <summary>点墙传送后本图导航 (41,39)，再跨图去 4404。不是任务导航。</summary>
-    private const int SkCPhaseNavVia = 7;
-    private const int SkCPhaseNav4404 = 8;
+    private const int SkCPhaseNav4404 = 7;
     private const long SkCAbortWaitMs = 2000;
     private const string SkCWallNpcName = "快要崩裂的墙壁";
-    /// <summary>4403 站 (26,38)，再跟 (28,38) 的「快要崩裂的墙壁」对话。</summary>
-    private const int SkCWallStandX = 26;
-    private const int SkCWallStandY = 38;
-    private const int SkCWallNpcX = 28;
-    private const int SkCWallNpcY = 38;
-    /// <summary>点墙传送后落在墙东，本图导航去 (41,39)，再跨图 4404(70,8)。不是任务导航。</summary>
-    private const int SkCViaX = 41;
-    private const int SkCViaY = 39;
     private static bool _skCNavActive;
     private static int _skCNavPhase;
     private static string _skCNavNote = "";
@@ -393,7 +256,6 @@ public static class SeqChapterTestUi
     private static bool _skCNavLastOk;
     private static int _skCNavLastX;
     private static int _skCNavLastY;
-    private static int _skCNavLastFloor = int.MinValue;
     private static int _navWpPage;
     private static readonly List<NavWaypoint> _navWaypoints = new List<NavWaypoint>();
     private static readonly List<object> _tabButtons = new List<object>();
@@ -527,10 +389,10 @@ public static class SeqChapterTestUi
     /// <summary>遇敌步骤：必须先到达本步导航点附近才开遇敌（格）。</summary>
     private const int EscortEncounterArriveNear = 4;
     /// <summary>
-    /// 中秋 #119 月宫救兔护航特例（已卸：护航页不再显示七夕阿凯/哥拉尔按钮）。
-    /// 实现仍留在本文件；卸前快照见 tools/seqchapter_escort_loops_backup/。
+    /// 中秋 #119 月宫救兔护航特例（步骤 6 挂机传送哈巴鲁洞穴；步骤 5 挂机传送布朗山；步骤 2 回登入点+赤凤之翼；步骤 7 挂机传送奇怪的洞窟怪）。
+    /// 两个傻瓜包都带（助手面板 wiki_test_ui）。临时活动：等用户明确下令后再永久删除本开关及全部 119 特例。
     /// </summary>
-    private const bool TempMidAutumnEscort119 = false;
+    private const bool TempMidAutumnEscort119 = true;
     /// <summary>中秋 #119：队长回登入点后等待切图（登入点在阿凯鲁法）。</summary>
     private static bool _escortLoginGatePending;
     private static long _escortLoginGateAtMs;
@@ -808,7 +670,7 @@ public static class SeqChapterTestUi
     private const int StorePetLevel = 1;
     private const int PetStatusRest = 0;
 
-    /// <summary>七夕 #119 循环（已卸面板入口；实现保留备用）。</summary>
+    /// <summary>七夕 #119 循环（临时；等用户下令再删）。</summary>
     private static bool _midAutumnLoopActive;
     private static int _midAutumnLoopCount;
     /// <summary>true=哥拉尔版（登入点哥拉尔、不用赤凤之翼）；false=阿凯版（回登入点+赤凤之翼）。</summary>
@@ -1088,7 +950,6 @@ public static class SeqChapterTestUi
             TickFloraHeal();
             TickFullAutoScript();
             TickWildExchange();
-            TickZhongyuanLoop();
             TickZhongyuanAll();
             TickZhongyuanCatch();
             TickZhongyuanTransfer();
@@ -1151,7 +1012,7 @@ public static class SeqChapterTestUi
 
         if (_tab == TabScript && _zyStatusText != null && !IsUnityNull(_zyStatusText))
         {
-            SetText(_zyStatusText, FormatWildExchangeStatus(), 12);
+            SetText(_zyStatusText, FormatZhongyuanStatus() + "\n" + FormatSkCNavStatus(), 12);
         }
 
         if (_tab == TabScript && _floraHealStatusText != null && !IsUnityNull(_floraHealStatusText))
@@ -1433,6 +1294,12 @@ public static class SeqChapterTestUi
         try
         {
             CaptureWildPetNameFromUi();
+            if (mode == ModeCatchWild)
+            {
+                Tip("抓野生宠只能由脚本调用");
+                return;
+            }
+
             WriteLog("SelectBattleMode " + mode);
             ApplyBattleMode(mode);
             _battleMode = mode;
@@ -1481,7 +1348,7 @@ public static class SeqChapterTestUi
         else if (mode == ModeCatchWild)
         {
             TrySetFeatureEnabled("SeqChapterAutoCatch", "hotfixdata/SeqChapterAutoCatch.dll.bytes", true);
-            TrySetAutoCatchWild(true, "");
+            TrySetAutoCatchWild(true, _catchWildTargetName);
         }
         else if (mode == ModeCatchSell)
         {
@@ -3315,47 +3182,6 @@ public static class SeqChapterTestUi
         return (slot + 1) + "号";
     }
 
-    /// <summary>队伍下标 0=1号 … 的 UID；找不到返回空。</summary>
-    private static string GetTeamUidBySlot(int slot)
-    {
-        if (slot < 0)
-        {
-            return "";
-        }
-
-        try
-        {
-            var teamData = GetStaticMember("PlayerDataHolder", "teamData") as Array;
-            if (teamData == null || slot >= teamData.Length)
-            {
-                return "";
-            }
-
-            var data = teamData.GetValue(slot);
-            if (data == null || Convert.ToInt32(GetMember(data, "UseFlag") ?? 0) != 1)
-            {
-                return "";
-            }
-
-            var uid = Convert.ToString(GetMember(GetMember(data, "Player"), "Uid") ?? "") ?? "";
-            return uid.Trim();
-        }
-        catch
-        {
-            return "";
-        }
-    }
-
-    private static int GetZyCatchFill()
-    {
-        return _zyCatchFill > 0 ? _zyCatchFill : ZhongyuanQuota;
-    }
-
-    private static int GetZyXferNeed()
-    {
-        return _zyXferNeed >= 0 ? _zyXferNeed : ZhongyuanQuota;
-    }
-
     private static List<string> CollectTeamOrMultiUids()
     {
         var result = new List<string>();
@@ -3699,7 +3525,6 @@ public static class SeqChapterTestUi
         if (FeatureAvailable("SeqChapterAutoCatch", "hotfixdata/SeqChapterAutoCatch.dll.bytes"))
         {
             AddModeRow(rtType, ModeCatch, "抓宠", ref y, true);
-            AddModeRow(rtType, ModeCatchWild, "抓野生宠", ref y, true);
         }
 
         if (FeatureAvailable("SeqChapterAutoCatchSell", "hotfixdata/SeqChapterAutoCatchSell.dll.bytes"))
@@ -5576,20 +5401,21 @@ public static class SeqChapterTestUi
                || string.Equals(n, ZhongyuanPetC, StringComparison.Ordinal);
     }
 
-    /// <summary>脚本开启抓野生宠：战斗里三种都抓；name 只用于本轮导航/倒腾日志。</summary>
+    /// <summary>脚本开启抓野生宠（仅幽灵/僵尸/骷髅战士）。战斗页不可选手动开。</summary>
     private static bool ApplyCatchWildFromScript(string petName)
     {
         var name = (petName ?? "").Trim();
-        if (!string.IsNullOrEmpty(name) && !IsZhongyuanPetName(name))
+        if (!IsZhongyuanPetName(name))
         {
-            Tip("抓宠只支持幽灵/僵尸/骷髅战士");
+            Tip("抓野生宠只支持幽灵/僵尸/骷髅战士");
             WriteLog("catch-wild reject name=" + name);
             return false;
         }
 
+        _catchWildTargetName = name;
         ApplyBattleMode(ModeCatchWild);
         _battleMode = ModeCatchWild;
-        _statusLine = string.IsNullOrEmpty(name) ? "抓野生宠" : ("抓野生宠: " + name);
+        _statusLine = "抓野生宠: " + name;
         WriteLog("catch-wild script name=" + name
                  + " destSlot=" + GetZhongyuanDestSlot(name)
                  + " pathNodes=" + GetZhongyuanHuntPath(name).Length);
@@ -8955,15 +8781,34 @@ public static class SeqChapterTestUi
         AddScriptColButton(
             rtType, "WildExchange", "wex", leftX, row0 - rowStep * 3,
             0.42f, 0.28f, 0.18f,
-            _wildExActive && !_wildExInLoop ? "兑换野生宠（停止）" : "兑换野生宠",
-            ToggleWildExchange);
+            _wildExActive ? "兑换野生宠（进行中）" : "兑换野生宠",
+            StartWildExchange);
+        AddScriptColButton(
+            rtType, "ZhongyuanAll", "zya", rightX, row0 - rowStep * 3,
+            0.22f, 0.42f, 0.28f,
+            _zyAllActive ? "中元抓齐（停止）" : "中元抓齐",
+            ToggleZhongyuanAll);
 
-        var wildY = row0 - rowStep * 4;
+        AddScriptColButton(
+            rtType, "ZhongyuanXfer", "zyx", leftX, row0 - rowStep * 4,
+            0.32f, 0.28f, 0.48f,
+            _zyXferActive ? "中元倒腾（停止）" : "中元倒腾",
+            ToggleZhongyuanTransfer);
+        AddScriptColButton(
+            rtType, "SkCNav", "skc", rightX, row0 - rowStep * 4,
+            0.38f, 0.22f, 0.22f,
+            _skCNavActive ? "骷髅战士导航（停止）" : "骷髅战士导航",
+            ToggleSkCNav);
+
+        var wildY = row0 - rowStep * 5;
+        AddWildPetNameRowAt(rtType, 0f, wildY);
+        wildY -= 72f;
+
         var zyStatus = CreateUiChild(_bodyRoot, "ZhongyuanStatus", rtType);
-        SetAnchoredTop(RequireRect(zyStatus, "zys"), 0f, wildY, 540f, 88f);
+        SetAnchoredTop(RequireRect(zyStatus, "zys"), 0f, wildY, 540f, 68f);
         _zyStatusText = AddText(zyStatus);
-        SetText(_zyStatusText, FormatWildExchangeStatus(), 12);
-        wildY -= 92f;
+        SetText(_zyStatusText, FormatZhongyuanStatus() + "\n" + FormatSkCNavStatus(), 12);
+        wildY -= 72f;
 
         var fhStatus = CreateUiChild(_bodyRoot, "FloraHealStatus", rtType);
         SetAnchoredTop(RequireRect(fhStatus, "fhs"), 0f, wildY, 540f, 48f);
@@ -8980,7 +8825,7 @@ public static class SeqChapterTestUi
     {
         if (!_skCNavActive)
         {
-            return "骷髅战士导航: 未启动  #1008护航→402停→(118,100)切4400→(106,54)切4403点墙→(41,39)→4404(70,8)";
+            return "骷髅战士导航: 未启动  #1008护航→402停→(118,100)→4400(106,54)→4403(26,38)墙→4404(70,8)";
         }
 
         return "骷髅战士导航: " + SkCNavPhaseName(_skCNavPhase) + "  " + (_skCNavNote ?? "");
@@ -8991,12 +8836,11 @@ public static class SeqChapterTestUi
         switch (phase)
         {
             case SkCPhaseEscort: return "护航#1008";
-            case SkCPhaseAbortWait: return "402停护航清路径";
+            case SkCPhaseAbortWait: return "停护航清路径";
             case SkCPhaseNav402: return "402(118,100)切4400";
             case SkCPhaseNav4400: return "4400(106,54)切4403";
-            case SkCPhaseNav4403: return "去4403(26,38)";
-            case SkCPhaseTalkWall: return "点(28,38)快要崩裂的墙壁";
-            case SkCPhaseNavVia: return "过墙后(41,39)";
+            case SkCPhaseNav4403: return "4403(26,38)";
+            case SkCPhaseTalkWall: return "快要崩裂的墙壁";
             case SkCPhaseNav4404: return "4404(70,8)";
             default: return "准备";
         }
@@ -9052,7 +8896,6 @@ public static class SeqChapterTestUi
         _skCNavLastNavMs = 0;
         _skCNavLastNpcMs = 0;
         _skCNavLastActivityMs = NowMs();
-        _skCNavLastFloor = floor;
         TryGetPlayerXY(out _skCNavLastX, out _skCNavLastY);
         ResetSkCStuck();
 
@@ -9063,34 +8906,19 @@ public static class SeqChapterTestUi
         }
         else if (floor == 4403)
         {
-            if (SkCPassedWall(_skCNavLastX, _skCNavLastY))
-            {
-                SkCEnterAfterWall("start-east");
-            }
-            else if (SkCAtWallStand(_skCNavLastX, _skCNavLastY) || SkCAtWallNpc(_skCNavLastX, _skCNavLastY))
-            {
-                _skCNavPhase = SkCPhaseTalkWall;
-                _skCNavNote = "已在墙边，点(28,38)墙壁";
-            }
-            else
-            {
-                _skCNavPhase = SkCPhaseNav4403;
-                _skCNavNote = "已在4403，去(26,38)";
-                TryWalkTo(SkCWallStandX, SkCWallStandY);
-                _skCNavLastNavMs = NowMs();
-            }
+            _skCNavPhase = SkCPhaseNav4403;
+            _skCNavNote = "已在4403";
         }
         else if (floor == 4400)
         {
             _skCNavPhase = SkCPhaseNav4400;
-            _skCNavNote = "已在4400，去(106,54)";
-            SkCIssueNav(4400, SkCWarp4400X, SkCWarp4400Y, true);
+            _skCNavNote = "已在4400";
         }
         else if (floor == SkCStopEscortFloor)
         {
             _skCNavPhase = SkCPhaseNav402;
-            _skCNavNote = "已在402，去(118,100)切4400";
-            SkCIssueNav(402, SkCWarp402X, SkCWarp402Y, true);
+            _skCNavNote = "已在402，走路点";
+            SkCIssueNav(402, 118, 100, true);
         }
         else if (!StartSkCOwnedEscort())
         {
@@ -9140,7 +8968,7 @@ public static class SeqChapterTestUi
         });
         _skCNavOwnsEscort = true;
         _skCNavPhase = SkCPhaseEscort;
-        _skCNavNote = "护航#1008，进402后停再走路切4400";
+        _skCNavNote = "护航#1008，进402后停";
         try
         {
             StartEscortQueue();
@@ -9181,7 +9009,6 @@ public static class SeqChapterTestUi
         _skCNavNote = reason ?? "";
         _skCNavLastOk = (_skCNavNote ?? "").IndexOf("已到达", StringComparison.Ordinal) >= 0;
         _skCNavStuckPending = false;
-        _skCNavLastFloor = int.MinValue;
         try
         {
             StopTaskNavigation();
@@ -9202,7 +9029,7 @@ public static class SeqChapterTestUi
         ReleaseSkCOwnedEscort();
         _skCNavPhase = SkCPhaseAbortWait;
         _skCNavAbortUntilMs = NowMs() + SkCAbortWaitMs;
-        _skCNavNote = "已停护航，清路径2秒";
+        _skCNavNote = "已进402，清路径2秒";
         Tip("骷髅战士导航：已进402，停止#1008");
     }
 
@@ -9308,6 +9135,12 @@ public static class SeqChapterTestUi
             return;
         }
 
+        if (IsMapLoading())
+        {
+            _skCNavLastActivityMs = now;
+            return;
+        }
+
         if (_skCNavPhase == SkCPhaseAbortWait)
         {
             try
@@ -9324,67 +9157,11 @@ public static class SeqChapterTestUi
                 return;
             }
 
-            if (floor == 4404)
-            {
-                _skCNavPhase = SkCPhaseNav4404;
-                _skCNavNote = "已在4404，去(70,8)";
-                ResetSkCStuck();
-                _skCNavLastFloor = floor;
-                return;
-            }
-
-            if (floor == 4403)
-            {
-                if (SkCPassedWall(x, y))
-                {
-                    SkCEnterAfterWall("handoff-east");
-                    _skCNavLastFloor = floor;
-                    return;
-                }
-
-                _skCNavPhase = SkCPhaseNav4403;
-                _skCNavNote = "已在4403，走到(26,38)";
-                TryWalkTo(SkCWallStandX, SkCWallStandY);
-                _skCNavLastNavMs = now;
-                _skCNavLastActivityMs = now;
-                _skCNavLastFloor = floor;
-                return;
-            }
-
-            if (floor == 4400)
-            {
-                _skCNavPhase = SkCPhaseNav4400;
-                _skCNavNote = "已切4400，去(106,54)";
-                SkCIssueNav(4400, SkCWarp4400X, SkCWarp4400Y, true);
-                _skCNavLastActivityMs = now;
-                _skCNavLastFloor = floor;
-                return;
-            }
-
             _skCNavPhase = SkCPhaseNav402;
-            _skCNavNote = "去402(118,100)切4400";
-            SkCIssueNav(402, SkCWarp402X, SkCWarp402Y, true);
+            _skCNavNote = "去402(118,100)";
+            SkCIssueNav(402, 118, 100, true);
             _skCNavLastActivityMs = now;
-            _skCNavLastFloor = floor;
             return;
-        }
-
-        if (IsMapLoading())
-        {
-            _skCNavLastActivityMs = now;
-            _skCNavLastFloor = floor;
-            return;
-        }
-
-        if (_skCNavLastFloor == int.MinValue)
-        {
-            _skCNavLastFloor = floor;
-        }
-        else if (floor != _skCNavLastFloor)
-        {
-            WriteLog("skc floor change " + _skCNavLastFloor + "->" + floor);
-            _skCNavLastFloor = floor;
-            _skCNavLastActivityMs = now;
         }
 
         if (inBattle)
@@ -9418,23 +9195,13 @@ public static class SeqChapterTestUi
                 {
                     _skCNavPhase = SkCPhaseNav4400;
                     ResetSkCStuck();
-                    _skCNavNote = "已切4400，去(106,54)";
-                    SkCIssueNav(4400, SkCWarp4400X, SkCWarp4400Y, true);
+                    _skCNavNote = "已切4400";
+                    SkCIssueNav(4400, 106, 54, true);
                     return;
                 }
 
-                if (floor == 4403)
-                {
-                    _skCNavPhase = SkCPhaseNav4403;
-                    ResetSkCStuck();
-                    _skCNavNote = "已切4403，走到(26,38)";
-                    TryWalkTo(SkCWallStandX, SkCWallStandY);
-                    _skCNavLastNavMs = now;
-                    return;
-                }
-
-                SkCEnsureNav(402, SkCWarp402X, SkCWarp402Y, now);
-                _skCNavNote = "402(118,100) 图" + floor + " 现" + x + "," + y;
+                SkCEnsureNav(402, 118, 100, now);
+                _skCNavNote = "402(118,100) 图" + floor;
                 break;
 
             case SkCPhaseNav4400:
@@ -9442,22 +9209,13 @@ public static class SeqChapterTestUi
                 {
                     _skCNavPhase = SkCPhaseNav4403;
                     ResetSkCStuck();
-                    _skCNavNote = "已切4403，走到(26,38)";
-                    TryWalkTo(SkCWallStandX, SkCWallStandY);
-                    _skCNavLastNavMs = now;
+                    _skCNavNote = "已切4403";
+                    SkCIssueNav(4403, 26, 38, true);
                     return;
                 }
 
-                if (floor == 4404)
-                {
-                    _skCNavPhase = SkCPhaseNav4404;
-                    ResetSkCStuck();
-                    _skCNavNote = "已进4404，去(70,8)";
-                    return;
-                }
-
-                SkCEnsureNav(4400, SkCWarp4400X, SkCWarp4400Y, now);
-                _skCNavNote = "4400(106,54) 图" + floor + " 现" + x + "," + y;
+                SkCEnsureNav(4400, 106, 54, now);
+                _skCNavNote = "4400(106,54) 图" + floor;
                 break;
 
             case SkCPhaseNav4403:
@@ -9465,39 +9223,20 @@ public static class SeqChapterTestUi
                 {
                     _skCNavPhase = SkCPhaseNav4404;
                     ResetSkCStuck();
-                    _skCNavNote = "已进4404，去(70,8)";
+                    SkCIssueNav(4404, 70, 8, true);
                     return;
                 }
 
-                if (floor == 4403 && SkCPassedWall(x, y))
-                {
-                    SkCEnterAfterWall("4403-already-east");
-                    return;
-                }
-
-                if (floor == 4403 && SkCAtWallStand(x, y))
+                if (floor == 4403 && SkCNear(x, y, 26, 38))
                 {
                     _skCNavPhase = SkCPhaseTalkWall;
                     _skCNavSawDialogue = false;
-                    _skCNavNote = "已到(26,38)，点(28,38)墙壁";
+                    _skCNavNote = "点快要崩裂的墙壁";
                     return;
                 }
 
-                if (floor == 4403)
-                {
-                    if (!IsWalkSystemPathBusy()
-                        && (_skCNavLastNavMs <= 0 || now - _skCNavLastNavMs >= LingTangNavRetryMs))
-                    {
-                        TryWalkTo(SkCWallStandX, SkCWallStandY);
-                        _skCNavLastNavMs = now;
-                    }
-
-                    _skCNavNote = "4403走到(26,38) 现" + x + "," + y;
-                    break;
-                }
-
-                SkCEnsureNav(4403, SkCWallStandX, SkCWallStandY, now);
-                _skCNavNote = "去4403(26,38) 图" + floor + " 现" + x + "," + y;
+                SkCEnsureNav(4403, 26, 38, now);
+                _skCNavNote = "4403(26,38)";
                 break;
 
             case SkCPhaseTalkWall:
@@ -9505,7 +9244,7 @@ public static class SeqChapterTestUi
                 {
                     _skCNavPhase = SkCPhaseNav4404;
                     ResetSkCStuck();
-                    _skCNavNote = "已进4404，去(70,8)";
+                    SkCIssueNav(4404, 70, 8, true);
                     return;
                 }
 
@@ -9515,91 +9254,47 @@ public static class SeqChapterTestUi
                     break;
                 }
 
-                if (SkCPassedWall(x, y))
+                if (!SkCNear(x, y, 26, 38) && !SkCNear(x, y, 28, 38))
                 {
-                    SkCEnterAfterWall("talk-passed-wall");
-                    return;
+                    SkCEnsureNav(4403, 26, 38, now);
+                    break;
                 }
 
                 if (_skCNavSawDialogue && !dialogueOpen)
                 {
-                    _skCNavNote = "对话结束，等过墙 现" + x + "," + y;
-                    break;
-                }
-
-                if (!SkCAtWallStand(x, y) && !SkCAtWallNpc(x, y))
-                {
-                    if (!IsWalkSystemPathBusy()
-                        && (_skCNavLastNavMs <= 0 || now - _skCNavLastNavMs >= LingTangNavRetryMs))
-                    {
-                        TryWalkTo(SkCWallStandX, SkCWallStandY);
-                        _skCNavLastNavMs = now;
-                    }
-
-                    _skCNavNote = "回到(26,38)再对话 现" + x + "," + y;
-                    break;
+                    _skCNavPhase = SkCPhaseNav4404;
+                    ResetSkCStuck();
+                    _skCNavNote = "对话结束，去4404(70,8)";
+                    SkCIssueNav(4404, 70, 8, true);
+                    return;
                 }
 
                 if (!dialogueOpen && now - _skCNavLastNpcMs >= LingTangNpcRetryMs)
                 {
                     _skCNavLastNpcMs = now;
-                    if (TryLookNpcAt(SkCWallNpcX, SkCWallNpcY))
+                    var obj = FindNpcObjIndexByNameOrPos(SkCWallNpcName, "快要崩裂", 28, 38);
+                    if (obj >= 0 && TryLookNpcAt(28, 38))
                     {
                         _skCNavLastActivityMs = now;
-                        _skCNavNote = "已点墙壁(28,38)";
+                        _skCNavNote = "已点墙壁";
+                    }
+                    else if (obj >= 0)
+                    {
+                        TryLookNpcByObj(obj);
+                        _skCNavLastActivityMs = now;
                     }
                     else
                     {
-                        var obj = FindNpcObjIndexByName(SkCWallNpcName, "快要崩裂");
-                        if (obj >= 0 && TryLookNpcByObj(obj))
-                        {
-                            _skCNavLastActivityMs = now;
-                            _skCNavNote = "格子未中，按名点墙壁 obj=" + obj;
-                        }
-                        else
-                        {
-                            _skCNavNote = "未找到(28,38)快要崩裂的墙壁";
-                        }
+                        _skCNavNote = "未找到墙壁NPC";
                     }
                 }
 
-                break;
-
-            case SkCPhaseNavVia:
-                if (floor == 4404)
-                {
-                    _skCNavPhase = SkCPhaseNav4404;
-                    ResetSkCStuck();
-                    _skCNavNote = "已进4404，去(70,8)";
-                    return;
-                }
-
-                if (floor != 4403)
-                {
-                    _skCNavPhase = SkCPhaseNav4404;
-                    ResetSkCStuck();
-                    _skCNavNote = "过墙后离图，改导航4404(70,8)";
-                    SkCIssueNav(4404, 70, 8, true);
-                    return;
-                }
-
-                if (SkCNear(x, y, SkCViaX, SkCViaY))
-                {
-                    _skCNavPhase = SkCPhaseNav4404;
-                    ResetSkCStuck();
-                    _skCNavNote = "(41,39)到了，导航去4404(70,8)";
-                    SkCIssueNav(4404, 70, 8, true);
-                    return;
-                }
-
-                SkCKeepAfterWallNav(now);
-                _skCNavNote = "过墙后导航(41,39) 现" + x + "," + y;
                 break;
 
             case SkCPhaseNav4404:
                 if (floor == 4404 && SkCNear(x, y, 70, 8))
                 {
-                    StopSkCNav("已到达 图" + floor);
+                    StopSkCNav("已到达 4404 (70,8)");
                     return;
                 }
 
@@ -9621,32 +9316,6 @@ public static class SeqChapterTestUi
         return Math.Abs(x - tx) + Math.Abs(y - ty) <= 1;
     }
 
-    private static bool SkCAtWallStand(int x, int y)
-    {
-        return x == SkCWallStandX && y == SkCWallStandY;
-    }
-
-    private static bool SkCAtWallNpc(int x, int y)
-    {
-        return x == SkCWallNpcX && y == SkCWallNpcY;
-    }
-
-    /// <summary>墙在 x=28。点墙传送后落在墙东（约 31,38），禁止再往西走回 (26,38)。</summary>
-    private static bool SkCPassedWall(int x, int y)
-    {
-        return x >= 30;
-    }
-
-    private static bool IsSkCResumeFloor(int floor)
-    {
-        return floor == SkCStopEscortFloor || floor == 4400 || floor == 4403 || floor == 4404;
-    }
-
-    private static bool IsSkCArriveFloor(int floor)
-    {
-        return floor == SkCStopEscortFloor || floor == 4403 || floor == 4404;
-    }
-
     private static void ResetSkCStuck()
     {
         _skCNavStuckFails = 0;
@@ -9658,67 +9327,12 @@ public static class SeqChapterTestUi
 
     private static void SkCEnsureNav(int floor, int x, int y, long now)
     {
-        if (_skCNavOwnsEscort && KeepOfficialPathAfterMap("skc-ensure"))
-        {
-            _skCNavLastActivityMs = now;
-            return;
-        }
-
-        // 官方 WalkSystem 还在走 / 等过图：不要再发 GeneralPointMoveTo（会停路再开）。
-        if (IsWalkSystemPathBusy())
-        {
-            return;
-        }
-
         if (_skCNavLastNavMs > 0 && now - _skCNavLastNavMs < LingTangNavRetryMs)
         {
             return;
         }
 
         SkCIssueNav(floor, x, y, false);
-    }
-
-    /// <summary>
-    /// 点墙传送后：本图 GeneralPointMoveTo(4403, 41, 39)。不是任务导航，不要 Abort / RunTask。
-    /// </summary>
-    private static void SkCEnterAfterWall(string reason)
-    {
-        _skCNavPhase = SkCPhaseNavVia;
-        ResetSkCStuck();
-        _skCNavNote = "过墙后导航(41,39)";
-        SkCIssueAfterWallNav(reason, true);
-    }
-
-    private static void SkCIssueAfterWallNav(string reason, bool force)
-    {
-        var now = NowMs();
-        if (!force && _skCNavLastNavMs > 0 && now - _skCNavLastNavMs < LingTangNavRetryMs)
-        {
-            return;
-        }
-
-        string how;
-        var ok = TryNavigateTo(4403, SkCViaX, SkCViaY, out how);
-        _skCNavLastNavMs = now;
-        _skCNavLastActivityMs = now;
-        WriteLog("skc after-wall (41,39) ok=" + ok + " how=" + how + " reason=" + reason);
-    }
-
-    private static void SkCKeepAfterWallNav(long now)
-    {
-        if (IsMapLoading())
-        {
-            _skCNavLastActivityMs = now;
-            return;
-        }
-
-        // 点墙是同图传送，WalkSystem 常停在等过图；不能因此不发 (41,39) 导航。
-        if (IsWalkSystemPathBusy() && !IsWalkWaitingMap())
-        {
-            return;
-        }
-
-        SkCIssueAfterWallNav("keep", false);
     }
 
     private static void SkCIssueNav(int floor, int x, int y, bool force)
@@ -9744,54 +9358,17 @@ public static class SeqChapterTestUi
 
     private static void SkCReissueCurrentNav(bool force)
     {
-        int reFloor;
-        int reX;
-        int reY;
-        TryGetCurrentMapInfo(out reFloor, out _, out _);
-        TryGetPlayerXY(out reX, out reY);
         switch (_skCNavPhase)
         {
             case SkCPhaseNav402:
-                SkCIssueNav(402, SkCWarp402X, SkCWarp402Y, force);
+                SkCIssueNav(402, 118, 100, force);
                 break;
             case SkCPhaseNav4400:
-                SkCIssueNav(4400, SkCWarp4400X, SkCWarp4400Y, force);
+                SkCIssueNav(4400, 106, 54, force);
                 break;
             case SkCPhaseNav4403:
-                if (reFloor == 4403)
-                {
-                    if (SkCPassedWall(reX, reY))
-                    {
-                        SkCEnterAfterWall("stuck-east");
-                    }
-                    else
-                    {
-                        TryWalkTo(SkCWallStandX, SkCWallStandY);
-                        _skCNavLastNavMs = NowMs();
-                    }
-                }
-                else
-                {
-                    SkCIssueNav(4403, SkCWallStandX, SkCWallStandY, force);
-                }
-                break;
             case SkCPhaseTalkWall:
-                if (reFloor == 4403 && SkCPassedWall(reX, reY))
-                {
-                    SkCEnterAfterWall("stuck-talk-east");
-                }
-                else if (reFloor == 4403)
-                {
-                    TryWalkTo(SkCWallStandX, SkCWallStandY);
-                    _skCNavLastNavMs = NowMs();
-                }
-                else
-                {
-                    SkCIssueNav(4403, SkCWallStandX, SkCWallStandY, force);
-                }
-                break;
-            case SkCPhaseNavVia:
-                SkCIssueAfterWallNav("stuck-reissue", true);
+                SkCIssueNav(4403, 26, 38, force);
                 break;
             case SkCPhaseNav4404:
                 SkCIssueNav(4404, 70, 8, force);
@@ -9801,12 +9378,6 @@ public static class SeqChapterTestUi
 
     private static void TickSkCNavStuck(long now, int floor, int x, int y)
     {
-        if (_skCNavOwnsEscort && KeepOfficialPathAfterMap("skc-stuck"))
-        {
-            _skCNavLastActivityMs = now;
-            return;
-        }
-
         if (_skCNavStuckPending)
         {
             if (now - _skCNavStuckMoveAtMs >= StuckResumeDelayMs)
@@ -9846,7 +9417,7 @@ public static class SeqChapterTestUi
         {
             _skCNavStuckShuffles = 0;
             _skCNavLastActivityMs = now;
-            Tip("骷髅战士导航：已挪格，继续导航");
+            Tip("骷髅战士导航：已挪格，改为继续导航");
             SkCReissueCurrentNav(true);
             return;
         }
@@ -9857,7 +9428,7 @@ public static class SeqChapterTestUi
             _skCNavStuckMoveAtMs = now;
             _skCNavStuckPending = true;
             _skCNavLastActivityMs = now;
-            Tip("骷髅战士导航：卡图，挪格后继续导航");
+            Tip("骷髅战士导航：卡战斗/卡图，挪格后续航");
         }
         else
         {
@@ -10039,12 +9610,6 @@ public static class SeqChapterTestUi
             return;
         }
 
-        if (IsMapLoading())
-        {
-            _lingTangLastActivityMs = now;
-            return;
-        }
-
         if (x != _lingTangLastX || y != _lingTangLastY)
         {
             _lingTangLastX = x;
@@ -10193,12 +9758,6 @@ public static class SeqChapterTestUi
 
         if (now - _lingTangLastActivityMs >= StuckIdleMs)
         {
-            if (KeepOfficialPathAfterMap("lingtang-stuck"))
-            {
-                _lingTangLastActivityMs = now;
-                return;
-            }
-
             _lingTangStuckFails++;
             WriteLog("LingTang stuck fail=" + _lingTangStuckFails + "/" + LingTangMaxStuckFails
                      + " phase=" + _lingTangPhase + " floor=" + floor + " xy=" + x + "," + y);
@@ -10260,17 +9819,6 @@ public static class SeqChapterTestUi
 
     private static void LingTangEnsureNav(int floor, int x, int y, long now)
     {
-        if (KeepOfficialPathAfterMap("lingtang-ensure"))
-        {
-            _lingTangLastActivityMs = now;
-            return;
-        }
-
-        if (IsWalkSystemPathBusy())
-        {
-            return;
-        }
-
         if (_lingTangLastNavMs > 0 && now - _lingTangLastNavMs < LingTangNavRetryMs)
         {
             return;
@@ -11169,8 +10717,10 @@ public static class SeqChapterTestUi
             return;
         }
 
+        var dragonLoopUi = DragonLoopUiEnabled();
+
         var hint2 = CreateUiChild(_bodyRoot, "Hint2", rtType);
-        SetAnchoredTop(RequireRect(hint2, "ha2"), 0f, -8f, 500f, 72f);
+        SetAnchoredTop(RequireRect(hint2, "ha2"), 0f, -8f, 500f, 88f);
         var hintText = AddText(hint2);
         try
         {
@@ -11185,10 +10735,16 @@ public static class SeqChapterTestUi
             hintText,
             "队列护航：可塞未接；完成一项后等 5 秒再下一项。\n"
             + "手动暂停不清铃；自动暂停约每2秒响铃，点「我知道了」或停止才停。静止5秒尝试恢复，连挪5次后改为直接续任务再观察5秒；本步骤连续20次失败自动暂停。\n"
-            + "战后若队伍解散或不足5人：自动暂停，组好后点「继续护航」。",
+            + (TempMidAutumnEscort119
+                ? "七夕循环：阿凯版=回登入点+赤凤之翼；哥拉尔版=登入点在哥拉尔、不用赤凤之翼。石碑步先挂机传送哈巴鲁洞穴。最后一步分账号存兑换券后计一轮，丢队长包里绿/红头盔（一件一丢，间隔1秒），再去法兰治疗，然后下一轮。\n"
+                : "")
+            + (dragonLoopUi
+                ? "龙族循环A：自动重置龙4→按序执行龙族纷争1-4→宠物位满停止。\n"
+                : "")
+            + "战后若队伍解散或不足5人（普通护航/七夕/龙城）：自动暂停，组好后点「继续护航」。",
             11);
 
-        var y = -84f;
+        var y = -96f;
         var running = _escortActive;
 
         // 第一行：编辑/追加队列（主入口，始终可见）
@@ -11249,16 +10805,71 @@ public static class SeqChapterTestUi
         }
 
         y -= 50f;
-        var zyLoopBtn = CreateUiChild(_bodyRoot, "ZhongyuanLoopBtn", rtType);
-        SetAnchoredTop(RequireRect(zyLoopBtn, "zylb"), 0f, y, 420f, 40f);
-        var zyLoopImg = AddComp(zyLoopBtn, "UnityEngine.UI.Image");
-        SetColor(zyLoopImg, _zyLoopActive ? 0.42f : 0.28f, _zyLoopActive ? 0.28f : 0.34f,
-            _zyLoopActive ? 0.22f : 0.48f, 1f);
-        var zyLoopLab = CreateUiChild(zyLoopBtn, "L", rtType);
-        StretchFull(RequireRect(zyLoopLab, "zyll"));
-        SetText(AddText(zyLoopLab), _zyLoopActive ? "停止中元循环" : "中元循环", 14);
-        BindButton(zyLoopBtn, zyLoopImg, ToggleZhongyuanLoop);
-        y -= 48f;
+        // 龙族循环 A（seqchapter_dragon_loop.flag）；七夕循环临时活动
+        if (dragonLoopUi)
+        {
+            var dragonBtn = CreateUiChild(_bodyRoot, "DragonLoopBtn", rtType);
+            SetAnchoredTop(RequireRect(dragonBtn, "dlb"), 0f, y, 420f, 40f);
+            var dragonImg = AddComp(dragonBtn, "UnityEngine.UI.Image");
+            SetColor(dragonImg, _dragonLoopActive ? 0.55f : 0.3f, _dragonLoopActive ? 0.24f : 0.3f,
+                _dragonLoopActive ? 0.22f : 0.42f, 1f);
+            var dragonLab = CreateUiChild(dragonBtn, "L", rtType);
+            StretchFull(RequireRect(dragonLab, "dll"));
+            SetText(AddText(dragonLab), _dragonLoopActive
+                ? ("停止龙族循环(第" + (_dragonLoopCount + 1) + "轮)")
+                : "龙族循环A(110-113)", 14);
+            BindButton(dragonBtn, dragonImg, () =>
+            {
+                if (_dragonLoopActive)
+                {
+                    StopDragonLoop();
+                }
+                else
+                {
+                    StartDragonLoop();
+                }
+            });
+            y -= 48f;
+        }
+
+        if (TempMidAutumnEscort119)
+        {
+            if (_midAutumnLoopActive)
+            {
+                var midBtn = CreateUiChild(_bodyRoot, "MidAutumnLoopBtn", rtType);
+                SetAnchoredTop(RequireRect(midBtn, "mab"), 0f, y, 420f, 40f);
+                var midImg = AddComp(midBtn, "UnityEngine.UI.Image");
+                SetColor(midImg, 0.62f, 0.32f, 0.12f, 1f);
+                var midLab = CreateUiChild(midBtn, "L", rtType);
+                StretchFull(RequireRect(midLab, "mal"));
+                var ed = _midAutumnGoralEdition ? "哥拉尔" : "阿凯";
+                SetText(AddText(midLab),
+                    "停止七夕" + ed + "版(已完成" + _midAutumnLoopCount + "轮)", 14);
+                BindButton(midBtn, midImg, StopMidAutumnLoop);
+                y -= 48f;
+            }
+            else
+            {
+                var akBtn = CreateUiChild(_bodyRoot, "MidAutumnAkBtn", rtType);
+                SetAnchoredTop(RequireRect(akBtn, "maak"), -110f, y, 200f, 40f);
+                var akImg = AddComp(akBtn, "UnityEngine.UI.Image");
+                SetColor(akImg, 0.42f, 0.28f, 0.18f, 1f);
+                var akLab = CreateUiChild(akBtn, "L", rtType);
+                StretchFull(RequireRect(akLab, "maakl"));
+                SetText(AddText(akLab), "七夕阿凯版", 14);
+                BindButton(akBtn, akImg, () => StartMidAutumnLoop(false));
+
+                var goBtn = CreateUiChild(_bodyRoot, "MidAutumnGoBtn", rtType);
+                SetAnchoredTop(RequireRect(goBtn, "mago"), 110f, y, 200f, 40f);
+                var goImg = AddComp(goBtn, "UnityEngine.UI.Image");
+                SetColor(goImg, 0.28f, 0.36f, 0.48f, 1f);
+                var goLab = CreateUiChild(goBtn, "L", rtType);
+                StretchFull(RequireRect(goLab, "magol"));
+                SetText(AddText(goLab), "七夕哥拉尔版", 14);
+                BindButton(goBtn, goImg, () => StartMidAutumnLoop(true));
+                y -= 48f;
+            }
+        }
 
         if (_escortAlertRinging)
         {
@@ -12374,7 +11985,7 @@ public static class SeqChapterTestUi
         return used >= capSlots;
     }
 
-    /// <summary>关掉银行/宠物仓库面板。GetUIPanel 有重载，不能用 GetMethod 单名查找。</summary>
+    /// <summary>存包后尝试关掉银行相关 UI，避免挡住后续点任务。</summary>
     private static void TryDismissBankUiAfterStore()
     {
         try
@@ -12385,111 +11996,31 @@ public static class SeqChapterTestUi
                 SetMember(roleMgr, "OpenBankFromPet", false);
             }
 
-            foreach (var panelName in new[] { "BankPanel", "PetBankPanel", "RemoteBankPanel", "PetStoragePanel" })
-            {
-                TryCloseUiPanel(panelName);
-            }
-
-            ClearOpenBankPetLists();
-        }
-        catch (Exception ex)
-        {
-            WriteLog("dismiss bank ui EX " + RootMessage(ex));
-        }
-    }
-
-    private static bool TryCloseUiPanel(string panelTypeName)
-    {
-        try
-        {
-            var panel = GetUiPanel(panelTypeName);
-            if (panel == null)
-            {
-                return false;
-            }
-
-            MethodInfo close = null;
-            for (var t = panel.GetType(); t != null; t = t.BaseType)
-            {
-                close = t.GetMethod(
-                    "Close",
-                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly,
-                    null,
-                    Type.EmptyTypes,
-                    null);
-                if (close != null)
-                {
-                    break;
-                }
-            }
-
-            if (close == null)
-            {
-                close = panel.GetType().GetMethod(
-                    "Close",
-                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
-                    null,
-                    Type.EmptyTypes,
-                    null);
-            }
-
-            if (close != null)
-            {
-                close.Invoke(panel, null);
-            }
-
-            TryHideUiPanelFallback(panel);
-            WriteLog("close panel " + panelTypeName + (close == null ? " no-Close" : ""));
-            return true;
-        }
-        catch (Exception ex)
-        {
-            WriteLog("close panel EX " + panelTypeName + " " + RootMessage(ex));
-            return false;
-        }
-    }
-
-    private static void TryHideUiPanelFallback(object panel)
-    {
-        if (panel == null)
-        {
-            return;
-        }
-
-        try
-        {
-            MethodInfo hide = null;
-            for (var t = panel.GetType(); t != null; t = t.BaseType)
-            {
-                hide = t.GetMethod(
-                    "Hide",
-                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly,
-                    null,
-                    Type.EmptyTypes,
-                    null);
-                if (hide != null)
-                {
-                    break;
-                }
-            }
-
-            hide?.Invoke(panel, null);
-        }
-        catch
-        {
-            // ignore
-        }
-
-        try
-        {
-            var go = GetProp(panel, "gameObject") ?? GetMember(panel, "gameObject");
-            if (go == null)
+            var uiType = FindType("UIManager");
+            var getPanel = uiType?.GetMethod("GetUIPanel", BindingFlags.Public | BindingFlags.Static);
+            if (getPanel == null || !getPanel.IsGenericMethodDefinition)
             {
                 return;
             }
 
-            var setActive = go.GetType().GetMethod("SetActive", new[] { typeof(bool) });
-            setActive?.Invoke(go, new object[] { false });
+            foreach (var panelName in new[] { "BankPanel", "PetBankPanel", "RemoteBankPanel", "PetStoragePanel" })
+            {
+                var panelType = FindType(panelName);
+                if (panelType == null)
+                {
+                    continue;
+                }
+
+                var closed = getPanel.MakeGenericMethod(panelType);
+                var panel = closed.Invoke(null, null);
+                if (panel == null)
+                {
+                    continue;
+                }
+
+                panel.GetType().GetMethod("Close", BindingFlags.Public | BindingFlags.Instance, null, Type.EmptyTypes, null)
+                    ?.Invoke(panel, null);
+            }
         }
         catch
         {
@@ -12497,194 +12028,31 @@ public static class SeqChapterTestUi
         }
     }
 
-    private static string GetWildExPetNameForSlot(int slot)
-    {
-        if (slot == ZhongyuanSlotPetA)
-        {
-            return ZhongyuanPetA;
-        }
-
-        if (slot == ZhongyuanSlotPetB)
-        {
-            return ZhongyuanPetB;
-        }
-
-        if (slot == ZhongyuanSlotPetC)
-        {
-            return ZhongyuanPetC;
-        }
-
-        return "";
-    }
-
-    private static string FormatWildExchangeStatus()
-    {
-        if (_zyLoopActive)
-        {
-            var round = _zyLoopRound > 0 ? "第" + _zyLoopRound + "轮 " : "";
-            var extra = _wildExActive ? ("\n兑换 " + WildExPhaseName(_wildExPhase) + " " + (_wildExNote ?? "")) : "";
-            return "中元循环: " + round + ZhongyuanLoopPhaseName()
-                   + "\n" + (_zyLoopNote ?? "") + extra;
-        }
-
-        if (!_wildExActive)
-        {
-            return "中元循环: 未启动\n仓检 → 抓幽灵/僵尸/骷髅战士 → 兑换中元使者第2项 → 存券 → 再仓检";
-        }
-
-        var exRound = _wildExRound > 0 ? "第" + _wildExRound + "轮后 " : "";
-        return "兑换野生宠: " + exRound + WildExPhaseName(_wildExPhase)
-               + "\n" + (_wildExNote ?? "");
-    }
-
-    private static string WildExPhaseName(int phase)
-    {
-        switch (phase)
-        {
-            case WildExReturn:
-                return "回城点2";
-            case WildExNav:
-                return "导航1500(47,75)";
-            case WildExFindNpc:
-                return "找中元使者";
-            case WildExScanDestOpen:
-            case WildExScanDestWait:
-                return "仓检2/3/4个人仓";
-            case WildExMemOpenPersonal:
-            case WildExMemWaitPersonal:
-            case WildExMemTake:
-                return "234个人仓取1只";
-            case WildExMemOpenAccount:
-            case WildExMemWaitAccount:
-            case WildExMemStore:
-                return "存入账号仓";
-            case WildExCapOpenAccount:
-            case WildExCapWaitAccount:
-            case WildExCapTake:
-                return "1号从账号仓取3只";
-            case WildExLookNpc:
-                return "点中元使者";
-            case WildExPickOption:
-                return "选第2项";
-            case WildExConfirm:
-                return "点确定交宠";
-            case WildExWaitDone:
-                return "等交宠完成";
-            case WildExStoreTicket:
-                return "存中元礼盒兑换券";
-            default:
-                return "准备";
-        }
-    }
-
-    private static void WildExSay(string msg, bool tip)
-    {
-        _wildExNote = msg ?? "";
-        WriteLog("wild-ex " + (msg ?? ""));
-        if (tip)
-        {
-            Tip("兑换野生宠：" + msg);
-            _wildExLastTipMs = NowMs();
-        }
-    }
-
-    private static void WildExSayWait(string msg, long now)
-    {
-        _wildExNote = msg ?? "";
-        if (_wildExLastTipMs <= 0 || now - _wildExLastTipMs >= 2500)
-        {
-            WildExSay(msg, true);
-        }
-    }
-
-    private static void WildExOpenBank(string uid, bool account)
-    {
-        TryDismissBankUiAfterStore();
-        MarkPendingBankOpen(uid, account);
-        _wildExInfoBefore = TryGetPetStorageInfo();
-        _wildExStoreBefore = TryGetBankStorePetInfo();
-        var openUid = uid;
-        if (account)
-        {
-            var captainUid = GetMainPlayerUidSafe();
-            if (!string.IsNullOrEmpty(captainUid))
-            {
-                openUid = captainUid;
-            }
-
-            TryOpenRemoteAccountPetBank(openUid);
-        }
-        else
-        {
-            TryOpenRemotePersonalPetBank(uid);
-        }
-
-        _wildExWaitListStartMs = NowMs();
-        WriteLog("wild-ex OpenBank account=" + account
-                 + " uid尾" + TailUid(uid)
-                 + " openUid尾" + TailUid(openUid));
-    }
-
-    private static void WildExRetryAccountOpen(long now, int reopenPhase)
-    {
-        TryDismissBankUiAfterStore();
-        _wildExAccountOpenTries++;
-        if (_wildExAccountOpenTries >= WildExAccountOpenMaxTries)
-        {
-            StopWildExchange("account-timeout");
-            Tip("打开账号宠物仓库失败");
-            return;
-        }
-
-        WildExSay("账号仓未开，重开 " + _wildExAccountOpenTries + "/" + WildExAccountOpenMaxTries, true);
-        WriteLog("wild-ex retry account open try=" + _wildExAccountOpenTries);
-        _wildExPhase = reopenPhase;
-        _wildExDelayUntilMs = now + 800;
-    }
-
-    private static bool TryCollectOpenBankZhongyuan(
-        out int[] counts, out List<int>[] indexes, out int total)
-    {
-        counts = new int[3];
-        indexes = new List<int>[3];
-        total = 0;
-        var any = false;
-        for (var i = 0; i < WildPetPresets.Length; i++)
-        {
-            List<int> matching;
-            int t;
-            if (!TryCollectOpenBankPets(
-                    WildPetPresets[i], _wildExInfoBefore, _wildExStoreBefore, out matching, out t,
-                    true))
-            {
-                continue;
-            }
-
-            any = true;
-            indexes[i] = matching ?? new List<int>();
-            counts[i] = indexes[i].Count;
-            total = t;
-        }
-
-        return any;
-    }
-
-    private static void ToggleWildExchange()
-    {
-        ToggleZhongyuanLoop();
-    }
-
     private static void StartWildExchange()
     {
-        if (_zyCatchActive || _zyXferActive || _zyAllActive || _skCNavActive)
+        CaptureWildPetNameFromUi();
+        var name = GetWildPetName();
+        if (string.IsNullOrEmpty(name))
         {
-            Tip("请先停中元抓齐/倒腾");
+            Tip("请先填写或选择野生宠名字");
             return;
         }
 
-        if (_zyLoopActive && !_wildExInLoop)
+        if (!IsZhongyuanPetName(name))
         {
-            Tip("请先停中元循环");
+            Tip("兑换只支持幽灵/僵尸/骷髅战士");
+            return;
+        }
+
+        if (_wildExActive)
+        {
+            Tip("正在兑换中");
+            return;
+        }
+
+        if (_zyCatchActive || _zyXferActive)
+        {
+            Tip("中元抓宠/倒腾进行中，不能兑换");
             return;
         }
 
@@ -12694,58 +12062,36 @@ public static class SeqChapterTestUi
             return;
         }
 
-        var uid = GetMainPlayerUidSafe();
+        var uid = Convert.ToString(GetStaticMember("PlayerDataHolder", "MainPlayerUid") ?? "") ?? "";
         if (string.IsNullOrEmpty(uid))
         {
             Tip("未找到角色");
             return;
         }
 
-        var local = GetLocalTeamSlot();
-        if (local < 0)
+        var free = CountLocalPetFreeSlots(uid);
+        if (free <= 0)
         {
-            Tip("未找到角色");
+            Tip("身上没有空位");
             return;
         }
 
-        if (local > 0)
-        {
-            Tip("兑换野生宠请用1号点，不要切号");
-            return;
-        }
-
-        for (var i = 0; i < _wildExDestHave.Length; i++)
-        {
-            _wildExDestHave[i] = 0;
-            _wildExDestTotal[i] = 0;
-        }
-
-        TrySendLocalAutoBattle("停止挂机");
-        StopTaskNavigation(false);
         _wildExActive = true;
+        _wildExPhase = WildExOpenBank;
         _wildExDelayUntilMs = 0;
         _wildExWaitListStartMs = 0;
-        _wildExLastTipMs = 0;
-        _wildExActionAtMs = 0;
-        _wildExLastLookMs = 0;
-        _wildExStepTries = 0;
-        _wildExRound = 0;
-        _wildExNpcObj = -1;
-        _wildExNpcFoundX = 0;
-        _wildExNpcFoundY = 0;
-        _wildExPetsBeforeTalk = 0;
+        _wildExTargetName = name;
         _wildExBankIndexes.Clear();
         _wildExTakePos = 0;
-        _wildExAccountOpenTries = 0;
-        _wildExScanIndex = 0;
         _wildExInfoBefore = null;
         _wildExStoreBefore = null;
-        _wildExTargetName = "";
-        _wildExWorkUid = "";
-        _wildExPhase = WildExReturn;
-        WildExSay("回城点2", true);
-        WriteLog("wild-ex start captain");
-        RefreshScriptTabIfVisible();
+        WriteLog("wild-ex start name=" + name + " free=" + free);
+        if (_tab == TabScript)
+        {
+            ClearBody();
+            BuildScriptBody();
+            RefreshTabButtonLabels();
+        }
     }
 
     private static void StopWildExchange(string reason)
@@ -12761,21 +12107,20 @@ public static class SeqChapterTestUi
         _wildExWaitListStartMs = 0;
         _wildExBankIndexes.Clear();
         _wildExTakePos = 0;
-        _wildExNote = reason ?? "";
         TryDismissBankUiAfterStore();
         WriteLog("wild-ex stop " + reason);
-        var looping = _wildExInLoop;
-        _wildExInLoop = false;
-        RefreshScriptTabIfVisible();
-        if (looping && _zyLoopActive && reason == "done")
+        if (_tab == TabScript)
         {
-            RestartZhongyuanLoopScan();
-            return;
-        }
-
-        if (looping && _zyLoopActive && reason != "loop-stop")
-        {
-            StopZhongyuanLoop("兑换中断：" + reason);
+            try
+            {
+                ClearBody();
+                BuildScriptBody();
+                RefreshTabButtonLabels();
+            }
+            catch
+            {
+                // ignore
+            }
         }
     }
 
@@ -12795,17 +12140,10 @@ public static class SeqChapterTestUi
         _wildExDelayUntilMs = 0;
         if (IsInBattleNow())
         {
-            WildExSayWait("兑换暂停：战斗中", now);
             return;
         }
 
-        if (IsMapLoading())
-        {
-            WildExSayWait("兑换暂停：过图中", now);
-            return;
-        }
-
-        var uid = GetMainPlayerUidSafe();
+        var uid = Convert.ToString(GetStaticMember("PlayerDataHolder", "MainPlayerUid") ?? "") ?? "";
         if (string.IsNullOrEmpty(uid))
         {
             StopWildExchange("no-uid");
@@ -12815,1281 +12153,87 @@ public static class SeqChapterTestUi
 
         switch (_wildExPhase)
         {
-            case WildExReturn:
-                TickWildExReturn(now);
-                break;
-            case WildExNav:
-                TickWildExNav(now);
-                break;
-            case WildExFindNpc:
-                TickWildExFindNpc(now);
-                break;
-            case WildExScanDestOpen:
-                TickWildExScanDestOpen(now);
-                break;
-            case WildExScanDestWait:
-                TickWildExScanDestWait(now);
-                break;
-            case WildExMemOpenPersonal:
-                TickWildExMemOpenPersonal(now);
-                break;
-            case WildExMemWaitPersonal:
-                TickWildExMemWaitPersonal(now);
-                break;
-            case WildExMemTake:
-                TickWildExMemTake(now);
-                break;
-            case WildExMemOpenAccount:
-                TickWildExMemOpenAccount(now);
-                break;
-            case WildExMemWaitAccount:
-                TickWildExMemWaitAccount(now);
-                break;
-            case WildExMemStore:
-                TickWildExMemStore(now);
-                break;
-            case WildExCapOpenAccount:
-                StopTaskNavigation(false);
-                WildExOpenBank(uid, true);
-                _wildExPhase = WildExCapWaitAccount;
-                WildExSay("开账号仓取3只", false);
+            case WildExOpenBank:
+                _wildExInfoBefore = TryGetPetStorageInfo();
+                _wildExStoreBefore = TryGetBankStorePetInfo();
+                TryOpenRemoteAccountPetBank(uid);
+                _wildExPhase = WildExWaitList;
+                _wildExWaitListStartMs = now;
                 _wildExDelayUntilMs = now + 400;
                 break;
-            case WildExCapWaitAccount:
-                TickWildExCapWaitAccount(uid, now);
-                break;
-            case WildExCapTake:
-                TickWildExCapTake(uid, now);
-                break;
-            case WildExLookNpc:
-                TickWildExLookNpc(now);
-                break;
-            case WildExPickOption:
-                TickWildExPickOption(now);
-                break;
-            case WildExConfirm:
-                TickWildExConfirm(uid, now);
-                break;
-            case WildExWaitDone:
-                TickWildExWaitDone(uid, now);
-                break;
-            case WildExStoreTicket:
-                TickWildExStoreTicket(uid, now);
-                break;
-        }
-    }
 
-    private static void TickWildExReturn(long now)
-    {
-        int floor;
-        string floorName;
-        int mapResId;
-        int x;
-        int y;
-        TryGetCurrentMapInfo(out floor, out floorName, out mapResId);
-        TryGetPlayerXY(out x, out y);
-        if (floor == FloraHealReturnFloor)
-        {
-            _wildExStepTries = 0;
-            _wildExActionAtMs = 0;
-            _wildExPhase = WildExNav;
-            WildExSay("已回城，导航 1500 (47,75)", true);
-            _wildExDelayUntilMs = now + 1000;
-            return;
-        }
-
-        if (_wildExActionAtMs > 0 && now - _wildExActionAtMs < WildExReturnWaitMs)
-        {
-            WildExSayWait("等待回城点2 " + _wildExStepTries + "/" + WildExMaxTries, now);
-            return;
-        }
-
-        if (_wildExStepTries >= WildExMaxTries)
-        {
-            StopWildExchange("return-fail");
-            Tip("回城点2未到位");
-            return;
-        }
-
-        _wildExStepTries++;
-        _wildExActionAtMs = now;
-        if (!FloraHealSendReturnCity())
-        {
-            WildExSay("回城发包失败 " + _wildExStepTries + "/" + WildExMaxTries, true);
-            return;
-        }
-
-        WildExSay("已发回城点2 " + _wildExStepTries + "/" + WildExMaxTries, true);
-    }
-
-    private static bool IsAtWildExStand(int floor, int x, int y)
-    {
-        return floor == WildExNpcFloor && x == WildExNpcStandX && y == WildExNpcStandY;
-    }
-
-    private static void TickWildExNav(long now)
-    {
-        int floor;
-        string floorName;
-        int mapResId;
-        int x;
-        int y;
-        TryGetCurrentMapInfo(out floor, out floorName, out mapResId);
-        TryGetPlayerXY(out x, out y);
-        if (IsAtWildExStand(floor, x, y))
-        {
-            _wildExStepTries = 0;
-            _wildExActionAtMs = 0;
-            _wildExPhase = WildExFindNpc;
-            WildExSay("已到 1500 (47,75)，找中元使者", true);
-            return;
-        }
-
-        if (_wildExActionAtMs > 0 && now - _wildExActionAtMs < WildExNavWaitMs)
-        {
-            WildExSayWait("导航 1500 (47,75) 当前 " + floor + " (" + x + "," + y + ") "
-                          + _wildExStepTries + "/" + WildExNavMaxTries, now);
-            return;
-        }
-
-        if (_wildExStepTries >= WildExNavMaxTries)
-        {
-            StopWildExchange("nav-fail");
-            Tip("导航 1500 (47,75) 未到位，当前 " + floor + " (" + x + "," + y + ")");
-            return;
-        }
-
-        _wildExStepTries++;
-        _wildExActionAtMs = now;
-        if (floor != WildExNpcFloor)
-        {
-            StopTaskNavigation(false);
-        }
-
-        string how;
-        if (!TryNavigateTo(WildExNpcFloor, WildExNpcStandX, WildExNpcStandY, out how))
-        {
-            WildExSay("导航失败 " + how + " " + _wildExStepTries + "/" + WildExNavMaxTries, true);
-            return;
-        }
-
-        WildExSay("已发导航 1500 (47,75) " + how + " 当前 " + floor + " (" + x + "," + y + ") "
-                  + _wildExStepTries + "/" + WildExNavMaxTries, true);
-    }
-
-    private static void TickWildExFindNpc(long now)
-    {
-        int obj;
-        int nx;
-        int ny;
-        if (TryFindWildExNpc(out obj, out nx, out ny))
-        {
-            _wildExNpcObj = obj;
-            _wildExNpcFoundX = nx;
-            _wildExNpcFoundY = ny;
-            _wildExStepTries = 0;
-            _wildExScanIndex = 0;
-            _wildExPhase = WildExScanDestOpen;
-            WildExSay("找到中元使者 (" + nx + "," + ny + ")，开始仓检", true);
-            return;
-        }
-
-        if (_wildExLastLookMs > 0 && now - _wildExLastLookMs < WildExNpcLookRetryMs)
-        {
-            WildExSayWait("查找中元使者", now);
-            return;
-        }
-
-        _wildExLastLookMs = now;
-        _wildExStepTries++;
-        if (_wildExStepTries > WildExMaxTries)
-        {
-            StopWildExchange("npc-miss");
-            Tip("找不到中元使者");
-            return;
-        }
-
-        WildExSay("没找到中元使者，重试 " + _wildExStepTries + "/" + WildExMaxTries, true);
-    }
-
-    private static void TickWildExScanDestOpen(long now)
-    {
-        if (_wildExScanIndex < 0 || _wildExScanIndex >= WildPetPresets.Length)
-        {
-            TickWildExFinishScan();
-            return;
-        }
-
-        var name = WildPetPresets[_wildExScanIndex];
-        var destSlot = GetZhongyuanDestSlot(name);
-        var destUid = GetTeamUidBySlot(destSlot);
-        if (string.IsNullOrEmpty(destUid))
-        {
-            StopWildExchange("no-teammate");
-            Tip("兑换仓检不通过：队伍里没有" + FormatTeamSlotLabel(destSlot));
-            return;
-        }
-
-        StopTaskNavigation(false);
-        WildExOpenBank(destUid, false);
-        _wildExPhase = WildExScanDestWait;
-        WildExSay("仓检" + FormatTeamSlotLabel(destSlot) + name + "，已发开个人仓 uid尾"
-                  + TailUid(destUid), true);
-        _wildExDelayUntilMs = now + 400;
-    }
-
-    private static void TickWildExScanDestWait(long now)
-    {
-        var name = WildPetPresets[_wildExScanIndex];
-        var destSlot = GetZhongyuanDestSlot(name);
-        List<int> matching;
-        int total;
-        if (!TryCollectOpenBankPets(name, _wildExInfoBefore, _wildExStoreBefore, out matching, out total))
-        {
-            var elapsed = now - _wildExWaitListStartMs;
-            if (elapsed >= WildExWaitListTimeoutMs)
+            case WildExWaitList:
             {
-                _wildExDestHave[_wildExScanIndex] = 0;
-                _wildExDestTotal[_wildExScanIndex] = 0;
-                WildExSay("仓检" + FormatTeamSlotLabel(destSlot) + name + " 个人仓超时，按0只计", true);
-                TryDismissBankUiAfterStore();
-                _wildExScanIndex++;
-                _wildExPhase = WildExScanDestOpen;
-                return;
+                List<int> indexes;
+                var ready = TryCollectAccountBankMatchingPets(_wildExTargetName, out indexes);
+                if (!ready)
+                {
+                    if (now - _wildExWaitListStartMs >= WildExWaitListTimeoutMs)
+                    {
+                        StopWildExchange("bank-timeout");
+                        Tip("打开账号宠物仓库失败");
+                    }
+
+                    return;
+                }
+
+                if (indexes == null || indexes.Count == 0)
+                {
+                    StopWildExchange("bank-empty");
+                    Tip("账号银行没有" + _wildExTargetName);
+                    return;
+                }
+
+                var free = CountLocalPetFreeSlots(uid);
+                if (free <= 0)
+                {
+                    StopWildExchange("no-slot");
+                    Tip("身上没有空位");
+                    return;
+                }
+
+                var take = Math.Min(free, indexes.Count);
+                _wildExBankIndexes.Clear();
+                for (var i = 0; i < take; i++)
+                {
+                    _wildExBankIndexes.Add(indexes[i]);
+                }
+
+                _wildExTakePos = 0;
+                _wildExPhase = WildExWithdraw;
+                WriteLog("wild-ex take=" + take + " bank=" + indexes.Count + " free=" + free);
+                break;
             }
 
-            WildExSayWait("仓检" + FormatTeamSlotLabel(destSlot) + name
-                          + " 等仓库列表 " + (elapsed / 1000) + "秒", now);
-            return;
-        }
-
-        _wildExDestHave[_wildExScanIndex] = matching == null ? 0 : matching.Count;
-        _wildExDestTotal[_wildExScanIndex] = total;
-        WildExSay("仓检" + FormatTeamSlotLabel(destSlot) + name
-                  + " 个人仓" + _wildExDestHave[_wildExScanIndex] + "/" + total + "只", true);
-        TryDismissBankUiAfterStore();
-        _wildExScanIndex++;
-        _wildExPhase = WildExScanDestOpen;
-    }
-
-    private static void TickWildExFinishScan()
-    {
-        TryDismissBankUiAfterStore();
-        var parts = new List<string>();
-        var missing = new List<string>();
-        for (var i = 0; i < WildPetPresets.Length; i++)
-        {
-            var name = WildPetPresets[i];
-            var dest = GetZhongyuanDestSlot(name);
-            var have = _wildExDestHave[i];
-            parts.Add(FormatTeamSlotLabel(dest) + name + have + "只");
-            if (have <= 0)
+            case WildExWithdraw:
             {
-                missing.Add(FormatTeamSlotLabel(dest) + "个人仓没有" + name);
-            }
-        }
+                if (_wildExTakePos >= _wildExBankIndexes.Count)
+                {
+                    _wildExPhase = WildExFakeNpc;
+                    _wildExDelayUntilMs = now + WildExFakeNpcMs;
+                    return;
+                }
 
-        var summary = string.Join(" ", parts.ToArray());
-        if (missing.Count > 0)
-        {
-            WildExSay(summary + "。凑不齐一套，去存券", true);
-            _wildExStepTries = 0;
-            _wildExPhase = WildExStoreTicket;
-            _wildExDelayUntilMs = NowMs() + WildExProtocolGapMs;
-            return;
-        }
+                var bankIndex = _wildExBankIndexes[_wildExTakePos];
+                if (!TrySendAccountBankTakePet(uid, bankIndex))
+                {
+                    StopWildExchange("take-fail");
+                    Tip("取出宠物失败");
+                    return;
+                }
 
-        _wildExScanIndex = 0;
-        _wildExPhase = WildExMemOpenPersonal;
-        WildExSay(summary + "。从2号个人仓取1只幽灵", true);
-    }
-
-    private static string WildExCurrentDestUid()
-    {
-        if (_wildExScanIndex < 0 || _wildExScanIndex >= WildPetPresets.Length)
-        {
-            return "";
-        }
-
-        return GetTeamUidBySlot(GetZhongyuanDestSlot(WildPetPresets[_wildExScanIndex]));
-    }
-
-    private static void TickWildExMemOpenPersonal(long now)
-    {
-        if (_wildExScanIndex < 0 || _wildExScanIndex >= WildPetPresets.Length)
-        {
-            _wildExAccountOpenTries = 0;
-            _wildExPhase = WildExCapOpenAccount;
-            return;
-        }
-
-        var name = WildPetPresets[_wildExScanIndex];
-        var destUid = WildExCurrentDestUid();
-        if (string.IsNullOrEmpty(destUid))
-        {
-            StopWildExchange("no-teammate");
-            Tip("队伍里没有" + FormatTeamSlotLabel(GetZhongyuanDestSlot(name)));
-            return;
-        }
-
-        _wildExTargetName = name;
-        _wildExWorkUid = destUid;
-        StopTaskNavigation(false);
-        WildExOpenBank(destUid, false);
-        _wildExPhase = WildExMemWaitPersonal;
-        WildExSay(FormatTeamSlotLabel(GetZhongyuanDestSlot(name)) + "开个人仓取1只" + name, true);
-        _wildExDelayUntilMs = now + 400;
-    }
-
-    private static void TickWildExMemWaitPersonal(long now)
-    {
-        var destUid = _wildExWorkUid;
-        var name = _wildExTargetName;
-        List<int> matching;
-        int total;
-        if (!TryCollectOpenBankPets(name, _wildExInfoBefore, _wildExStoreBefore, out matching, out total))
-        {
-            if (now - _wildExWaitListStartMs >= WildExWaitListTimeoutMs)
-            {
-                TryDismissBankUiAfterStore();
-                StopWildExchange("personal-timeout");
-                Tip("打开" + FormatTeamSlotLabel(GetZhongyuanDestSlot(name)) + "个人仓失败");
-            }
-
-            return;
-        }
-
-        if (matching == null || matching.Count <= 0)
-        {
-            TryDismissBankUiAfterStore();
-            WildExSay(FormatTeamSlotLabel(GetZhongyuanDestSlot(name)) + "个人仓没有" + name + "，去存券", true);
-            _wildExStepTries = 0;
-            _wildExPhase = WildExStoreTicket;
-            return;
-        }
-
-        var free = CountLocalPetFreeSlots(destUid);
-        if (free <= 0)
-        {
-            TryDismissBankUiAfterStore();
-            StopWildExchange("no-slot");
-            Tip(FormatTeamSlotLabel(GetZhongyuanDestSlot(name)) + "身上没有空位，无法取宠");
-            return;
-        }
-
-        _wildExBankIndexes.Clear();
-        _wildExBankIndexes.Add(matching[0]);
-        _wildExTakePos = 0;
-        _wildExPhase = WildExMemTake;
-        WildExSay("个人仓取出1只" + name, false);
-    }
-
-    private static void TickWildExMemTake(long now)
-    {
-        if (_wildExTakePos >= _wildExBankIndexes.Count)
-        {
-            TryDismissBankUiAfterStore();
-            _wildExAccountOpenTries = 0;
-            _wildExPhase = WildExMemOpenAccount;
-            _wildExDelayUntilMs = now + WildExProtocolGapMs;
-            return;
-        }
-
-        var bankIndex = _wildExBankIndexes[_wildExTakePos];
-        if (!TrySendBankPet(false, _wildExWorkUid, "取宠物", bankIndex))
-        {
-            TryDismissBankUiAfterStore();
-            StopWildExchange("take-fail");
-            Tip("从个人仓取出失败");
-            return;
-        }
-
-        _wildExTakePos++;
-        _wildExDelayUntilMs = now + WildExProtocolGapMs;
-    }
-
-    private static void TickWildExMemOpenAccount(long now)
-    {
-        var destUid = _wildExWorkUid;
-        if (string.IsNullOrEmpty(destUid))
-        {
-            destUid = GetMainPlayerUidSafe();
-        }
-
-        StopTaskNavigation(false);
-        WildExOpenBank(destUid, true);
-        _wildExPhase = WildExMemWaitAccount;
-        WildExSay("开账号仓存1只" + _wildExTargetName, false);
-        _wildExDelayUntilMs = now + 400;
-    }
-
-    private static void TickWildExMemWaitAccount(long now)
-    {
-        int[] counts;
-        List<int>[] indexes;
-        int total;
-        if (!TryCollectOpenBankZhongyuan(out counts, out indexes, out total))
-        {
-            if (now - _wildExWaitListStartMs >= WildExWaitListTimeoutMs)
-            {
-                WildExRetryAccountOpen(now, WildExMemOpenAccount);
-            }
-
-            return;
-        }
-
-        _wildExAccountOpenTries = 0;
-        if (total >= ZhongyuanAccountSlots)
-        {
-            TryDismissBankUiAfterStore();
-            StopWildExchange("account-full");
-            Tip("账号仓已满，无法再存");
-            return;
-        }
-
-        var name = _wildExTargetName;
-        var destUid = _wildExWorkUid;
-        var captainUid = GetMainPlayerUidSafe();
-        var rest = CollectMatchingRestPetIndexes(destUid, name);
-        var storeUid = destUid;
-        if (rest.Count <= 0 && !string.IsNullOrEmpty(captainUid))
-        {
-            rest = CollectMatchingRestPetIndexes(captainUid, name);
-            storeUid = captainUid;
-        }
-
-        if (rest.Count <= 0)
-        {
-            if (now - _wildExWaitListStartMs >= WildExWaitListTimeoutMs)
-            {
-                TryDismissBankUiAfterStore();
-                StopWildExchange("bag-empty");
-                Tip("身上没有刚取出的" + name);
-            }
-
-            return;
-        }
-
-        _wildExWorkUid = storeUid;
-        _wildExBankIndexes.Clear();
-        _wildExBankIndexes.Add(rest[0]);
-        _wildExTakePos = 0;
-        _wildExPhase = WildExMemStore;
-        WildExSay("存入账号仓1只" + name, false);
-    }
-
-    private static void TickWildExMemStore(long now)
-    {
-        if (_wildExTakePos >= _wildExBankIndexes.Count)
-        {
-            TryDismissBankUiAfterStore();
-            _wildExScanIndex++;
-            if (_wildExScanIndex >= WildPetPresets.Length)
-            {
-                _wildExAccountOpenTries = 0;
-                _wildExPhase = WildExCapOpenAccount;
-                WildExSay("234已各存1只，1号取账号仓", true);
+                _wildExTakePos++;
                 _wildExDelayUntilMs = now + WildExProtocolGapMs;
-                return;
-            }
-
-            _wildExPhase = WildExMemOpenPersonal;
-            _wildExDelayUntilMs = now + WildExProtocolGapMs;
-            return;
-        }
-
-        var index = _wildExBankIndexes[_wildExTakePos];
-        if (!TrySendBankPet(true, _wildExWorkUid, "存宠物", index))
-        {
-            TryDismissBankUiAfterStore();
-            StopWildExchange("store-fail");
-            Tip("存入账号仓失败");
-            return;
-        }
-
-        MarkPetUnusedByIndex(_wildExWorkUid, index);
-        _wildExTakePos++;
-        _wildExDelayUntilMs = now + WildExProtocolGapMs;
-    }
-
-    private static void TickWildExCapWaitAccount(string uid, long now)
-    {
-        int[] counts;
-        List<int>[] indexes;
-        int total;
-        if (!TryCollectOpenBankZhongyuan(out counts, out indexes, out total))
-        {
-            if (now - _wildExWaitListStartMs >= WildExWaitListTimeoutMs)
-            {
-                WildExRetryAccountOpen(now, WildExCapOpenAccount);
-            }
-            else
-            {
-                WildExSayWait("等账号仓列表 " + ((now - _wildExWaitListStartMs) / 1000) + "秒", now);
-            }
-
-            return;
-        }
-
-        if (counts[0] <= 0 || counts[1] <= 0 || counts[2] <= 0)
-        {
-            if (now - _wildExWaitListStartMs < WildExWaitListTimeoutMs)
-            {
-                WildExSayWait("等账号仓三种 幽灵" + counts[0] + " 僵尸" + counts[1]
-                              + " 骷髅" + counts[2], now);
-                return;
-            }
-
-            WildExRetryAccountOpen(now, WildExCapOpenAccount);
-            return;
-        }
-
-        _wildExAccountOpenTries = 0;
-        var free = CountLocalPetFreeSlots(uid);
-        if (free < 3)
-        {
-            TryDismissBankUiAfterStore();
-            StopWildExchange("no-slot");
-            Tip("1号身上空位不足3格，无法取出兑换宠");
-            return;
-        }
-
-        _wildExBankIndexes.Clear();
-        for (var i = 0; i < 3; i++)
-        {
-            _wildExBankIndexes.Add(indexes[i][0]);
-        }
-
-        _wildExTakePos = 0;
-        _wildExPhase = WildExCapTake;
-        WildExSay("账号仓已齐3只，开始取出", true);
-    }
-
-    private static void TickWildExCapTake(string uid, long now)
-    {
-        if (_wildExTakePos >= _wildExBankIndexes.Count)
-        {
-            TryDismissBankUiAfterStore();
-            _wildExPetsBeforeTalk = CountWildExRestSet(uid);
-            _wildExLastLookMs = 0;
-            _wildExStepTries = 0;
-            _wildExPhase = WildExLookNpc;
-            _wildExDelayUntilMs = now + WildExProtocolGapMs;
-            WildExSay("已取3只，点中元使者", true);
-            return;
-        }
-
-        var bankIndex = _wildExBankIndexes[_wildExTakePos];
-        if (!TrySendBankPet(true, uid, "取宠物", bankIndex))
-        {
-            TryDismissBankUiAfterStore();
-            StopWildExchange("take-fail");
-            Tip("从账号仓取出失败");
-            return;
-        }
-
-        _wildExTakePos++;
-        _wildExDelayUntilMs = now + WildExProtocolGapMs;
-    }
-
-    private static int CountWildExRestSet(string uid)
-    {
-        return CountMatchingRestPets(uid, ZhongyuanPetA)
-               + CountMatchingRestPets(uid, ZhongyuanPetB)
-               + CountMatchingRestPets(uid, ZhongyuanPetC);
-    }
-
-    private static bool TryFindWildExNpc(out int objindex, out int nx, out int ny)
-    {
-        objindex = -1;
-        nx = 0;
-        ny = 0;
-        try
-        {
-            var holder = FindType("EntityDataHolder");
-            object dictObj = holder?.GetProperty(
-                    "characterDatas",
-                    BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic)
-                ?.GetValue(null, null);
-            if (dictObj == null)
-            {
-                dictObj = GetStaticMember("EntityDataHolder", "characterDatas");
-            }
-
-            var dict = dictObj as System.Collections.IDictionary;
-            if (dict == null)
-            {
-                return false;
-            }
-
-            var best = -1;
-            var bestDist = int.MaxValue;
-            var bestX = 0;
-            var bestY = 0;
-            foreach (System.Collections.DictionaryEntry e in dict)
-            {
-                var cd = e.Value;
-                if (cd == null)
-                {
-                    continue;
-                }
-
-                var npcindex = Convert.ToInt32(GetMember(cd, "npcindex") ?? GetProp(cd, "npcindex") ?? -1);
-                if (npcindex == -1)
-                {
-                    continue;
-                }
-
-                var obj = Convert.ToInt32(GetMember(cd, "objindex") ?? GetProp(cd, "objindex") ?? -1);
-                if (obj < 0)
-                {
-                    continue;
-                }
-
-                var name = (Convert.ToString(GetMember(cd, "name") ?? GetProp(cd, "name") ?? "") ?? "").Trim();
-                if (name.IndexOf(WildExNpcName, StringComparison.Ordinal) < 0)
-                {
-                    continue;
-                }
-
-                var ox = Convert.ToInt32(GetMember(cd, "x") ?? GetProp(cd, "x") ?? 0);
-                var oy = Convert.ToInt32(GetMember(cd, "y") ?? GetProp(cd, "y") ?? 0);
-                var dist = Math.Abs(ox - WildExNpcStandX) + Math.Abs(oy - WildExNpcStandY);
-                if (dist < bestDist)
-                {
-                    bestDist = dist;
-                    best = obj;
-                    bestX = ox;
-                    bestY = oy;
-                }
-            }
-
-            if (best < 0)
-            {
-                return false;
-            }
-
-            objindex = best;
-            nx = bestX;
-            ny = bestY;
-            WriteLog("wild-ex npc obj=" + best + " at " + bestX + "," + bestY);
-            return true;
-        }
-        catch (Exception ex)
-        {
-            WriteLog("TryFindWildExNpc EX " + RootMessage(ex));
-            return false;
-        }
-    }
-
-    private static void TickWildExLookNpc(long now)
-    {
-        if (IsDialoguePanelOpen())
-        {
-            _wildExPhase = WildExPickOption;
-            _wildExActionAtMs = now;
-            WildExSay("对话已开，选第2项", false);
-            _wildExDelayUntilMs = now + 800;
-            return;
-        }
-
-        if (_wildExLastLookMs > 0 && now - _wildExLastLookMs < WildExNpcLookRetryMs)
-        {
-            return;
-        }
-
-        int obj;
-        int nx;
-        int ny;
-        if (TryFindWildExNpc(out obj, out nx, out ny))
-        {
-            _wildExNpcObj = obj;
-            _wildExNpcFoundX = nx;
-            _wildExNpcFoundY = ny;
-        }
-
-        _wildExLastLookMs = now;
-        _wildExStepTries++;
-        if (_wildExStepTries > 6)
-        {
-            StopWildExchange("look-fail");
-            Tip("点中元使者失败");
-            return;
-        }
-
-        if (_wildExNpcObj >= 0 && TryLookNpcByObj(_wildExNpcObj))
-        {
-            WildExSay("已点中元使者，等对话", true);
-            return;
-        }
-
-        WildExSay("没点到中元使者，重试", true);
-    }
-
-    private static void TickWildExPickOption(long now)
-    {
-        if (!IsDialoguePanelOpen())
-        {
-            _wildExLastLookMs = 0;
-            _wildExPhase = WildExLookNpc;
-            WildExSay("对话关了，再点中元使者", false);
-            return;
-        }
-
-        if (TryPickWildExNpcOption())
-        {
-            _wildExActionAtMs = now;
-            _wildExPhase = WildExConfirm;
-            WildExSay("已选第2项，等确定框", true);
-            _wildExDelayUntilMs = now + 800;
-            return;
-        }
-
-        if (_wildExActionAtMs > 0 && now - _wildExActionAtMs > WildExNpcWaitMs)
-        {
-            StopWildExchange("pick-fail");
-            Tip("中元使者选第2项失败");
-        }
-    }
-
-    private static void TickWildExConfirm(string uid, long now)
-    {
-        DumpWildExOpenUi("confirm");
-        var left = CountWildExRestSet(uid);
-        if (left <= _wildExPetsBeforeTalk - 3)
-        {
-            _wildExRound++;
-            _wildExScanIndex = 0;
-            _wildExStepTries = 0;
-            _wildExActionAtMs = 0;
-            _wildExPhase = WildExScanDestOpen;
-            WildExSay("第" + _wildExRound + "轮兑换完成，再仓检", true);
-            _wildExDelayUntilMs = now + WildExProtocolGapMs;
-            return;
-        }
-
-        if (TryPickWildExConfirm())
-        {
-            _wildExActionAtMs = now;
-            _wildExPhase = WildExWaitDone;
-            WildExSay("已点确定，等交宠", true);
-            _wildExDelayUntilMs = now + 800;
-            return;
-        }
-
-        if (_wildExActionAtMs > 0 && now - _wildExActionAtMs > WildExNpcWaitMs)
-        {
-            StopWildExchange("confirm-fail");
-            Tip("兑换确定框未点到");
-            return;
-        }
-
-        WildExSayWait("等确定框", now);
-    }
-
-    private static bool TryPickWildExConfirm()
-    {
-        if (TryConfirmMessageBoxPanel())
-        {
-            WriteLog("wild-ex confirm MessageBoxPanel.OnSubmit");
-            Tip("兑换野生宠：已点MessageBox确定");
-            return true;
-        }
-
-        if (TryPickWildExWindowsOk())
-        {
-            return true;
-        }
-
-        if (TryClickWindowsMessageOkOnly())
-        {
-            WriteLog("wild-ex confirm UI_WindowsMessage btn");
-            Tip("兑换野生宠：已点对话确定");
-            return true;
-        }
-
-        return false;
-    }
-
-    private static void DumpWildExOpenUi(string tag)
-    {
-        var now = NowMs();
-        if (_wildExLastLookMs > 0 && now - _wildExLastLookMs < 1500)
-        {
-            return;
-        }
-
-        _wildExLastLookMs = now;
-        var parts = new List<string>();
-        var names = new[]
-        {
-            "UI_WindowsMessage", "MessageBoxPanel", "NPCChatPanel",
-            "BankPanel", "PetStoragePanel", "PetBankPanel"
-        };
-        for (var i = 0; i < names.Length; i++)
-        {
-            try
-            {
-                var panel = GetUiPanel(names[i]);
-                if (panel == null || !IsUnityObjectActive(panel))
-                {
-                    continue;
-                }
-
-                var extra = "";
-                if (names[i] == "MessageBoxPanel")
-                {
-                    extra = " type=" + Convert.ToString(GetMember(panel, "m_type") ?? "")
-                            + " sever=" + Convert.ToString(GetMember(panel, "m_SeverInfo") ?? "")
-                            + " client=" + Convert.ToString(GetMember(panel, "m_ClientInfo") ?? "");
-                }
-
-                if (names[i] == "UI_WindowsMessage")
-                {
-                    extra = " " + DumpWildExWmdbButtons();
-                }
-
-                parts.Add(names[i] + extra);
-            }
-            catch
-            {
-                // ignore
-            }
-        }
-
-        WriteLog("wild-ex ui " + tag + " open=" + (parts.Count == 0 ? "(none)" : string.Join("|", parts.ToArray())));
-    }
-
-    private static string DumpWildExWmdbButtons()
-    {
-        try
-        {
-            var npcMgr = GetManagerInstance("NpcManager");
-            var wmdb = npcMgr == null ? null : GetMember(npcMgr, "wmdb");
-            if (wmdb == null)
-            {
-                return "wmdb=null";
-            }
-
-            var seqno = Convert.ToInt32(GetMember(wmdb, "seqno") ?? 0);
-            var windowType = Convert.ToInt32(GetMember(wmdb, "windowType") ?? 0);
-            var buttonData = GetMember(wmdb, "buttonData") as Array;
-            var dump = "";
-            if (buttonData != null)
-            {
-                for (var i = 0; i < buttonData.Length && i < 9; i++)
-                {
-                    var btn = buttonData.GetValue(i);
-                    if (btn == null)
-                    {
-                        continue;
-                    }
-
-                    var name = (Convert.ToString(GetMember(btn, "name") ?? "") ?? "").Trim();
-                    var value = Convert.ToInt32(GetMember(btn, "value") ?? -1);
-                    if (string.IsNullOrEmpty(name))
-                    {
-                        continue;
-                    }
-
-                    if (dump.Length > 0)
-                    {
-                        dump += ",";
-                    }
-
-                    dump += name + "=" + value;
-                }
-            }
-
-            return "wt=" + windowType + " seq=" + seqno + " btns=" + dump;
-        }
-        catch (Exception ex)
-        {
-            return "wmdbEX=" + RootMessage(ex);
-        }
-    }
-
-    private static bool TryConfirmMessageBoxPanel()
-    {
-        try
-        {
-            var panel = GetUiPanel("MessageBoxPanel");
-            if (panel == null || !IsUnityObjectActive(panel))
-            {
-                return false;
-            }
-
-            var sever = GetMember(panel, "m_SeverInfo");
-            var client = GetMember(panel, "m_ClientInfo");
-            var type = Convert.ToString(GetMember(panel, "m_type") ?? "");
-            if (sever == null && client == null && string.IsNullOrEmpty(type))
-            {
-                return false;
-            }
-
-            var onSubmit = panel.GetType().GetMethod(
-                "OnSubmit",
-                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
-                null,
-                Type.EmptyTypes,
-                null);
-            if (onSubmit == null)
-            {
-                return false;
-            }
-
-            onSubmit.Invoke(panel, null);
-            return true;
-        }
-        catch (Exception ex)
-        {
-            WriteLog("TryConfirmMessageBoxPanel EX " + RootMessage(ex));
-            return false;
-        }
-    }
-
-    private static bool TryPickWildExWindowsOk()
-    {
-        try
-        {
-            var npcMgr = GetManagerInstance("NpcManager");
-            if (npcMgr == null)
-            {
-                return false;
-            }
-
-            var wmdb = GetMember(npcMgr, "wmdb");
-            if (wmdb == null)
-            {
-                return false;
-            }
-
-            var buttonData = GetMember(wmdb, "buttonData") as Array;
-            if (buttonData == null || buttonData.Length == 0)
-            {
-                return false;
-            }
-
-            int pickValue = -1;
-            string pickName = null;
-            for (var i = 0; i < buttonData.Length && i < 9; i++)
-            {
-                var btn = buttonData.GetValue(i);
-                if (btn == null)
-                {
-                    continue;
-                }
-
-                var name = (Convert.ToString(GetMember(btn, "name") ?? "") ?? "").Trim();
-                var value = Convert.ToInt32(GetMember(btn, "value") ?? -1);
-                if (string.IsNullOrEmpty(name) || value < 0)
-                {
-                    continue;
-                }
-
-                if (IsDialogueSendName(name))
-                {
-                    pickValue = value;
-                    pickName = name;
-                    break;
-                }
-            }
-
-            if (pickValue < 0)
-            {
-                return false;
-            }
-
-            if (!TrySendWildExWindows(npcMgr, wmdb, pickValue))
-            {
-                return false;
-            }
-
-            WriteLog("wild-ex confirm SendWindows " + pickName + " v=" + pickValue);
-            Tip("兑换野生宠：已点" + pickName);
-            return true;
-        }
-        catch (Exception ex)
-        {
-            WriteLog("TryPickWildExWindowsOk EX " + RootMessage(ex));
-            return false;
-        }
-    }
-
-    private static bool TryClickWindowsMessageOkOnly()
-    {
-        try
-        {
-            var panel = GetUiPanel("UI_WindowsMessage");
-            if (panel == null || !IsUnityObjectActive(panel))
-            {
-                return false;
-            }
-
-            string[] names =
-            {
-                "m_Btn_Commond1", "m_Btn_Commond2", "m_Btn_Commond3", "m_Btn_Commond4",
-                "m_Btn_Commond5", "m_Btn_Commond6", "m_Btn_Commond7", "m_Btn_Commond8",
-                "m_Btn_Commond9"
-            };
-            foreach (var fieldName in names)
-            {
-                var btn = GetMember(panel, fieldName);
-                if (btn == null || !IsUnityObjectActive(btn))
-                {
-                    continue;
-                }
-
-                var title = GetCustomButtonTitle(btn);
-                if (!IsDialogueSendName(title))
-                {
-                    continue;
-                }
-
-                return InvokeButtonClick(btn);
-            }
-        }
-        catch (Exception ex)
-        {
-            WriteLog("TryClickWindowsMessageOkOnly EX " + RootMessage(ex));
-        }
-
-        return false;
-    }
-
-    private static bool TryPickWildExNpcOption()
-    {
-        try
-        {
-            var npcMgr = GetManagerInstance("NpcManager");
-            if (npcMgr == null)
-            {
-                return false;
-            }
-
-            var wmdb = GetMember(npcMgr, "wmdb");
-            if (wmdb == null)
-            {
-                return false;
-            }
-
-            var buttonData = GetMember(wmdb, "buttonData") as Array;
-            if (buttonData == null || buttonData.Length == 0)
-            {
-                return false;
-            }
-
-            int pickValue;
-            string pickName;
-            if (!TryChooseWildExButton(buttonData, out pickValue, out pickName))
-            {
-                return false;
-            }
-
-            if (!TrySendWildExWindows(npcMgr, wmdb, pickValue))
-            {
-                return false;
-            }
-
-            WriteLog("wild-ex pick " + pickName + " v=" + pickValue);
-            Tip("兑换野生宠：已选" + pickName);
-            return true;
-        }
-        catch (Exception ex)
-        {
-            WriteLog("TryPickWildExNpcOption EX " + RootMessage(ex));
-            return false;
-        }
-    }
-
-    private static bool TrySendWildExWindows(object npcMgr, object wmdb, int pickValue)
-    {
-        if (npcMgr == null || wmdb == null)
-        {
-            return false;
-        }
-
-        var seqno = Convert.ToInt32(GetMember(wmdb, "seqno") ?? 0);
-        var windowTypeObj = GetMember(wmdb, "windowType");
-        var windowType = Convert.ToInt32(windowTypeObj ?? 0);
-        int select;
-        string data;
-        if (pickValue > 64)
-        {
-            select = 0;
-            data = (pickValue - 64).ToString();
-        }
-        else
-        {
-            select = pickValue;
-            data = "";
-        }
-
-        var loc = GetStaticMember("PlayerDataHolder", "location");
-        var x = Convert.ToInt32(GetMember(loc, "x") ?? GetMember(loc, "X") ?? 0);
-        var y = Convert.ToInt32(GetMember(loc, "y") ?? GetMember(loc, "Y") ?? 0);
-        var objindex = Convert.ToInt32(GetMember(wmdb, "objindex") ?? 0);
-        var uid = Convert.ToString(GetMember(wmdb, "m_Uid") ?? "") ?? "";
-
-        MethodInfo send8 = null;
-        foreach (var m in npcMgr.GetType().GetMethods(
-                     BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
-        {
-            if (m.Name != "SendWindows")
-            {
-                continue;
-            }
-
-            var ps = m.GetParameters();
-            if (ps.Length >= 8)
-            {
-                send8 = m;
                 break;
             }
-        }
 
-        if (send8 == null)
-        {
-            WriteLog("wild-ex SendWindows missing");
-            return false;
+            case WildExFakeNpc:
+                StopWildExchange("ok");
+                Tip("兑换成功");
+                break;
         }
-
-        var psAll = send8.GetParameters();
-        var args = new object[psAll.Length];
-        args[0] = x;
-        args[1] = y;
-        args[2] = seqno;
-        args[3] = objindex;
-        args[4] = select;
-        args[5] = data ?? "";
-        args[6] = windowType;
-        args[7] = uid;
-        for (var i = 8; i < psAll.Length; i++)
-        {
-            if (psAll[i].ParameterType.IsEnum || psAll[i].ParameterType.IsValueType)
-            {
-                args[i] = Activator.CreateInstance(psAll[i].ParameterType);
-            }
-            else
-            {
-                args[i] = null;
-            }
-        }
-
-        send8.Invoke(npcMgr, args);
-        WriteLog("wild-ex SendWindows v=" + pickValue + " seq=" + seqno);
-        return true;
     }
 
-    private static bool TryChooseWildExButton(Array buttonData, out int pickValue, out string pickName)
-    {
-        pickValue = -1;
-        pickName = null;
-        var options = new List<KeyValuePair<int, string>>();
-        var dump = "";
-        for (var i = 0; i < buttonData.Length && i < 9; i++)
-        {
-            var btn = buttonData.GetValue(i);
-            if (btn == null)
-            {
-                continue;
-            }
-
-            var name = (Convert.ToString(GetMember(btn, "name") ?? "") ?? "").Trim();
-            var value = Convert.ToInt32(GetMember(btn, "value") ?? -1);
-            if (string.IsNullOrEmpty(name) || value < 0)
-            {
-                continue;
-            }
-
-            if (dump.Length > 0)
-            {
-                dump += ",";
-            }
-
-            dump += name + "=" + value;
-            if (IsDialogueCancelName(name))
-            {
-                continue;
-            }
-
-            options.Add(new KeyValuePair<int, string>(value, name));
-        }
-
-        WriteLog("wild-ex buttons " + dump);
-        var idx = WildExOptionIndex - 1;
-        if (idx >= 0 && idx < options.Count)
-        {
-            pickValue = options[idx].Key;
-            pickName = options[idx].Value;
-            return true;
-        }
-
-        return false;
-    }
-
-    private static void TickWildExWaitDone(string uid, long now)
-    {
-        if (IsDialoguePanelOpen() || GetUiPanel("MessageBoxPanel") != null)
-        {
-            TryPickWildExConfirm();
-        }
-
-        var left = CountWildExRestSet(uid);
-        if (left <= _wildExPetsBeforeTalk - 3)
-        {
-            _wildExRound++;
-            _wildExScanIndex = 0;
-            _wildExStepTries = 0;
-            _wildExActionAtMs = 0;
-            _wildExPhase = WildExScanDestOpen;
-            WildExSay("第" + _wildExRound + "轮兑换完成，再仓检", true);
-            _wildExDelayUntilMs = now + WildExProtocolGapMs;
-            return;
-        }
-
-        if (_wildExActionAtMs > 0 && now - _wildExActionAtMs > WildExNpcWaitMs)
-        {
-            StopWildExchange("exchange-timeout");
-            Tip("交宠超时，身上还剩" + left + "只");
-            return;
-        }
-
-        WildExSayWait("等交宠完成 身" + left + "只", now);
-    }
-
-    private static void TickWildExStoreTicket(string uid, long now)
-    {
-        TryDismissBankUiAfterStore();
-        StopTaskNavigation(false);
-        var n = CountBagItemByKeyword(uid, WildExTicketKeyword);
-        if (n <= 0)
-        {
-            StopWildExchange("done");
-            Tip("兑换结束");
-            return;
-        }
-
-        _wildExStepTries++;
-        if (_wildExStepTries > 8)
-        {
-            StopWildExchange("ticket-fail");
-            Tip("中元礼盒兑换券未能存完，背包还剩" + n);
-            return;
-        }
-
-        if (!StoreBagItemsToAccountBank(uid, WildExTicketKeyword))
-        {
-            StopWildExchange("ticket-fail");
-            Tip("存中元礼盒兑换券失败");
-            TryDismissBankUiAfterStore();
-            return;
-        }
-
-        TryDismissBankUiAfterStore();
-        WildExSay("已存兑换券，背包原有" + n + "，复查", true);
-        _wildExDelayUntilMs = now + 1500;
-    }
     private static string FormatZhongyuanStatus()
     {
         if (_zyAllActive)
@@ -14099,7 +12243,6 @@ public static class SeqChapterTestUi
                 : "";
             return "中元抓齐: " + (_zyAllIndex + 1) + "/3 " + n
                    + " " + ZyAllPhaseName(_zyAllPhase)
-                   + " 缺" + _zyXferNeed
                    + "\n" + (_zyAllNote ?? "");
         }
 
@@ -14107,7 +12250,7 @@ public static class SeqChapterTestUi
         {
             return "中元抓宠: " + (_zyName ?? "") + " 仓" + _zyPersonalMatch
                    + "+身休" + CountMatchingRestPets(GetMainPlayerUidSafe(), _zyName)
-                   + "/" + GetZyCatchFill() + "（234已有" + _zyDestHave + "）\n" + (_zyNote ?? "");
+                   + "/" + ZhongyuanQuota + "\n" + (_zyNote ?? "");
         }
 
         if (_zyXferActive)
@@ -14116,11 +12259,10 @@ public static class SeqChapterTestUi
             return "中元倒腾: " + role + " " + (_zyName ?? "")
                    + " →" + FormatTeamSlotLabel(_zyDestSlot)
                    + " 仓" + _zyPersonalMatch + " 号仓" + _zyAccountMatch
-                   + " 需" + GetZyXferNeed() + "已交" + _zyXferSent
                    + "\n" + (_zyNote ?? "");
         }
 
-        return "中元: 未启动\n1号点「中元抓齐」：先仓检 2/3/4，已满15的种跳过，只补缺的。半路接着跑即可。";
+        return "中元: 未启动\n1号点「中元抓齐」：三种各一轮（回城→刷点→抓满15→倒腾）。倒腾共3次：幽灵→2号、僵尸→3号、骷髅战士→4号。";
     }
 
     private static string ZyAllPhaseName(int phase)
@@ -14132,9 +12274,8 @@ public static class SeqChapterTestUi
             case ZyAllTeleport:
             case ZyAllWaitTeleport: return "去刷点";
             case ZyAllNavC: return "骷髅战士路";
-            case ZyAllCatchWait: return "按缺额抓";
+            case ZyAllCatchWait: return "抓满15";
             case ZyAllXferWait: return "倒腾";
-            case ZyAllScan: return "仓检";
             default: return "准备";
         }
     }
@@ -14175,12 +12316,6 @@ public static class SeqChapterTestUi
 
     private static void StartZhongyuanAll()
     {
-        if (_zyLoopActive && _zyLoopPhase != ZyLoopCatch)
-        {
-            Tip("中元循环仓检中");
-            return;
-        }
-
         if (_wildExActive || _zyCatchActive || _zyXferActive || _skCNavActive)
         {
             Tip("请先停兑换/抓宠/倒腾/骷髅战士导航");
@@ -14196,30 +12331,23 @@ public static class SeqChapterTestUi
         var local = GetLocalTeamSlot();
         if (local > 0)
         {
-            Tip("请用1号抓齐（不切号）");
+            Tip("请用1号抓齐；2/3/4号到点后开中元倒腾接收");
             return;
         }
 
         _zyAllActive = true;
         _zyAllIndex = 0;
-        _zyAllPhase = ZyAllScan;
-        _zyScanStep = ZyScanDestOpen;
-        _zyAllNote = "仓检";
+        _zyAllPhase = ZyAllReturn;
+        _zyAllNote = "回城点2";
         _zyAllDelayUntilMs = 0;
         _zyAllExpectFloor = 0;
         _zyAllReturnTries = 0;
         _zyLastCatchOk = false;
         _zyLastXferOk = false;
-        _zyAllCompletedOk = false;
         _zyAllCatchStarted = false;
         _zyAllXferStarted = false;
         _skCNavForAll = false;
-        _zyAllWaitBattleSinceMs = 0;
-        _zyCatchFill = 0;
-        _zyXferNeed = -1;
-        _zyXferSent = 0;
-        _zyDestHave = 0;
-        Tip("中元抓齐已开启：先仓检再按缺额抓");
+        Tip("中元抓齐已开启：幽灵→僵尸→骷髅战士");
         WriteLog("zy-all start");
         RefreshScriptTabIfVisible();
     }
@@ -14235,7 +12363,6 @@ public static class SeqChapterTestUi
         _zyAllPhase = ZyAllIdle;
         _zyAllNote = reason ?? "";
         _skCNavForAll = false;
-        ReleaseLingTangOwnedEscort();
         if (_zyCatchActive)
         {
             StopZhongyuanCatch("抓齐停止", false);
@@ -14252,16 +12379,9 @@ public static class SeqChapterTestUi
         }
 
         TrySendLocalAutoBattle("停止挂机");
-        TryDismissBankUiAfterStore();
         WriteLog("zy-all stop " + reason);
         Tip("中元抓齐：" + reason);
         RefreshScriptTabIfVisible();
-    }
-
-    private static void FinishZhongyuanAllSuccess()
-    {
-        _zyAllCompletedOk = true;
-        StopZhongyuanAll("已抓齐三种宠物");
     }
 
     private static void TickZhongyuanAll()
@@ -14280,35 +12400,18 @@ public static class SeqChapterTestUi
         _zyAllDelayUntilMs = 0;
         if (IsInBattleNow() || IsMapLoading())
         {
-            if (IsInBattleNow()
-                && _zyAllWaitStartMs > 0
-                && (_zyAllPhase == ZyAllWaitTeleport || _zyAllPhase == ZyAllNavC)
-                && _zyAllWaitBattleSinceMs <= 0)
-            {
-                _zyAllWaitBattleSinceMs = now;
-            }
-
             return;
-        }
-
-        if (_zyAllWaitBattleSinceMs > 0 && _zyAllWaitStartMs > 0)
-        {
-            _zyAllWaitStartMs += now - _zyAllWaitBattleSinceMs;
-            _zyAllWaitBattleSinceMs = 0;
         }
 
         if (_zyAllIndex < 0 || _zyAllIndex >= WildPetPresets.Length)
         {
-            FinishZhongyuanAllSuccess();
+            StopZhongyuanAll("已抓齐三种宠物");
             return;
         }
 
         var name = WildPetPresets[_zyAllIndex];
         switch (_zyAllPhase)
         {
-            case ZyAllScan:
-                TickZhongyuanAllScan(name, now);
-                break;
             case ZyAllReturn:
                 TickZhongyuanAllReturn();
                 break;
@@ -14331,917 +12434,9 @@ public static class SeqChapterTestUi
         }
     }
 
-    private static void ToggleZhongyuanLoop()
-    {
-        if (_zyLoopActive)
-        {
-            StopZhongyuanLoop("已手动停止");
-            return;
-        }
-
-        StartZhongyuanLoop();
-    }
-
-    private static void StartZhongyuanLoop()
-    {
-        if (_escortActive || _escortPicking)
-        {
-            Tip("请先停任务护航再开中元循环");
-            return;
-        }
-
-        if (_zyAllActive || _zyCatchActive || _zyXferActive || _skCNavActive || _wildExActive)
-        {
-            Tip("请先停脚本页中元抓齐/倒腾");
-            return;
-        }
-
-        if (_dragonLoopActive || _midAutumnLoopActive || _floraHealActive)
-        {
-            Tip("请先停其它循环或法兰治疗");
-            return;
-        }
-
-        if (GetLocalTeamSlot() > 0)
-        {
-            Tip("请用1号开中元循环（不切号，234不必点接收）");
-            return;
-        }
-
-        for (var i = 0; i < 3; i++)
-        {
-            _zyLoopDestHave[i] = 0;
-            _zyLoopDestBankMatch[i] = 0;
-            _zyLoopDestBankTotal[i] = 0;
-            _zyLoopDestBankCap[i] = 0;
-            _zyLoopDestBankFree[i] = 0;
-            _zyLoopDestTimedOut[i] = false;
-            _zyLoopDestOthers[i] = "";
-            _zyLoopAccountHave[i] = 0;
-            _zyLoopLocalHave[i] = 0;
-        }
-
-        _zyLoopAccountTotal = 0;
-        _zyLoopAccountTimedOut = false;
-        _zyLoopAccountOpenTries = 0;
-        _zyLoopLocalBankTotal = 0;
-        _zyLoopLocalBankCap = 0;
-        _zyLoopLocalBankFree = 0;
-
-        _zyLoopRound = 0;
-        _zyLoopActive = true;
-        _zyLoopPhase = ZyLoopScanDest;
-        _zyLoopScanIndex = 0;
-        _zyLoopReport = "";
-        _zyLoopLastTipMs = 0;
-        _zyLoopNote = "仓检2号幽灵";
-        ZyLoopSay("开始仓检：仓检 → 抓三种 → 兑换 → 再仓检", true);
-        TryRebuildEscortTab();
-    }
-
-    private static void StopZhongyuanLoop(string reason)
-    {
-        if (!_zyLoopActive)
-        {
-            return;
-        }
-
-        _zyLoopActive = false;
-        _zyLoopPhase = ZyLoopIdle;
-        _zyLoopNote = reason ?? "";
-        _wildExInLoop = false;
-        if (_wildExActive)
-        {
-            StopWildExchange("loop-stop");
-        }
-        if (_zyAllActive)
-        {
-            StopZhongyuanAll(reason);
-        }
-
-        TryDismissBankUiAfterStore();
-        WriteLog("zy-loop stop " + reason);
-        Tip("中元循环：" + reason);
-        TryRebuildEscortTab();
-        RefreshScriptTabIfVisible();
-    }
-
-    private static void BeginZhongyuanLoopExchange()
-    {
-        TryDismissBankUiAfterStore();
-        _zyLoopPhase = ZyLoopExchange;
-        ZyLoopSay("抓齐完成，开始兑换", true);
-        _wildExInLoop = true;
-        StartWildExchange();
-        if (!_wildExActive)
-        {
-            _wildExInLoop = false;
-            StopZhongyuanLoop("未能开始兑换");
-        }
-    }
-
-    private static void RestartZhongyuanLoopScan()
-    {
-        TryDismissBankUiAfterStore();
-        for (var i = 0; i < 3; i++)
-        {
-            _zyLoopDestHave[i] = 0;
-            _zyLoopDestBankMatch[i] = 0;
-            _zyLoopDestBankTotal[i] = 0;
-            _zyLoopDestBankCap[i] = 0;
-            _zyLoopDestBankFree[i] = 0;
-            _zyLoopDestTimedOut[i] = false;
-            _zyLoopDestOthers[i] = "";
-            _zyLoopAccountHave[i] = 0;
-            _zyLoopLocalHave[i] = 0;
-        }
-
-        _zyLoopAccountTotal = 0;
-        _zyLoopAccountTimedOut = false;
-        _zyLoopAccountOpenTries = 0;
-        _zyLoopLocalBankTotal = 0;
-        _zyLoopLocalBankCap = 0;
-        _zyLoopLocalBankFree = 0;
-        _zyLoopRound++;
-        _zyLoopScanIndex = 0;
-        _zyLoopReport = "";
-        _zyLoopPhase = ZyLoopScanDest;
-        ZyLoopSay("第" + _zyLoopRound + "轮结束，重新仓检", true);
-        TryRebuildEscortTab();
-        RefreshScriptTabIfVisible();
-    }
-
-    private static string FormatZhongyuanLoopStatus()
-    {
-        if (!_zyLoopActive && string.IsNullOrEmpty(_zyLoopReport))
-        {
-            return "";
-        }
-
-        var head = _zyLoopActive
-            ? ("中元循环: " + ZhongyuanLoopPhaseName() + " " + (_zyLoopNote ?? ""))
-            : "中元循环: 未启动";
-        if (!string.IsNullOrEmpty(_zyLoopReport))
-        {
-            return head + "\n" + _zyLoopReport;
-        }
-
-        return head;
-    }
-
-    private static string ZhongyuanLoopPhaseName()
-    {
-        switch (_zyLoopPhase)
-        {
-            case ZyLoopScanDest:
-            case ZyLoopScanDestWait:
-            case ZyLoopScanAccount:
-            case ZyLoopScanAccountWait:
-            case ZyLoopScanLocal:
-            case ZyLoopScanLocalWait:
-                return "仓检";
-            case ZyLoopCatch:
-                return "抓齐";
-            case ZyLoopExchange:
-                return "兑换";
-            default:
-                return "准备";
-        }
-    }
-
-    private static void ZyLoopSay(string msg, bool tip)
-    {
-        _zyLoopNote = msg ?? "";
-        WriteLog("zy-loop " + (msg ?? ""));
-        if (tip)
-        {
-            Tip("中元循环：" + msg);
-            _zyLoopLastTipMs = NowMs();
-        }
-    }
-
-    private static void ZyLoopSayWait(string msg, long now)
-    {
-        _zyLoopNote = msg ?? "";
-        if (_zyLoopLastTipMs <= 0 || now - _zyLoopLastTipMs >= 2500)
-        {
-            ZyLoopSay(msg, true);
-        }
-    }
-
-    private static string TailUid(string uid)
-    {
-        var s = uid ?? "";
-        if (s.Length <= 4)
-        {
-            return s;
-        }
-
-        return s.Substring(s.Length - 4);
-    }
-
-    private static string BankWaitHint()
-    {
-        try
-        {
-            var info = TryGetPetStorageInfo();
-            var store = TryGetBankStorePetInfo();
-            return " info=" + (info != null ? "有" : "空")
-                   + (info != null && ReferenceEquals(info, _zyInfoBefore) ? "未刷新" : "")
-                   + " store=" + (store != null ? "有" : "空")
-                   + (store != null && ReferenceEquals(store, _zyStoreBefore) ? "未刷新" : "")
-                   + " accN=" + CountRawOrMinus(GetOpenBankRawList(true))
-                   + " petN=" + CountRawOrMinus(GetOpenBankRawList(false));
-        }
-        catch
-        {
-            return "";
-        }
-    }
-
-    private static int CountRawOrMinus(IList raw)
-    {
-        return raw == null ? -1 : raw.Count;
-    }
-
-    private static void TickZhongyuanLoop()
-    {
-        if (!_zyLoopActive)
-        {
-            return;
-        }
-
-        if (_zyLoopPhase == ZyLoopCatch)
-        {
-            if (!_zyAllActive)
-            {
-                if (_zyAllCompletedOk)
-                {
-                    BeginZhongyuanLoopExchange();
-                }
-                else
-                {
-                    StopZhongyuanLoop("抓齐未完成：" + (_zyAllNote ?? ""));
-                }
-            }
-
-            return;
-        }
-
-        if (_zyLoopPhase == ZyLoopExchange)
-        {
-            if (!_wildExActive)
-            {
-                RestartZhongyuanLoopScan();
-            }
-
-            return;
-        }
-
-        var now = NowMs();
-        if (_zyAllDelayUntilMs > 0 && now < _zyAllDelayUntilMs)
-        {
-            return;
-        }
-
-        _zyAllDelayUntilMs = 0;
-        if (IsInBattleNow())
-        {
-            ZyLoopSayWait("仓检暂停：战斗中", now);
-            return;
-        }
-
-        if (IsMapLoading())
-        {
-            ZyLoopSayWait("仓检暂停：过图中", now);
-            return;
-        }
-
-        switch (_zyLoopPhase)
-        {
-            case ZyLoopScanDest:
-                TickZhongyuanLoopScanDestOpen(now);
-                break;
-            case ZyLoopScanDestWait:
-                TickZhongyuanLoopScanDestWait(now);
-                break;
-            case ZyLoopScanAccount:
-                TickZhongyuanLoopScanAccountOpen(now);
-                break;
-            case ZyLoopScanAccountWait:
-                TickZhongyuanLoopScanAccountWait(now);
-                break;
-            case ZyLoopScanLocal:
-                TickZhongyuanLoopScanLocalOpen(now);
-                break;
-            case ZyLoopScanLocalWait:
-                TickZhongyuanLoopScanLocalWait(now);
-                break;
-        }
-    }
-
-    private static void TickZhongyuanLoopScanDestOpen(long now)
-    {
-        if (_zyLoopScanIndex < 0 || _zyLoopScanIndex >= WildPetPresets.Length)
-        {
-            ZyLoopSay("2/3/4个人仓查完，开始仓检账号仓", true);
-            _zyLoopPhase = ZyLoopScanAccount;
-            return;
-        }
-
-        var name = WildPetPresets[_zyLoopScanIndex];
-        var destSlot = GetZhongyuanDestSlot(name);
-        var destUid = GetTeamUidBySlot(destSlot);
-        if (string.IsNullOrEmpty(destUid))
-        {
-            StopZhongyuanLoop("仓检不通过：队伍里没有" + FormatTeamSlotLabel(destSlot));
-            return;
-        }
-
-        ZhongyuanOpenBank(destUid, false);
-        _zyLoopPhase = ZyLoopScanDestWait;
-        ZyLoopSay("仓检" + FormatTeamSlotLabel(destSlot) + name + "，已发开个人仓 uid尾"
-                  + TailUid(destUid), true);
-        _zyAllDelayUntilMs = now + 400;
-    }
-
-    private static void TickZhongyuanLoopScanDestWait(long now)
-    {
-        var name = WildPetPresets[_zyLoopScanIndex];
-        var destSlot = GetZhongyuanDestSlot(name);
-        var destUid = GetTeamUidBySlot(destSlot);
-        List<int> matching;
-        int total;
-        if (!TryCollectOpenBankPets(name, _zyInfoBefore, _zyStoreBefore, out matching, out total))
-        {
-            var elapsed = now - _zyWaitListStartMs;
-            if (elapsed >= ZhongyuanWaitListTimeoutMs)
-            {
-                _zyLoopDestTimedOut[_zyLoopScanIndex] = true;
-                _zyLoopDestHave[_zyLoopScanIndex] = CountMatchingRestPets(destUid, name);
-                ZyLoopSay("仓检" + FormatTeamSlotLabel(destSlot) + name
-                          + " 个人仓超时，改数身上"
-                          + _zyLoopDestHave[_zyLoopScanIndex] + "只", true);
-                TryDismissBankUiAfterStore();
-                _zyDestFullVerifyPending = false;
-                _zyLoopScanIndex++;
-                _zyLoopPhase = ZyLoopScanDest;
-                return;
-            }
-
-            ZyLoopSayWait("仓检" + FormatTeamSlotLabel(destSlot) + name
-                          + " 等仓库列表 " + (elapsed / 1000) + "秒"
-                          + BankWaitHint(), now);
-            return;
-        }
-
-        var matchN = matching == null ? 0 : matching.Count;
-        if (matchN >= ZhongyuanQuota && !_zyDestFullVerifyPending)
-        {
-            _zyDestFullVerifyPending = true;
-            TryDismissBankUiAfterStore();
-            _zyLoopPhase = ZyLoopScanDest;
-            ZyLoopSay(FormatTeamSlotLabel(destSlot) + name + " 显示满" + matchN + "，关仓复核", true);
-            _zyAllDelayUntilMs = now + 400;
-            return;
-        }
-
-        _zyDestFullVerifyPending = false;
-        _zyLoopDestBankMatch[_zyLoopScanIndex] = matchN;
-        _zyLoopDestBankTotal[_zyLoopScanIndex] = total;
-        int destCap;
-        int destFree;
-        int destOcc;
-        if (TryGetOpenBankSpace(out destOcc, out destCap, out destFree))
-        {
-            _zyLoopDestBankCap[_zyLoopScanIndex] = destCap;
-            _zyLoopDestBankFree[_zyLoopScanIndex] = destFree;
-            if (destOcc > _zyLoopDestBankTotal[_zyLoopScanIndex])
-            {
-                _zyLoopDestBankTotal[_zyLoopScanIndex] = destOcc;
-            }
-        }
-
-        _zyLoopDestOthers[_zyLoopScanIndex] = ListOpenBankOtherPetNames(name);
-        _zyLoopDestHave[_zyLoopScanIndex] = _zyLoopDestBankMatch[_zyLoopScanIndex]
-                                            + CountMatchingRestPets(destUid, name);
-        ZyLoopSay("仓检" + FormatTeamSlotLabel(destSlot) + name
-                  + " 已有" + _zyLoopDestHave[_zyLoopScanIndex] + "/" + ZhongyuanQuota
-                  + "（仓" + _zyLoopDestBankMatch[_zyLoopScanIndex] + "/" + total
-                  + " 空位" + _zyLoopDestBankFree[_zyLoopScanIndex] + "/"
-                  + _zyLoopDestBankCap[_zyLoopScanIndex] + "）", true);
-        TryDismissBankUiAfterStore();
-        _zyDestFullVerifyPending = false;
-        _zyLoopScanIndex++;
-        _zyLoopPhase = ZyLoopScanDest;
-    }
-
-    private static void TickZhongyuanLoopScanAccountOpen(long now)
-    {
-        var uid = GetMainPlayerUidSafe();
-        ZhongyuanOpenBank(uid, true);
-        _zyLoopPhase = ZyLoopScanAccountWait;
-        ZyLoopSay("仓检账号仓，已发开仓", true);
-        _zyAllDelayUntilMs = now + 400;
-    }
-
-    private static void TickZhongyuanLoopScanAccountWait(long now)
-    {
-        List<int> matching;
-        int total;
-        var any = false;
-        for (var i = 0; i < WildPetPresets.Length; i++)
-        {
-            if (TryCollectOpenBankPets(
-                    WildPetPresets[i], _zyInfoBefore, _zyStoreBefore, out matching, out total, true))
-            {
-                _zyLoopAccountHave[i] = matching == null ? 0 : matching.Count;
-                _zyLoopAccountTotal = total;
-                any = true;
-            }
-        }
-
-        if (!any)
-        {
-            var elapsed = now - _zyWaitListStartMs;
-            if (elapsed >= ZhongyuanWaitListTimeoutMs)
-            {
-                TryDismissBankUiAfterStore();
-                _zyLoopAccountOpenTries++;
-                if (_zyLoopAccountOpenTries < WildExAccountOpenMaxTries)
-                {
-                    ZyLoopSay("账号仓未开，重开 " + _zyLoopAccountOpenTries
-                              + "/" + WildExAccountOpenMaxTries, true);
-                    _zyLoopPhase = ZyLoopScanAccount;
-                    _zyAllDelayUntilMs = now + 800;
-                    return;
-                }
-
-                _zyLoopAccountTimedOut = true;
-                ZyLoopSay("账号仓超时未打开，按空仓继续仓检1号个人仓", true);
-                _zyLoopPhase = ZyLoopScanLocal;
-                return;
-            }
-
-            ZyLoopSayWait("仓检账号仓 等仓库列表 " + (elapsed / 1000) + "秒" + BankWaitHint(), now);
-            return;
-        }
-
-        _zyLoopAccountTimedOut = false;
-        _zyLoopAccountOpenTries = 0;
-        ZyLoopSay("账号仓 " + _zyLoopAccountTotal + "只（幽灵"
-                  + _zyLoopAccountHave[0] + " 僵尸" + _zyLoopAccountHave[1]
-                  + " 骷髅战士" + _zyLoopAccountHave[2] + "）", true);
-        TryDismissBankUiAfterStore();
-        _zyLoopPhase = ZyLoopScanLocal;
-    }
-
-    private static void TickZhongyuanLoopScanLocalOpen(long now)
-    {
-        var uid = GetMainPlayerUidSafe();
-        ZhongyuanOpenBank(uid, false);
-        _zyLoopPhase = ZyLoopScanLocalWait;
-        ZyLoopSay("仓检1号个人仓，已发开仓", true);
-        _zyAllDelayUntilMs = now + 400;
-    }
-
-    private static void TickZhongyuanLoopScanLocalWait(long now)
-    {
-        var uid = GetMainPlayerUidSafe();
-        List<int> matching;
-        int total;
-        var any = false;
-        for (var i = 0; i < WildPetPresets.Length; i++)
-        {
-            if (TryCollectOpenBankPets(WildPetPresets[i], _zyInfoBefore, _zyStoreBefore, out matching, out total))
-            {
-                _zyLoopLocalHave[i] = (matching == null ? 0 : matching.Count)
-                                      + CountMatchingRestPets(uid, WildPetPresets[i]);
-                _zyLoopLocalBankTotal = total;
-                any = true;
-            }
-        }
-
-        if (!any)
-        {
-            var elapsed = now - _zyWaitListStartMs;
-            if (elapsed >= ZhongyuanWaitListTimeoutMs)
-            {
-                StopZhongyuanLoop("仓检不通过：1号个人仓超时未打开");
-                return;
-            }
-
-            ZyLoopSayWait("仓检1号个人仓 等仓库列表 " + (elapsed / 1000) + "秒" + BankWaitHint(), now);
-            return;
-        }
-
-        int localOcc;
-        int localCap;
-        int localFree;
-        if (TryGetOpenBankSpace(out localOcc, out localCap, out localFree))
-        {
-            _zyLoopLocalBankCap = localCap;
-            _zyLoopLocalBankFree = localFree;
-            if (localOcc > _zyLoopLocalBankTotal)
-            {
-                _zyLoopLocalBankTotal = localOcc;
-            }
-        }
-
-        ZyLoopSay("1号个人仓 " + _zyLoopLocalBankTotal + "只，空位"
-                  + _zyLoopLocalBankFree + "/" + _zyLoopLocalBankCap + "，开始汇总", true);
-        FinishZhongyuanLoopScan();
-    }
-
-    private static void FinishZhongyuanLoopScan()
-    {
-        TryDismissBankUiAfterStore();
-        var lines = new List<string>();
-        var tipParts = new List<string>();
-        var fails = CollectZhongyuanLoopScanFails();
-        var needAny = false;
-        for (var i = 0; i < WildPetPresets.Length; i++)
-        {
-            var name = WildPetPresets[i];
-            var dest = GetZhongyuanDestSlot(name);
-            var have = _zyLoopDestHave[i];
-            var remain = ZhongyuanQuota - have;
-            if (remain < 0)
-            {
-                remain = 0;
-            }
-
-            var line = FormatTeamSlotLabel(dest) + name + " " + have + "/" + ZhongyuanQuota;
-            if (_zyLoopDestTimedOut[i])
-            {
-                line += " 仓超时";
-            }
-            else if (remain <= 0)
-            {
-                line += " 跳过";
-                tipParts.Add(name + "满");
-            }
-            else
-            {
-                line += " 缺" + remain;
-                tipParts.Add(name + "缺" + remain);
-                needAny = true;
-            }
-
-            if (_zyLoopAccountHave[i] > 0 || _zyLoopLocalHave[i] > 0)
-            {
-                line += "（账号仓" + _zyLoopAccountHave[i] + " 1号" + _zyLoopLocalHave[i] + "）";
-            }
-
-            if (!string.IsNullOrEmpty(_zyLoopDestOthers[i]))
-            {
-                line += " 混有" + _zyLoopDestOthers[i];
-            }
-
-            line += " 空位" + _zyLoopDestBankFree[i] + "/" + _zyLoopDestBankCap[i];
-            lines.Add(line);
-        }
-
-        if (_zyLoopAccountTimedOut)
-        {
-            lines.Add("账号仓未打开，按空仓计");
-        }
-        else if (_zyLoopAccountTotal > 0)
-        {
-            lines.Add("账号仓有" + _zyLoopAccountTotal + "只");
-        }
-
-        if (_zyLoopLocalBankTotal > 0 || _zyLoopLocalBankFree < ZhongyuanQuota)
-        {
-            lines.Add("1号个人仓有" + _zyLoopLocalBankTotal + "只，空位"
-                      + _zyLoopLocalBankFree + "/" + _zyLoopLocalBankCap);
-        }
-
-        _zyLoopReport = string.Join("\n", lines.ToArray());
-        WriteLog("zy-loop scan done " + _zyLoopReport.Replace("\n", " | "));
-        if (fails.Count > 0)
-        {
-            var why = string.Join("；", fails.ToArray());
-            _zyLoopNote = "仓检不通过";
-            StopZhongyuanLoop("仓检不通过：" + why);
-            return;
-        }
-
-        Tip("仓检通过：" + string.Join(" ", tipParts.ToArray()));
-        _zyLoopNote = "仓检通过";
-        if (!needAny)
-        {
-            BeginZhongyuanLoopExchange();
-            return;
-        }
-
-        _zyLoopPhase = ZyLoopCatch;
-        StartZhongyuanAll();
-        if (!_zyAllActive)
-        {
-            StopZhongyuanLoop("仓检通过但未能开始抓齐");
-        }
-    }
-
-    private static List<string> CollectZhongyuanLoopScanFails()
-    {
-        var fails = new List<string>();
-        for (var i = 0; i < WildPetPresets.Length; i++)
-        {
-            var name = WildPetPresets[i];
-            var slot = FormatTeamSlotLabel(GetZhongyuanDestSlot(name));
-            if (_zyLoopDestTimedOut[i])
-            {
-                fails.Add(slot + "个人仓超时未打开");
-                continue;
-            }
-
-            var mixed = _zyLoopDestBankTotal[i] - _zyLoopDestBankMatch[i];
-            if (mixed > 0)
-            {
-                var others = string.IsNullOrEmpty(_zyLoopDestOthers[i])
-                    ? (mixed + "只杂宠")
-                    : _zyLoopDestOthers[i];
-                fails.Add(slot + "个人仓只能放" + name + "，现混有" + others);
-            }
-
-            // 已满 15 只目标宠 = 运营态，空位 0 也通过；未满才按缺额要空位。
-            var remain = ZhongyuanQuota - _zyLoopDestHave[i];
-            if (remain < 0)
-            {
-                remain = 0;
-            }
-
-            if (remain > 0 && _zyLoopDestBankFree[i] < remain)
-            {
-                fails.Add(slot + "个人仓空位" + _zyLoopDestBankFree[i]
-                          + "，还缺" + remain + "只" + name);
-            }
-        }
-
-        if (!_zyLoopAccountTimedOut && _zyLoopAccountTotal > 0)
-        {
-            fails.Add("账号仓有" + _zyLoopAccountTotal + "只，须清空");
-        }
-
-        if (_zyLoopLocalBankFree < ZhongyuanQuota)
-        {
-            fails.Add("1号个人仓空位" + _zyLoopLocalBankFree
-                      + "，须空出" + ZhongyuanQuota + "格");
-        }
-        else if (_zyLoopLocalBankTotal > 0)
-        {
-            fails.Add("1号个人仓有" + _zyLoopLocalBankTotal + "只，须清空");
-        }
-
-        return fails;
-    }
-
-    private static void AdvanceZhongyuanAllAfterType()
-    {
-        _zyAllIndex++;
-        if (_zyAllIndex >= WildPetPresets.Length)
-        {
-            FinishZhongyuanAllSuccess();
-            return;
-        }
-
-        _zyAllReturnTries = 0;
-        _zyScanStep = ZyScanDestOpen;
-        _zyAllPhase = ZyAllScan;
-        _zyAllNote = "下一种仓检 " + WildPetPresets[_zyAllIndex];
-        Tip("中元抓齐：开始仓检" + WildPetPresets[_zyAllIndex]);
-    }
-
-    private static void TickZhongyuanAllScan(string name, long now)
-    {
-        var localUid = GetMainPlayerUidSafe();
-        var destSlot = GetZhongyuanDestSlot(name);
-        var destUid = GetTeamUidBySlot(destSlot);
-        if (string.IsNullOrEmpty(localUid))
-        {
-            StopZhongyuanAll("仓检不通过：未找到1号角色");
-            return;
-        }
-
-        if (string.IsNullOrEmpty(destUid))
-        {
-            StopZhongyuanAll("仓检不通过：队伍里没有" + FormatTeamSlotLabel(destSlot));
-            return;
-        }
-
-        switch (_zyScanStep)
-        {
-            case ZyScanDestOpen:
-                _zyScanDestHave = 0;
-                _zyScanAccountHave = 0;
-                ZhongyuanOpenBank(destUid, false);
-                _zyScanStep = ZyScanDestWait;
-                _zyAllNote = "仓检" + FormatTeamSlotLabel(destSlot) + "个人仓";
-                _zyAllDelayUntilMs = now + 400;
-                return;
-            case ZyScanDestWait:
-            {
-                List<int> matching;
-                int total;
-                if (!TryCollectOpenBankPets(name, _zyInfoBefore, _zyStoreBefore, out matching, out total))
-                {
-                    if (now - _zyWaitListStartMs >= ZhongyuanWaitListTimeoutMs)
-                    {
-                        _zyScanDestHave = CountMatchingRestPets(destUid, name);
-                        WriteLog("zy-all scan dest timeout body=" + _zyScanDestHave);
-                        Tip("仓检不通过：" + FormatTeamSlotLabel(destSlot) + "个人仓超时未打开，改数身上");
-                        TryDismissBankUiAfterStore();
-                        _zyScanStep = ZyScanAccountOpen;
-                    }
-
-                    return;
-                }
-
-                _zyScanDestHave = (matching == null ? 0 : matching.Count)
-                                  + CountMatchingRestPets(destUid, name);
-                int destOcc;
-                int destCap;
-                int destFree;
-                var destRemain = ZhongyuanQuota - _zyScanDestHave;
-                if (destRemain < 0)
-                {
-                    destRemain = 0;
-                }
-
-                if (destRemain > 0
-                    && TryGetOpenBankSpace(out destOcc, out destCap, out destFree)
-                    && destFree < destRemain)
-                {
-                    StopZhongyuanAll("仓检不通过：" + FormatTeamSlotLabel(destSlot)
-                                     + "个人仓空位" + destFree + "，还缺" + destRemain + "只" + name);
-                    return;
-                }
-
-                WriteLog("zy-all scan dest " + FormatTeamSlotLabel(destSlot)
-                         + " have=" + _zyScanDestHave);
-                TryDismissBankUiAfterStore();
-                _zyScanStep = ZyScanAccountOpen;
-                return;
-            }
-            case ZyScanAccountOpen:
-                ZhongyuanOpenBank(localUid, true);
-                _zyScanStep = ZyScanAccountWait;
-                _zyAllNote = "仓检账号仓";
-                _zyAllDelayUntilMs = now + 400;
-                return;
-            case ZyScanAccountWait:
-            {
-                List<int> matching;
-                int total;
-                if (!TryCollectOpenBankPets(
-                        name, _zyInfoBefore, _zyStoreBefore, out matching, out total, true))
-                {
-                    if (now - _zyWaitListStartMs >= ZhongyuanWaitListTimeoutMs)
-                    {
-                        _zyScanAccountHave = 0;
-                        WriteLog("zy-all scan account timeout");
-                        Tip("仓检不通过：账号仓超时未打开，按空仓计");
-                        TryDismissBankUiAfterStore();
-                        _zyScanStep = ZyScanLocalOpen;
-                    }
-
-                    return;
-                }
-
-                _zyScanAccountHave = matching == null ? 0 : matching.Count;
-                TryDismissBankUiAfterStore();
-                _zyScanStep = ZyScanLocalOpen;
-                return;
-            }
-            case ZyScanLocalOpen:
-                ZhongyuanOpenBank(localUid, false);
-                _zyScanStep = ZyScanLocalWait;
-                _zyAllNote = "仓检1号个人仓";
-                _zyAllDelayUntilMs = now + 400;
-                return;
-            case ZyScanLocalWait:
-            {
-                List<int> matching;
-                int total;
-                if (!TryCollectOpenBankPets(name, _zyInfoBefore, _zyStoreBefore, out matching, out total))
-                {
-                    if (now - _zyWaitListStartMs >= ZhongyuanWaitListTimeoutMs)
-                    {
-                        StopZhongyuanAll("仓检不通过：1号个人仓超时未打开");
-                    }
-
-                    return;
-                }
-
-                var localHave = (matching == null ? 0 : matching.Count)
-                                + CountMatchingRestPets(localUid, name);
-                ApplyZhongyuanQuotaFromScan(name, destSlot, localHave);
-                return;
-            }
-        }
-    }
-
-    private static void ApplyZhongyuanQuotaFromScan(string name, int destSlot, int localHave)
-    {
-        var remain = ZhongyuanQuota - _zyScanDestHave;
-        if (remain < 0)
-        {
-            remain = 0;
-        }
-
-        _zyDestHave = _zyScanDestHave;
-        _zyXferNeed = remain;
-        _zyXferSent = 0;
-        var catchFill = remain - _zyScanAccountHave;
-        if (catchFill < 0)
-        {
-            catchFill = 0;
-        }
-
-        _zyCatchFill = catchFill;
-        WriteLog("zy-all quota " + name
-                 + " destHave=" + _zyDestHave
-                 + " remain=" + remain
-                 + " account=" + _zyScanAccountHave
-                 + " local=" + localHave
-                 + " catchFill=" + _zyCatchFill);
-        TryDismissBankUiAfterStore();
-
-        if (remain <= 0)
-        {
-            _zyAllNote = FormatTeamSlotLabel(destSlot) + "已有" + _zyDestHave + "只" + name
-                         + "，丢掉1号多余";
-            Tip(FormatTeamSlotLabel(destSlot) + "已有" + _zyDestHave + "只" + name
-                + "，先丢掉1号多余的" + name);
-            _zyLastCatchOk = true;
-            _zyLastXferOk = false;
-            _zyAllCatchStarted = true;
-            _zyAllXferStarted = false;
-            _zyAllPhase = ZyAllXferWait;
-            return;
-        }
-
-        if (localHave >= _zyCatchFill)
-        {
-            _zyAllNote = FormatTeamSlotLabel(destSlot) + "缺" + remain + "，1号已够，直接倒腾";
-            Tip("中元抓齐：" + name + "还缺" + remain + "，跳过抓宠直接倒腾");
-            _zyLastCatchOk = true;
-            _zyLastXferOk = false;
-            _zyAllCatchStarted = true;
-            _zyAllXferStarted = false;
-            _zyAllPhase = ZyAllXferWait;
-            return;
-        }
-
-        _zyAllNote = FormatTeamSlotLabel(destSlot) + "已有" + _zyDestHave + "，再抓" + _zyCatchFill;
-        Tip("中元抓齐：" + name + " " + FormatTeamSlotLabel(destSlot) + "已有"
-            + _zyDestHave + "，再抓" + _zyCatchFill);
-        _zyAllReturnTries = 0;
-        int floor;
-        string floorName;
-        int mapResId;
-        TryGetCurrentMapInfo(out floor, out floorName, out mapResId);
-        if (string.Equals(name, ZhongyuanPetC, StringComparison.Ordinal) && IsSkCResumeFloor(floor))
-        {
-            _zyAllNote = "已在图" + floor + "，跳过回城";
-            TickZhongyuanAllTeleport(name);
-            return;
-        }
-
-        if (string.Equals(name, ZhongyuanPetA, StringComparison.Ordinal) && floor == ZhongyuanHangupAFloor)
-        {
-            _zyAllNote = "已在灵堂，跳过回城";
-            TickZhongyuanAllTeleport(name);
-            return;
-        }
-
-        _zyAllPhase = ZyAllReturn;
-    }
-
     private static void TickZhongyuanAllReturn()
     {
         TrySendLocalAutoBattle("停止挂机");
-        var name = (_zyAllIndex >= 0 && _zyAllIndex < WildPetPresets.Length)
-            ? WildPetPresets[_zyAllIndex]
-            : "";
-        int floor;
-        string floorName;
-        int mapResId;
-        TryGetCurrentMapInfo(out floor, out floorName, out mapResId);
-        if (string.Equals(name, ZhongyuanPetC, StringComparison.Ordinal) && IsSkCResumeFloor(floor))
-        {
-            _zyAllNote = "已在图" + floor + "，跳过回城走骷髅战士路";
-            TickZhongyuanAllTeleport(name);
-            return;
-        }
-
-        if (string.Equals(name, ZhongyuanPetA, StringComparison.Ordinal) && floor == ZhongyuanHangupAFloor)
-        {
-            _zyAllNote = "已在灵堂，跳过回城";
-            TickZhongyuanAllTeleport(name);
-            return;
-        }
         if (!FloraHealSendReturnCity())
         {
             _zyAllReturnTries++;
@@ -15311,56 +12506,8 @@ public static class SeqChapterTestUi
             return;
         }
 
-        if (string.Equals(name, ZhongyuanPetA, StringComparison.Ordinal))
-        {
-            int floorNowA;
-            string floorNameNowA;
-            int mapResIdNowA;
-            TryGetCurrentMapInfo(out floorNowA, out floorNameNowA, out mapResIdNowA);
-            if (floorNowA == ZhongyuanHangupAFloor)
-            {
-                _zyAllExpectFloor = ZhongyuanHangupAFloor;
-                _zyAllPhase = ZyAllWaitTeleport;
-                _zyAllWaitStartMs = NowMs();
-                _zyAllWaitBattleSinceMs = 0;
-                _zyAllNote = "已在灵堂 图" + ZhongyuanHangupAFloor;
-                WriteLog("zy-all lingtang skip already-there floor=" + floorNowA);
-                return;
-            }
-
-            if (!StartLingTangGoThenEscort())
-            {
-                StopZhongyuanAll("前往灵堂失败");
-                return;
-            }
-
-            _zyAllExpectFloor = ZhongyuanHangupAFloor;
-            _zyAllPhase = ZyAllWaitTeleport;
-            _zyAllWaitStartMs = NowMs();
-            _zyAllWaitBattleSinceMs = 0;
-            _zyAllNote = "前往灵堂";
-            WriteLog("zy-all hangup-go wayId=" + ZhongyuanHangupAWayId + " floor=" + ZhongyuanHangupAFloor);
-            Tip("中元抓齐：已前往灵堂");
-            return;
-        }
-
         if (string.Equals(name, ZhongyuanPetB, StringComparison.Ordinal))
         {
-            int floorNow;
-            string floorNameNow;
-            int mapResIdNow;
-            TryGetCurrentMapInfo(out floorNow, out floorNameNow, out mapResIdNow);
-            if (floorNow == ZhongyuanHangupBFloor)
-            {
-                _zyAllExpectFloor = ZhongyuanHangupBFloor;
-                _zyAllPhase = ZyAllWaitTeleport;
-                _zyAllWaitStartMs = NowMs();
-                _zyAllWaitBattleSinceMs = 0;
-                _zyAllNote = "已在奇怪的洞窟怪 图" + ZhongyuanHangupBFloor;
-                WriteLog("zy-all hangup skip already-there id=" + ZhongyuanHangupBId + " floor=" + floorNow);
-                return;
-            }
-
             if (!TrySendHangupTeleport(ZhongyuanHangupBId))
             {
                 StopZhongyuanAll("挂机传送奇怪的洞窟怪失败");
@@ -15370,171 +12517,29 @@ public static class SeqChapterTestUi
             _zyAllExpectFloor = ZhongyuanHangupBFloor;
             _zyAllPhase = ZyAllWaitTeleport;
             _zyAllWaitStartMs = NowMs();
-            _zyAllWaitBattleSinceMs = 0;
             _zyAllNote = "传送奇怪的洞窟怪";
-            WriteLog("zy-all hangup id=" + ZhongyuanHangupBId + " floor=" + ZhongyuanHangupBFloor);
-            Tip("中元抓齐：已传送奇怪的洞窟怪");
+            WriteLog("zy-all hangup B id=" + ZhongyuanHangupBId);
             return;
         }
 
-        StopZhongyuanAll("未知刷点 " + name);
-    }
-
-    /// <summary>挂机「前往」WayId=1003，再护航这条路，到 52018 停。</summary>
-    private static bool StartLingTangGoThenEscort()
-    {
-        if (_escortActive && !_zyLingTangOwnsEscort)
+        var id = FindHangupNavIdByKeyword(ZhongyuanHangupAKeyword);
+        if (id <= 0)
         {
-            WriteLog("zy-lingtang escort busy");
-            return false;
-        }
-
-        if (_skCNavOwnsEscort || _skCNavActive)
-        {
-            WriteLog("zy-lingtang skc busy");
-            return false;
-        }
-
-        try
-        {
-            AbortEscortTaskPathFully("zy-lingtang-go");
-        }
-        catch
-        {
-            // ignore
-        }
-
-        if (!TrySendHangupGo(ZhongyuanHangupAWayId))
-        {
-            WriteLog("zy-lingtang StartWayTh fail wayId=" + ZhongyuanHangupAWayId);
-            return false;
-        }
-
-        return StartLingTangOwnedEscort();
-    }
-
-    private static bool StartLingTangOwnedEscort()
-    {
-        _zyLingTangSavedQueue.Clear();
-        for (var i = 0; i < _escortQueue.Count; i++)
-        {
-            _zyLingTangSavedQueue.Add(_escortQueue[i]);
-        }
-
-        _zyLingTangSavedIndex = _escortQueueIndex;
-        _escortQueue.Clear();
-        var title = "#1003";
-        try
-        {
-            var mission = GetMissionDataById(ZhongyuanHangupAWayId);
-            if (mission != null)
-            {
-                var t = Convert.ToString(GetMember(mission, "title") ?? "") ?? "";
-                if (!string.IsNullOrEmpty(t))
-                {
-                    title = t;
-                }
-            }
-        }
-        catch
-        {
-            // ignore
-        }
-
-        _escortQueue.Add(new EscortCandidate
-        {
-            Id = ZhongyuanHangupAWayId,
-            Title = title,
-            Status = "脚本"
-        });
-        _zyLingTangOwnsEscort = true;
-        try
-        {
-            StartEscortQueue();
-        }
-        catch (Exception ex)
-        {
-            WriteLog("zy-lingtang start escort EX " + RootMessage(ex));
-            ReleaseLingTangOwnedEscort();
-            return false;
-        }
-
-        if (!_escortActive)
-        {
-            ReleaseLingTangOwnedEscort();
-            WriteLog("zy-lingtang escort not active");
-            return false;
-        }
-
-        WriteLog("zy-lingtang escort start id=" + ZhongyuanHangupAWayId);
-        return true;
-    }
-
-    private static void HandOffLingTangFromEscort(string reason)
-    {
-        WriteLog("zy-lingtang handoff " + reason);
-        ReleaseLingTangOwnedEscort();
-    }
-
-    private static void ReleaseLingTangOwnedEscort()
-    {
-        if (!_zyLingTangOwnsEscort)
-        {
+            StopZhongyuanAll("找不到挂机传送「灵堂」");
             return;
         }
 
-        _zyLingTangOwnsEscort = false;
-        try
+        if (!TrySendHangupTeleport(id))
         {
-            AbortEscortTaskPathFully("zy-lingtang-release");
-        }
-        catch
-        {
-            // ignore
+            StopZhongyuanAll("挂机传送灵堂失败");
+            return;
         }
 
-        var wasActive = _escortActive;
-        _escortPicking = false;
-        _escortActive = false;
-        _escortPaused = false;
-        _escortPauseReason = "";
-        _escortLastDiag = "";
-        StopEscortAlertRing();
-        _escortMissionId = -1;
-        _escortMissionTitle = "";
-        _escortQueueIndex = -1;
-        _escortBetweenTasksWaitMs = 0;
-        _escortAwaitingReadyMs = 0;
-        _escortRecoverAttempts = 0;
-        ClearEscortStuckPending();
-        _escortFinishWaitMs = 0;
-        ResetMoonRabbitEscortFlags();
-        StopEscortEncounterWait("zy-lingtang-release", false);
-        _escortPrevInBattle = false;
-        _escortQueue.Clear();
-        for (var i = 0; i < _zyLingTangSavedQueue.Count; i++)
-        {
-            _escortQueue.Add(_zyLingTangSavedQueue[i]);
-        }
-
-        _escortQueueIndex = _zyLingTangSavedIndex;
-        _zyLingTangSavedQueue.Clear();
-        _zyLingTangSavedIndex = -1;
-        _prevRunTaskId = GetRunTaskId();
-        if (wasActive)
-        {
-            try
-            {
-                StopTaskNavigation(false);
-            }
-            catch
-            {
-                // ignore
-            }
-        }
-
-        TryRebuildEscortTab();
-        WriteLog("zy-lingtang restored escort queue n=" + _escortQueue.Count);
+        _zyAllExpectFloor = 0;
+        _zyAllPhase = ZyAllWaitTeleport;
+        _zyAllWaitStartMs = NowMs();
+        _zyAllNote = "传送灵堂 id=" + id;
+        WriteLog("zy-all hangup A id=" + id);
     }
 
     private static void TickZhongyuanAllWaitArrive(string name, long now)
@@ -15569,31 +12574,22 @@ public static class SeqChapterTestUi
         var arrived = _zyAllExpectFloor > 0
             ? floor == _zyAllExpectFloor
             : floor > 0 && floor != FloraHealReturnFloor;
-        if (arrived)
+        if (!arrived)
         {
-            if (string.Equals(name, ZhongyuanPetA, StringComparison.Ordinal))
+            _zyAllNote = "等待落地 图" + floor;
+            if (_zyAllWaitStartMs > 0 && now - _zyAllWaitStartMs >= 25000)
             {
-                HandOffLingTangFromEscort("arrived-floor-" + floor);
+                StopZhongyuanAll("传送超时 图" + floor);
             }
 
-            _zyAllNote = "已到刷点 图" + floor;
-            _zyLastCatchOk = false;
-            _zyAllCatchStarted = false;
-            _zyAllPhase = ZyAllCatchWait;
-            _zyAllDelayUntilMs = now + SkCAbortWaitMs;
             return;
         }
 
-        _zyAllNote = "等待落地 图" + floor;
-        var timeout = string.Equals(name, ZhongyuanPetA, StringComparison.Ordinal)
-            ? ZhongyuanHangupGoTimeoutMs
-            : ZhongyuanHangupTeleportTimeoutMs;
-        if (_zyAllWaitStartMs > 0 && now - _zyAllWaitStartMs >= timeout)
-        {
-            StopZhongyuanAll((string.Equals(name, ZhongyuanPetA, StringComparison.Ordinal)
-                ? "前往超时 图"
-                : "传送超时 图") + floor);
-        }
+        _zyAllNote = "已到刷点 图" + floor;
+        _zyLastCatchOk = false;
+        _zyAllCatchStarted = false;
+        _zyAllPhase = ZyAllCatchWait;
+        _zyAllDelayUntilMs = now + SkCAbortWaitMs;
     }
 
     private static void BeginZhongyuanAllCatch(string name)
@@ -15640,7 +12636,7 @@ public static class SeqChapterTestUi
         _wildPetName = name;
         _zyAllPhase = ZyAllXferWait;
         _zyAllNote = "倒腾" + name + "给" + FormatTeamSlotLabel(GetZhongyuanDestSlot(name));
-        Tip("中元抓齐：倒腾" + name + "给" + FormatTeamSlotLabel(GetZhongyuanDestSlot(name)));
+        Tip("中元抓齐：请" + FormatTeamSlotLabel(GetZhongyuanDestSlot(name)) + "开中元倒腾接收" + name);
     }
 
     private static void TickZhongyuanAllXferWait(string name)
@@ -15675,7 +12671,17 @@ public static class SeqChapterTestUi
             return;
         }
 
-        AdvanceZhongyuanAllAfterType();
+        _zyAllIndex++;
+        if (_zyAllIndex >= WildPetPresets.Length)
+        {
+            StopZhongyuanAll("已抓齐三种宠物");
+            return;
+        }
+
+        _zyAllReturnTries = 0;
+        _zyAllPhase = ZyAllReturn;
+        _zyAllNote = "下一种 " + WildPetPresets[_zyAllIndex];
+        Tip("中元抓齐：开始" + WildPetPresets[_zyAllIndex]);
     }
 
     private static int FindHangupNavIdByKeyword(string keyword)
@@ -15792,16 +12798,8 @@ public static class SeqChapterTestUi
         _zyPersonalMatch = 0;
         _zyWorkIndexes.Clear();
         _zyWorkPos = 0;
-        _zyCatchStuckStoreIndex = -1;
-        _zyCatchStuckStoreCount = 0;
-        if (!_zyAllActive)
-        {
-            _zyCatchFill = ZhongyuanQuota;
-            _zyDestHave = 0;
-        }
-
         TrySendLocalAutoBattle("停止挂机");
-        Tip("中元抓宠已开启：" + name + " 凑" + GetZyCatchFill() + "只");
+        Tip("中元抓宠已开启：" + name);
         WriteLog("zy-catch start name=" + name + " dest=" + FormatTeamSlotLabel(_zyDestSlot));
         RefreshScriptTabIfVisible();
     }
@@ -15891,28 +12889,20 @@ public static class SeqChapterTestUi
         TrySendLocalAutoBattle("停止挂机");
         _zyXferActive = true;
         _zyXferPush = push;
-        _zyXferWorkUid = "";
         _zyName = name;
         _zyDestSlot = dest;
         _zyPersonalMatch = 0;
         _zyPersonalStart = -1;
         _zyAccountMatch = 0;
         _zyAccountTotal = 0;
-        _zyXferSent = 0;
-        _zyXferTakeForDrop = false;
-        if (!_zyAllActive)
-        {
-            _zyXferNeed = ZhongyuanQuota;
-        }
-
         _zyWorkIndexes.Clear();
         _zyWorkPos = 0;
         _zyDelayUntilMs = 0;
         if (push)
         {
-            _zyXferPhase = ZyXferPushTrimBody;
-            _zyNote = "丢掉1号多余再交出" + name;
-            Tip("中元倒腾：先丢掉1号多余，再把" + name + "交给" + FormatTeamSlotLabel(dest) + "（远程代收）");
+            _zyXferPhase = ZyXferPushOpenPersonal;
+            _zyNote = "1号交出" + name;
+            Tip("中元倒腾：1号把" + name + "交给" + FormatTeamSlotLabel(dest));
         }
         else
         {
@@ -15937,7 +12927,6 @@ public static class SeqChapterTestUi
         _zyNote = reason ?? "";
         _zyLastXferOk = success;
         _zyWorkIndexes.Clear();
-        _zyXferWorkUid = "";
         TryDismissBankUiAfterStore();
         WriteLog("zy-xfer stop " + reason + " ok=" + success);
         RefreshScriptTabIfVisible();
@@ -15993,32 +12982,10 @@ public static class SeqChapterTestUi
     {
         var rest = CountMatchingRestPets(uid, _zyName);
         var bagFull = CountLocalPetFreeSlots(uid) <= 0;
-        var keep = GetZyCatchFill() - _zyPersonalMatch;
-        if (keep < 0)
-        {
-            keep = 0;
-        }
-
-        string dropped;
-        var drop = DropZhongyuanExtraOnce(uid, _zyName, keep, out dropped);
-        if (drop < 0)
-        {
-            StopZhongyuanCatch("drop-fail", false);
-            Tip("丢弃多余宠物失败");
-            return;
-        }
-
-        if (drop > 0)
-        {
-            _zyNote = "丢弃多余" + dropped;
-            _zyDelayUntilMs = NowMs() + ZhongyuanProtocolGapMs;
-            return;
-        }
-
-        if (bagFull || _zyPersonalMatch + rest >= GetZyCatchFill())
+        if (bagFull || _zyPersonalMatch + rest >= ZhongyuanQuota)
         {
             TrySendLocalAutoBattle("停止挂机");
-            _zyNote = bagFull ? "栏满，存个人仓" : "已够" + GetZyCatchFill() + "，存身上剩余";
+            _zyNote = bagFull ? "栏满，存个人仓" : "已满15，存身上剩余";
             _zyCatchPhase = ZyCatchOpenStore;
             return;
         }
@@ -16028,8 +12995,7 @@ public static class SeqChapterTestUi
             TrySendLocalAutoBattle("开始挂机");
         }
 
-        _zyNote = "挂机抓" + _zyName + " 仓" + _zyPersonalMatch + "+身" + rest
-                  + "/" + GetZyCatchFill();
+        _zyNote = "挂机抓" + _zyName + " 仓" + _zyPersonalMatch + "+身" + rest;
     }
 
     private static void TickZhongyuanCatchWaitStore(string uid, long now)
@@ -16050,116 +13016,12 @@ public static class SeqChapterTestUi
         _zyPersonalMatch = matching == null ? 0 : matching.Count;
         var rest = CollectMatchingRestPetIndexes(uid, _zyName);
         var bagFull = CountLocalPetFreeSlots(uid) <= 0;
-        var fill = GetZyCatchFill();
-        var need = fill - _zyPersonalMatch;
-        if (need < 0)
-        {
-            need = 0;
-        }
-
         var sum = _zyPersonalMatch + rest.Count;
-        int occ;
-        int cap;
-        int bankFree;
-        var spaceKnown = TryGetOpenBankSpace(out occ, out cap, out bankFree);
-        _zyNote = "仓" + _zyPersonalMatch + " 身休" + rest.Count + "/" + fill;
-        if (need <= 0)
+        _zyNote = "仓" + _zyPersonalMatch + " 身休" + rest.Count;
+        if (rest.Count > 0 && (bagFull || sum >= ZhongyuanQuota))
         {
-            string dropped;
-            var drop = DropZhongyuanExtraOnce(uid, _zyName, 0, out dropped);
-            if (drop < 0)
-            {
-                FinishZhongyuanCatch();
-                return;
-            }
-
-            if (drop > 0)
-            {
-                _zyNote = "已够" + fill + "，丢弃多余" + dropped;
-                _zyDelayUntilMs = now + ZhongyuanProtocolGapMs;
-                return;
-            }
-
-            FinishZhongyuanCatch();
-            return;
-        }
-
-        if (spaceKnown && bankFree <= 0)
-        {
-            if (rest.Count > 0)
-            {
-                if (!TrySendDropPet(uid, rest[0]))
-                {
-                    StopZhongyuanCatch("personal-full", false);
-                    Tip("个人仓没有空位，无法继续存" + _zyName);
-                    return;
-                }
-
-                MarkPetUnusedByIndex(uid, rest[0]);
-                _zyNote = "个人仓已满，丢弃多余";
-                _zyDelayUntilMs = now + ZhongyuanProtocolGapMs;
-                return;
-            }
-
-            StopZhongyuanCatch("personal-full", false);
-            Tip("个人仓没有空位，无法继续存" + _zyName);
-            return;
-        }
-
-        if (rest.Count > 0 && (bagFull || sum >= fill))
-        {
-            if (rest[0] == _zyCatchStuckStoreIndex)
-            {
-                _zyCatchStuckStoreCount++;
-            }
-            else
-            {
-                _zyCatchStuckStoreIndex = rest[0];
-                _zyCatchStuckStoreCount = 1;
-            }
-
-            if (_zyCatchStuckStoreCount >= 3)
-            {
-                if (!TrySendDropPet(uid, rest[0]))
-                {
-                    StopZhongyuanCatch("store-stuck", false);
-                    Tip("存仓卡住，丢弃多余失败");
-                    return;
-                }
-
-                MarkPetUnusedByIndex(uid, rest[0]);
-                _zyCatchStuckStoreIndex = -1;
-                _zyCatchStuckStoreCount = 0;
-                _zyNote = "同一只存不进，丢弃多余";
-                _zyDelayUntilMs = now + ZhongyuanProtocolGapMs;
-                return;
-            }
-
-            var storeN = rest.Count;
-            if (storeN > need)
-            {
-                storeN = need;
-            }
-
-            if (spaceKnown && storeN > bankFree)
-            {
-                storeN = bankFree;
-            }
-
-            if (storeN <= 0)
-            {
-                if (!TrySendDropPet(uid, rest[0]))
-                {
-                    FinishZhongyuanCatch();
-                    return;
-                }
-
-                _zyDelayUntilMs = now + ZhongyuanProtocolGapMs;
-                return;
-            }
-
             _zyWorkIndexes.Clear();
-            for (var i = 0; i < storeN; i++)
+            for (var i = 0; i < rest.Count; i++)
             {
                 _zyWorkIndexes.Add(rest[i]);
             }
@@ -16169,24 +13031,18 @@ public static class SeqChapterTestUi
             return;
         }
 
-        if (sum >= fill)
+        if (sum >= ZhongyuanQuota)
         {
             FinishZhongyuanCatch();
             return;
         }
 
-        EnterZhongyuanCatchHunt();
-    }
-
-    private static void EnterZhongyuanCatchHunt()
-    {
-        TryDismissBankUiAfterStore();
         _zyCatchPhase = ZyCatchHunt;
     }
 
     private static void TickZhongyuanCatchStore(string uid, long now)
     {
-        if (_zyPersonalMatch >= GetZyCatchFill() || _zyWorkPos >= _zyWorkIndexes.Count)
+        if (_zyWorkPos >= _zyWorkIndexes.Count)
         {
             _zyCatchPhase = ZyCatchOpenStore;
             return;
@@ -16213,11 +13069,11 @@ public static class SeqChapterTestUi
         StopZhongyuanCatch("ok", true);
         if (!_zyAllActive)
         {
-            Tip("已抓够" + GetZyCatchFill() + "只" + name + "，请1号和" + dest + "点中元倒腾");
+            Tip("已抓满15只" + name + "，请1号和" + dest + "点中元倒腾");
         }
         else
         {
-            Tip("已抓够" + GetZyCatchFill() + "只" + name);
+            Tip("已抓满15只" + name);
         }
     }
 
@@ -16241,11 +13097,6 @@ public static class SeqChapterTestUi
         }
 
         var uid = GetMainPlayerUidSafe();
-        if (!_zyXferPush && !string.IsNullOrEmpty(_zyXferWorkUid))
-        {
-            uid = _zyXferWorkUid;
-        }
-
         if (string.IsNullOrEmpty(uid))
         {
             StopZhongyuanTransfer("no-uid", false);
@@ -16267,9 +13118,6 @@ public static class SeqChapterTestUi
     {
         switch (_zyXferPhase)
         {
-            case ZyXferPushTrimBody:
-                TickZhongyuanPushTrimBody(uid, now);
-                break;
             case ZyXferPushOpenPersonal:
                 ZhongyuanOpenBank(uid, false);
                 _zyXferPhase = ZyXferPushWaitPersonal;
@@ -16301,34 +13149,6 @@ public static class SeqChapterTestUi
         }
     }
 
-    private static void TickZhongyuanPushTrimBody(string uid, long now)
-    {
-        var keep = GetZyXferNeed() - _zyXferSent;
-        if (keep < 0)
-        {
-            keep = 0;
-        }
-
-        string dropped;
-        var drop = DropZhongyuanExtraOnce(uid, _zyName, keep, out dropped);
-        if (drop < 0)
-        {
-            StopZhongyuanTransfer("drop-fail", false);
-            Tip("丢弃多余宠物失败");
-            return;
-        }
-
-        if (drop > 0)
-        {
-            _zyNote = "丢掉1号多余" + dropped;
-            _zyDelayUntilMs = now + ZhongyuanProtocolGapMs;
-            return;
-        }
-
-        _zyXferPhase = ZyXferPushOpenPersonal;
-        _zyNote = "1号交出" + _zyName;
-    }
-
     private static void TickZhongyuanPushWaitPersonal(string uid, long now)
     {
         List<int> matching;
@@ -16346,18 +13166,6 @@ public static class SeqChapterTestUi
 
         _zyPersonalMatch = matching == null ? 0 : matching.Count;
         var rest = CollectMatchingRestPetIndexes(uid, _zyName);
-        var still = GetZyXferNeed() - _zyXferSent;
-        if (still < 0)
-        {
-            still = 0;
-        }
-
-        if (still <= 0)
-        {
-            BeginZhongyuanDropExtras(uid, matching, rest, "已交够" + GetZyXferNeed() + "，丢弃多余");
-            return;
-        }
-
         if (_zyPersonalMatch <= 0 && rest.Count <= 0)
         {
             _zyXferPhase = ZyXferDrop;
@@ -16367,7 +13175,7 @@ public static class SeqChapterTestUi
 
         var free = CountLocalPetFreeSlots(uid);
         var already = rest.Count;
-        var takeN = Math.Min(free, Math.Min(_zyPersonalMatch, Math.Min(ZhongyuanAccountSlots - already, still - already)));
+        var takeN = Math.Min(free, Math.Min(_zyPersonalMatch, ZhongyuanAccountSlots - already));
         if (takeN < 0)
         {
             takeN = 0;
@@ -16382,28 +13190,6 @@ public static class SeqChapterTestUi
 
         if (takeN <= 0)
         {
-            var keep = GetZyXferNeed() - _zyXferSent;
-            if (keep < 0)
-            {
-                keep = 0;
-            }
-
-            string dropped;
-            var drop = DropZhongyuanExtraOnce(uid, _zyName, keep, out dropped, true);
-            if (drop < 0)
-            {
-                StopZhongyuanTransfer("drop-fail", false);
-                Tip("丢弃多余宠物失败");
-                return;
-            }
-
-            if (drop > 0)
-            {
-                _zyNote = "栏满，丢弃多余" + dropped;
-                _zyDelayUntilMs = now + ZhongyuanProtocolGapMs;
-                return;
-            }
-
             StopZhongyuanTransfer("no-slot", false);
             Tip("身上没有空位，无法倒腾");
             return;
@@ -16424,7 +13210,7 @@ public static class SeqChapterTestUi
     {
         if (_zyWorkPos >= _zyWorkIndexes.Count)
         {
-            _zyXferPhase = _zyXferTakeForDrop ? ZyXferDrop : ZyXferPushOpenAccount;
+            _zyXferPhase = ZyXferPushOpenAccount;
             _zyDelayUntilMs = now + ZhongyuanProtocolGapMs;
             return;
         }
@@ -16445,8 +13231,7 @@ public static class SeqChapterTestUi
     {
         List<int> matching;
         int total;
-        if (!TryCollectOpenBankPets(
-                _zyName, _zyInfoBefore, _zyStoreBefore, out matching, out total, true))
+        if (!TryCollectOpenBankPets(_zyName, _zyInfoBefore, _zyStoreBefore, out matching, out total))
         {
             if (now - _zyWaitListStartMs >= ZhongyuanWaitListTimeoutMs)
             {
@@ -16460,19 +13245,6 @@ public static class SeqChapterTestUi
         _zyAccountMatch = matching == null ? 0 : matching.Count;
         _zyAccountTotal = total;
         var rest = CollectMatchingRestPetIndexes(uid, _zyName);
-        var still = GetZyXferNeed() - _zyXferSent;
-        if (still < 0)
-        {
-            still = 0;
-        }
-
-        if (still <= 0)
-        {
-            _zyXferPhase = ZyXferPushOpenPersonal;
-            _zyNote = "已交够，处理多余";
-            return;
-        }
-
         var room = ZhongyuanAccountSlots - _zyAccountTotal;
         if (room < 0)
         {
@@ -16481,25 +13253,11 @@ public static class SeqChapterTestUi
 
         if (rest.Count <= 0)
         {
-            if (_zyXferSent <= 0)
-            {
-                if (now - _zyWaitListStartMs >= ZhongyuanWaitListTimeoutMs)
-                {
-                    StopZhongyuanTransfer("dest-bank-full", false);
-                    Tip("倒腾中断：身上没有" + _zyName + "，请检查"
-                        + FormatTeamSlotLabel(_zyDestSlot) + "个人仓是否有"
-                        + ZhongyuanQuota + "格空位");
-                    return;
-                }
-
-                _zyNote = "等待身上" + _zyName;
-                _zyDelayUntilMs = now + ZhongyuanPollMs;
-                return;
-            }
-
             if (_zyAccountMatch > 0)
             {
-                BeginZhongyuanRemotePull();
+                _zyXferPhase = ZyXferPushWaitEmpty;
+                _zyNote = "等待" + FormatTeamSlotLabel(_zyDestSlot) + "取出";
+                _zyDelayUntilMs = now + ZhongyuanPollMs;
                 return;
             }
 
@@ -16509,18 +13267,13 @@ public static class SeqChapterTestUi
 
         if (room <= 0)
         {
-            BeginZhongyuanRemotePull();
+            _zyXferPhase = ZyXferPushWaitEmpty;
+            _zyNote = "账号仓已满，等待取出";
+            _zyDelayUntilMs = now + ZhongyuanPollMs;
             return;
         }
 
-        var storeN = Math.Min(rest.Count, Math.Min(room, still));
-        if (storeN <= 0)
-        {
-            _zyXferPhase = ZyXferDrop;
-            _zyNote = "已交够，丢弃多余";
-            return;
-        }
-
+        var storeN = Math.Min(rest.Count, room);
         _zyWorkIndexes.Clear();
         for (var i = 0; i < storeN; i++)
         {
@@ -16551,49 +13304,16 @@ public static class SeqChapterTestUi
         }
 
         MarkPetUnusedByIndex(uid, index);
-        _zyXferSent++;
         _zyWorkPos++;
         _zyDelayUntilMs = now + ZhongyuanProtocolGapMs;
     }
 
     private static void TickZhongyuanPushWaitEmpty(string uid, long now)
     {
-        if (_zyXferSent <= 0)
-        {
-            var rest = CollectMatchingRestPetIndexes(uid, _zyName);
-            if (rest.Count > 0)
-            {
-                _zyXferPhase = ZyXferPushOpenAccount;
-                _zyNote = "身上还有" + rest.Count + "只，再存账号仓";
-                return;
-            }
-
-            StopZhongyuanTransfer("dest-bank-full", false);
-            Tip("倒腾中断：账号仓未存入，请检查" + FormatTeamSlotLabel(_zyDestSlot)
-                + "个人仓是否有" + ZhongyuanQuota + "格空位");
-            return;
-        }
-
-        BeginZhongyuanRemotePull();
-    }
-
-    private static void BeginZhongyuanRemotePull()
-    {
-        TryDismissBankUiAfterStore();
-        var destUid = GetTeamUidBySlot(_zyDestSlot);
-        if (string.IsNullOrEmpty(destUid))
-        {
-            StopZhongyuanTransfer("no-dest", false);
-            Tip("倒腾中断：队伍里没有" + FormatTeamSlotLabel(_zyDestSlot));
-            return;
-        }
-
-        _zyXferPush = false;
-        _zyXferWorkUid = destUid;
-        _zyXferPhase = ZyXferPullOpenAccount;
-        _zyNote = "代" + FormatTeamSlotLabel(_zyDestSlot) + "从账号仓收" + _zyName;
-        WriteLog("zy-xfer remote-pull dest=" + FormatTeamSlotLabel(_zyDestSlot)
-                 + " uid尾" + TailUid(destUid));
+        ZhongyuanOpenBank(uid, true);
+        _zyXferPhase = ZyXferPushWaitAccount;
+        _zyDelayUntilMs = now + 400;
+        _zyNote = "查看账号仓是否已空";
     }
 
     private static void TickZhongyuanPull(string uid, long now)
@@ -16649,8 +13369,9 @@ public static class SeqChapterTestUi
             _zyPersonalStart = _zyPersonalMatch;
         }
 
+        var received = _zyPersonalMatch - _zyPersonalStart;
         var rest = CollectMatchingRestPetIndexes(uid, _zyName);
-        var need = ZhongyuanQuota - _zyPersonalMatch;
+        var need = ZhongyuanQuota - received;
         if (need < 0)
         {
             need = 0;
@@ -16659,23 +13380,13 @@ public static class SeqChapterTestUi
         if (need <= 0)
         {
             _zyXferPhase = ZyXferDrop;
-            _zyNote = "仓内已有" + _zyPersonalMatch + "只，丢弃多余";
+            _zyNote = "已收满15，丢弃多余";
             return;
         }
 
         if (rest.Count > 0)
         {
-            int occ;
-            int cap;
-            int bankFree;
-            if (!TryGetOpenBankSpace(out occ, out cap, out bankFree) || bankFree <= 0)
-            {
-                StopZhongyuanTransfer("personal-full", false);
-                Tip("个人仓没有空位，无法接收（须空出" + ZhongyuanQuota + "格）");
-                return;
-            }
-
-            var storeN = Math.Min(rest.Count, Math.Min(need, bankFree));
+            var storeN = Math.Min(rest.Count, need);
             _zyWorkIndexes.Clear();
             for (var i = 0; i < storeN; i++)
             {
@@ -16696,8 +13407,7 @@ public static class SeqChapterTestUi
     {
         List<int> matching;
         int total;
-        if (!TryCollectOpenBankPets(
-                _zyName, _zyInfoBefore, _zyStoreBefore, out matching, out total, true))
+        if (!TryCollectOpenBankPets(_zyName, _zyInfoBefore, _zyStoreBefore, out matching, out total))
         {
             if (now - _zyWaitListStartMs >= ZhongyuanWaitListTimeoutMs)
             {
@@ -16710,7 +13420,8 @@ public static class SeqChapterTestUi
 
         _zyAccountMatch = matching == null ? 0 : matching.Count;
         _zyAccountTotal = total;
-        var need = ZhongyuanQuota - _zyPersonalMatch;
+        var received = _zyPersonalMatch - Math.Max(0, _zyPersonalStart);
+        var need = ZhongyuanQuota - received;
         if (need < 0)
         {
             need = 0;
@@ -16724,24 +13435,6 @@ public static class SeqChapterTestUi
 
         if (_zyAccountMatch <= 0)
         {
-            TryDismissBankUiAfterStore();
-            var still = GetZyXferNeed() - _zyXferSent;
-            if (!string.IsNullOrEmpty(_zyXferWorkUid) && still > 0)
-            {
-                _zyXferPush = true;
-                _zyXferWorkUid = "";
-                _zyXferPhase = ZyXferPushOpenPersonal;
-                _zyNote = "账号仓已空，1号继续交出" + _zyName;
-                return;
-            }
-
-            if (!string.IsNullOrEmpty(_zyXferWorkUid))
-            {
-                _zyXferPhase = ZyXferPullOpenPersonal;
-                _zyNote = "账号仓已空，核对该号个人仓";
-                return;
-            }
-
             _zyNote = "等待1号把" + _zyName + "存进账号仓";
             _zyDelayUntilMs = now + ZhongyuanPollMs;
             _zyXferPhase = ZyXferPullOpenAccount;
@@ -16811,96 +13504,39 @@ public static class SeqChapterTestUi
         _zyDelayUntilMs = now + ZhongyuanProtocolGapMs;
     }
 
-    private static void BeginZhongyuanDropExtras(
-        string uid, List<int> matching, List<int> rest, string note)
-    {
-        var bodyN = rest == null ? 0 : rest.Count;
-        var bankN = matching == null ? 0 : matching.Count;
-        if (bodyN <= 0 && bankN <= 0)
-        {
-            _zyXferTakeForDrop = false;
-            StopZhongyuanTransfer("ok", true);
-            Tip("倒腾完成：已把" + _zyName + "交给" + FormatTeamSlotLabel(_zyDestSlot));
-            return;
-        }
-
-        _zyNote = note ?? "丢弃多余";
-        if (bodyN > 0)
-        {
-            _zyXferTakeForDrop = false;
-            _zyXferPhase = ZyXferDrop;
-            return;
-        }
-
-        var free = CountLocalPetFreeSlots(uid);
-        var takeN = Math.Min(free, bankN);
-        if (takeN <= 0)
-        {
-            StopZhongyuanTransfer("no-slot-drop", false);
-            Tip("身上没空位，个人仓还有多余" + _zyName);
-            return;
-        }
-
-        _zyXferTakeForDrop = true;
-        _zyWorkIndexes.Clear();
-        for (var i = 0; i < takeN; i++)
-        {
-            _zyWorkIndexes.Add(matching[i]);
-        }
-
-        _zyWorkPos = 0;
-        _zyXferPhase = ZyXferPushTake;
-        _zyNote = (note ?? "丢弃多余") + "，先取出" + takeN;
-    }
-
     private static void TickZhongyuanDrop(string uid, long now, bool fromPush)
     {
-        string dropped;
-        var drop = DropZhongyuanExtraOnce(uid, _zyName, 0, out dropped);
-        if (drop < 0)
+        var rest = CollectMatchingRestPetIndexes(uid, _zyName);
+        if (rest.Count <= 0)
+        {
+            var name = _zyName;
+            StopZhongyuanTransfer("ok", true);
+            Tip(fromPush
+                ? "倒腾完成：已把" + name + "交给" + FormatTeamSlotLabel(_zyDestSlot)
+                : "倒腾完成：已收下15只" + name);
+            return;
+        }
+
+        if (!TrySendDropPet(uid, rest[0]))
         {
             StopZhongyuanTransfer("drop-fail", false);
             Tip("丢弃多余宠物失败");
             return;
         }
 
-        if (drop > 0)
-        {
-            _zyNote = "丢弃多余" + dropped;
-            _zyDelayUntilMs = now + ZhongyuanProtocolGapMs;
-            return;
-        }
-
-        if (fromPush)
-        {
-            ZhongyuanOpenBank(uid, false);
-            _zyXferPhase = ZyXferPushWaitPersonal;
-            _zyDelayUntilMs = now + 400;
-            _zyNote = "再扫个人仓丢多余";
-            return;
-        }
-
-        var name = _zyName;
-        StopZhongyuanTransfer("ok", true);
-        Tip("倒腾完成：" + name + "个人仓" + _zyPersonalMatch + "只");
+        MarkPetUnusedByIndex(uid, rest[0]);
+        _zyNote = "丢弃多余" + _zyName;
+        _zyDelayUntilMs = now + ZhongyuanProtocolGapMs;
     }
 
     private static void ZhongyuanOpenBank(string uid, bool account)
     {
         TryDismissBankUiAfterStore();
-        MarkPendingBankOpen(uid, account);
         _zyInfoBefore = TryGetPetStorageInfo();
         _zyStoreBefore = TryGetBankStorePetInfo();
-        var openUid = uid;
         if (account)
         {
-            var captainUid = GetMainPlayerUidSafe();
-            if (!string.IsNullOrEmpty(captainUid))
-            {
-                openUid = captainUid;
-            }
-
-            TryOpenRemoteAccountPetBank(openUid);
+            TryOpenRemoteAccountPetBank(uid);
         }
         else
         {
@@ -16908,10 +13544,6 @@ public static class SeqChapterTestUi
         }
 
         _zyWaitListStartMs = NowMs();
-        WriteLog("zy-loop OpenBank account=" + account
-                 + " uid尾" + TailUid(uid)
-                 + " openUid尾" + TailUid(openUid)
-                 + " waitFrom=" + _zyWaitListStartMs);
     }
 
     private static void TrySendLocalAutoBattle(string action)
@@ -17012,91 +13644,6 @@ public static class SeqChapterTestUi
         }
 
         return CollectMatchingRestPetIndexes(uid, targetName).Count;
-    }
-
-    /// <summary>
-    /// 丢掉身上多余的中元休息宠。当前种只保留 keepCount 只；dropOthers 时其它两种也丢（栏满解卡）。
-    /// 返回 1=已丢一只，0=没有多余，-1=发包失败。
-    /// </summary>
-    private static int DropZhongyuanExtraOnce(
-        string uid, string keepName, int keepCount, out string droppedName, bool dropOthers = false)
-    {
-        droppedName = "";
-        int index;
-        if (!TryPickZhongyuanExtraToDrop(uid, keepName, keepCount, out index, out droppedName)
-            && !(dropOthers && TryPickOtherZhongyuanRest(uid, keepName, out index, out droppedName)))
-        {
-            return 0;
-        }
-
-        if (!TrySendDropPet(uid, index))
-        {
-            return -1;
-        }
-
-        MarkPetUnusedByIndex(uid, index);
-        WriteLog("zy drop extra " + droppedName + " idx=" + index
-                 + " keep=" + keepName + " keepN=" + keepCount + " others=" + dropOthers);
-        return 1;
-    }
-
-    private static bool TryPickZhongyuanExtraToDrop(
-        string uid, string keepName, int keepCount, out int index, out string name)
-    {
-        index = -1;
-        name = "";
-        if (string.IsNullOrEmpty(uid) || string.IsNullOrEmpty(keepName))
-        {
-            return false;
-        }
-
-        if (keepCount < 0)
-        {
-            keepCount = 0;
-        }
-
-        var keep = CollectMatchingRestPetIndexes(uid, keepName);
-        if (keep.Count <= keepCount)
-        {
-            return false;
-        }
-
-        index = keep[keepCount];
-        name = keepName;
-        return true;
-    }
-
-    private static bool TryPickOtherZhongyuanRest(
-        string uid, string keepName, out int index, out string name)
-    {
-        index = -1;
-        name = "";
-        if (string.IsNullOrEmpty(uid))
-        {
-            return false;
-        }
-
-        for (var i = 0; i < WildPetPresets.Length; i++)
-        {
-            var n = WildPetPresets[i];
-            if (!string.IsNullOrEmpty(keepName)
-                && string.Equals(n, keepName, StringComparison.Ordinal))
-            {
-                continue;
-            }
-
-            var other = CollectMatchingRestPetIndexes(uid, n);
-            if (other.Count <= 0)
-            {
-                continue;
-            }
-
-            index = other[0];
-            name = n;
-            return true;
-        }
-
-        return false;
     }
 
     private static void MarkPetUnusedByIndex(string uid, int index)
@@ -17241,8 +13788,7 @@ public static class SeqChapterTestUi
     }
 
     private static bool TryCollectOpenBankPets(
-        string targetName, object infoBefore, object storeBefore, out List<int> matching, out int total,
-        bool account = false)
+        string targetName, object infoBefore, object storeBefore, out List<int> matching, out int total)
     {
         matching = new List<int>();
         total = 0;
@@ -17255,34 +13801,53 @@ public static class SeqChapterTestUi
             return false;
         }
 
-        var raw = GetOpenBankRawList(account);
-        if (raw == null)
+        IList raw = null;
+        var loaded = false;
+        try
+        {
+            var storage = GetUiPanel("PetStoragePanel");
+            var storageInfo = storage != null ? GetMember(storage, "m_Info") : null;
+            var update = storageInfo != null ? GetMember(storageInfo, "UpdatePet") as IList : null;
+            if (update != null)
+            {
+                raw = update;
+                loaded = true;
+            }
+        }
+        catch
+        {
+            // ignore
+        }
+
+        if (!loaded)
+        {
+            try
+            {
+                var bank = GetUiPanel("BankPanel");
+                var storeList = bank != null ? GetMember(bank, "storePetInfo") as IList : null;
+                if (storeList != null)
+                {
+                    raw = storeList;
+                    loaded = true;
+                }
+            }
+            catch
+            {
+                // ignore
+            }
+        }
+
+        if (!loaded)
         {
             return false;
         }
 
-        var fp = FingerprintOpenBankRaw(raw);
-        if (!account)
+        if (raw == null)
         {
-            if (!string.IsNullOrEmpty(_zyBankFpBefore) && fp == _zyBankFpBefore)
-            {
-                return false;
-            }
-
-            if (IsStalePersonalBankFp(_zyPendingBankUid, fp))
-            {
-                WriteLog("stale bank list uid尾" + TailUid(_zyPendingBankUid) + " fp=" + fp);
-                return false;
-            }
+            return true;
         }
 
         total = raw.Count;
-        if (account && total > ZhongyuanAccountSlots)
-        {
-            // 个人仓残留列表（常 15 格）被当成账号仓，会误判仓满死循环。
-            return false;
-        }
-
         for (var i = 0; i < raw.Count; i++)
         {
             var entry = raw[i];
@@ -17312,343 +13877,7 @@ public static class SeqChapterTestUi
             matching.Add(idx);
         }
 
-        if (account && matching.Count == 0 && total == 0)
-        {
-            var opened = _wildExWaitListStartMs;
-            if (_zyWaitListStartMs > opened)
-            {
-                opened = _zyWaitListStartMs;
-            }
-
-            if (opened > 0 && NowMs() - opened < WildExAccountEmptySettleMs)
-            {
-                return false;
-            }
-        }
-
-        if (!account)
-        {
-            RememberPersonalBankFp(_zyPendingBankUid, fp);
-        }
-
         return true;
-    }
-
-    private static void MarkPendingBankOpen(string uid, bool account)
-    {
-        _zyPendingBankUid = uid ?? "";
-        _zyBankFpBefore = account ? "" : FingerprintOpenBankRaw(GetOpenBankRawList(false));
-    }
-
-    private static string FingerprintOpenBankRaw(IList raw)
-    {
-        if (raw == null)
-        {
-            return "";
-        }
-
-        var sb = new StringBuilder();
-        sb.Append(raw.Count);
-        for (var i = 0; i < raw.Count; i++)
-        {
-            var entry = raw[i];
-            if (entry == null)
-            {
-                continue;
-            }
-
-            var pet = DecodeBankUpdatePet(entry);
-            var name = "";
-            var level = 0;
-            if (pet != null)
-            {
-                name = (Convert.ToString(GetMember(pet, "FreeName") ?? GetMember(pet, "Name") ?? "") ?? "").Trim();
-                level = Convert.ToInt32(GetMember(pet, "Level") ?? 0);
-            }
-
-            var idx = Convert.ToInt32(GetMember(entry, "Index") ?? -1);
-            sb.Append('|').Append(idx).Append(':').Append(name).Append(':').Append(level);
-        }
-
-        return sb.ToString();
-    }
-
-    private static bool IsStalePersonalBankFp(string uid, string fp)
-    {
-        if (string.IsNullOrEmpty(fp) || fp == "0")
-        {
-            return false;
-        }
-
-        for (var i = 0; i < _zyRecentBankFps.Count; i++)
-        {
-            if (_zyRecentBankFps[i] != fp)
-            {
-                continue;
-            }
-
-            var oldUid = i < _zyRecentBankUids.Count ? _zyRecentBankUids[i] : "";
-            if (!string.IsNullOrEmpty(oldUid)
-                && !string.Equals(oldUid, uid, StringComparison.Ordinal))
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    private static void RememberPersonalBankFp(string uid, string fp)
-    {
-        if (string.IsNullOrEmpty(uid) || string.IsNullOrEmpty(fp) || fp == "0")
-        {
-            return;
-        }
-
-        for (var i = 0; i < _zyRecentBankUids.Count; i++)
-        {
-            if (_zyRecentBankUids[i] == uid)
-            {
-                _zyRecentBankFps[i] = fp;
-                return;
-            }
-        }
-
-        _zyRecentBankUids.Add(uid);
-        _zyRecentBankFps.Add(fp);
-        while (_zyRecentBankUids.Count > 8)
-        {
-            _zyRecentBankUids.RemoveAt(0);
-            _zyRecentBankFps.RemoveAt(0);
-        }
-    }
-
-    private static void ClearOpenBankPetLists()
-    {
-        try
-        {
-            var storage = GetUiPanel("PetStoragePanel");
-            var info = storage != null ? GetMember(storage, "m_Info") : null;
-            if (info != null)
-            {
-                SetMember(info, "UpdatePet", null);
-            }
-
-            var bank = GetUiPanel("BankPanel");
-            if (bank != null)
-            {
-                SetMember(bank, "storePetInfo", null);
-            }
-        }
-        catch
-        {
-            // ignore
-        }
-    }
-
-    private static IList GetOpenBankRawList(bool account = false)
-    {
-        IList storeList = null;
-        try
-        {
-            var bank = GetUiPanel("BankPanel");
-            storeList = bank != null ? GetMember(bank, "storePetInfo") as IList : null;
-        }
-        catch
-        {
-            // ignore
-        }
-
-        IList update = null;
-        try
-        {
-            var storage = GetUiPanel("PetStoragePanel");
-            var storageInfo = storage != null ? GetMember(storage, "m_Info") : null;
-            update = storageInfo != null ? GetMember(storageInfo, "UpdatePet") as IList : null;
-        }
-        catch
-        {
-            // ignore
-        }
-
-        if (account)
-        {
-            if (storeList != null)
-            {
-                return storeList;
-            }
-
-            if (update != null && update.Count <= ZhongyuanAccountSlots)
-            {
-                return update;
-            }
-
-            return null;
-        }
-
-        if (update != null)
-        {
-            return update;
-        }
-
-        return storeList;
-    }
-
-    private static int TryReadOpenBankMax()
-    {
-        try
-        {
-            var storage = GetUiPanel("PetStoragePanel");
-            var info = storage != null ? GetMember(storage, "m_Info") : null;
-            var bank = GetUiPanel("BankPanel");
-            var names = new[]
-            {
-                "MaxCount", "maxCount", "PetMax", "petMax", "MaxPet", "maxPet",
-                "SlotCount", "slotCount", "MaxNum", "maxNum", "Capacity", "capacity",
-                "BankMax", "bankMax", "Max", "Size", "size"
-            };
-            var objs = new[] { info, storage, bank };
-            for (var i = 0; i < objs.Length; i++)
-            {
-                if (objs[i] == null)
-                {
-                    continue;
-                }
-
-                for (var n = 0; n < names.Length; n++)
-                {
-                    var v = Convert.ToInt32(GetMember(objs[i], names[n]) ?? GetProp(objs[i], names[n]) ?? 0);
-                    if (v >= ZhongyuanQuota)
-                    {
-                        return v;
-                    }
-                }
-            }
-        }
-        catch
-        {
-            // ignore
-        }
-
-        return 0;
-    }
-
-    /// <summary>当前已打开的宠物仓：占用、容量、空位。列表若是紧凑表且读不到上限，按 15 格计。</summary>
-    private static bool TryGetOpenBankSpace(out int occupied, out int capacity, out int free)
-    {
-        occupied = 0;
-        capacity = 0;
-        free = 0;
-        var raw = GetOpenBankRawList();
-        if (raw == null)
-        {
-            return false;
-        }
-
-        var occ = 0;
-        for (var i = 0; i < raw.Count; i++)
-        {
-            var entry = raw[i];
-            if (entry == null)
-            {
-                continue;
-            }
-
-            if (DecodeBankUpdatePet(entry) != null)
-            {
-                occ++;
-            }
-        }
-
-        occupied = occ;
-        capacity = raw.Count;
-        var max = TryReadOpenBankMax();
-        if (max > capacity)
-        {
-            capacity = max;
-        }
-
-        if (capacity <= occupied)
-        {
-            capacity = Math.Max(ZhongyuanQuota, occupied);
-        }
-
-        if (capacity <= 0)
-        {
-            capacity = ZhongyuanQuota;
-        }
-
-        free = capacity - occupied;
-        if (free < 0)
-        {
-            free = 0;
-        }
-
-        return true;
-    }
-
-    private static string ListOpenBankOtherPetNames(string allowedName)
-    {
-        var names = new List<string>();
-        IList raw = null;
-        try
-        {
-            var storage = GetUiPanel("PetStoragePanel");
-            var storageInfo = storage != null ? GetMember(storage, "m_Info") : null;
-            raw = storageInfo != null ? GetMember(storageInfo, "UpdatePet") as IList : null;
-        }
-        catch
-        {
-            raw = null;
-        }
-
-        if (raw == null)
-        {
-            try
-            {
-                var bank = GetUiPanel("BankPanel");
-                raw = bank != null ? GetMember(bank, "storePetInfo") as IList : null;
-            }
-            catch
-            {
-                raw = null;
-            }
-        }
-
-        if (raw == null)
-        {
-            return "";
-        }
-
-        for (var i = 0; i < raw.Count; i++)
-        {
-            var entry = raw[i];
-            if (entry == null)
-            {
-                continue;
-            }
-
-            var pet = DecodeBankUpdatePet(entry);
-            if (pet == null || PetNameMatches(pet, allowedName))
-            {
-                continue;
-            }
-
-            var n = (Convert.ToString(GetMember(pet, "FreeName") ?? "") ?? "").Trim();
-            if (n.Length == 0)
-            {
-                n = (Convert.ToString(GetMember(pet, "Name") ?? "") ?? "").Trim();
-            }
-
-            if (n.Length == 0 || names.Contains(n))
-            {
-                continue;
-            }
-
-            names.Add(n);
-        }
-
-        return string.Join("、", names.ToArray());
     }
 
     private static bool IsInBattleNow()
@@ -17689,19 +13918,20 @@ public static class SeqChapterTestUi
         return Math.Max(0, 5 - used);
     }
 
-    /// <summary>
-    /// 官方签名 SendActivity(type, KUid, id=0, activityId=0, code="", index=0) 共 6 参。
-    /// 反射 Invoke 必须把可选参数也填上，否则 TargetParameterCountException。
-    /// </summary>
-    private static bool TrySendActivity(string type, string uid, int id, int activityId)
+    private static void TryOpenRemoteAccountPetBank(string uid)
     {
         try
         {
+            var roleMgr = GetManagerInstance("RoleManager");
+            if (roleMgr != null)
+            {
+                SetMember(roleMgr, "OpenBankFromPet", true);
+            }
+
             var actMgr = GetManagerInstance("ActivityManager");
             if (actMgr == null)
             {
-                WriteLog("SendActivity miss ActivityManager type=" + type);
-                return false;
+                return;
             }
 
             MethodInfo send = null;
@@ -17714,20 +13944,15 @@ public static class SeqChapterTestUi
                 }
 
                 var ps = m.GetParameters();
-                if (ps.Length < 2
-                    || ps[0].ParameterType != typeof(string)
-                    || ps[1].ParameterType != typeof(string))
-                {
-                    continue;
-                }
-
-                if (ps.Length >= 6)
+                if (ps.Length == 4
+                    && ps[0].ParameterType == typeof(string)
+                    && ps[1].ParameterType == typeof(string))
                 {
                     send = m;
                     break;
                 }
 
-                if (send == null)
+                if (send == null && ps.Length >= 2 && ps[0].ParameterType == typeof(string))
                 {
                     send = m;
                 }
@@ -17735,67 +13960,21 @@ public static class SeqChapterTestUi
 
             if (send == null)
             {
-                WriteLog("SendActivity method miss type=" + type);
-                return false;
+                return;
             }
 
             var ps2 = send.GetParameters();
-            var args = new object[ps2.Length];
-            args[0] = type;
-            args[1] = uid;
-            if (ps2.Length > 2)
+            if (ps2.Length >= 4)
             {
-                args[2] = id;
+                send.Invoke(actMgr, new object[] { AccountPetBankActivity, uid, 0, 19 });
             }
-
-            if (ps2.Length > 3)
+            else if (ps2.Length == 3)
             {
-                args[3] = activityId;
+                send.Invoke(actMgr, new object[] { AccountPetBankActivity, uid, 0 });
             }
-
-            for (var i = 4; i < ps2.Length; i++)
+            else if (ps2.Length == 2)
             {
-                if (ps2[i].HasDefaultValue)
-                {
-                    args[i] = ps2[i].DefaultValue;
-                }
-                else if (ps2[i].ParameterType == typeof(string))
-                {
-                    args[i] = "";
-                }
-                else if (ps2[i].ParameterType == typeof(int))
-                {
-                    args[i] = 0;
-                }
-                else
-                {
-                    args[i] = Type.Missing;
-                }
-            }
-
-            send.Invoke(actMgr, args);
-            return true;
-        }
-        catch (Exception ex)
-        {
-            WriteLog("SendActivity EX " + type + " " + RootMessage(ex));
-            return false;
-        }
-    }
-
-    private static void TryOpenRemoteAccountPetBank(string uid)
-    {
-        try
-        {
-            var roleMgr = GetManagerInstance("RoleManager");
-            if (roleMgr != null)
-            {
-                SetMember(roleMgr, "OpenBankFromPet", true);
-            }
-
-            if (!TrySendActivity(AccountPetBankActivity, uid, 0, 19))
-            {
-                WriteLog("open account pet bank send fail uid尾" + TailUid(uid));
+                send.Invoke(actMgr, new object[] { AccountPetBankActivity, uid });
             }
         }
         catch (Exception ex)
@@ -18147,14 +14326,58 @@ public static class SeqChapterTestUi
                 SetMember(roleMgr, "OpenBankFromPet", true);
             }
 
-            if (!TrySendActivity("远程个人宠物仓库", uid, 0, 19))
+            var actMgr = GetManagerInstance("ActivityManager");
+            if (actMgr == null)
             {
-                WriteLog("open personal pet bank send fail uid尾" + TailUid(uid));
+                return;
+            }
+
+            MethodInfo send = null;
+            foreach (var m in actMgr.GetType().GetMethods(
+                         BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+            {
+                if (m.Name != "SendActivity")
+                {
+                    continue;
+                }
+
+                var ps = m.GetParameters();
+                if (ps.Length == 4
+                    && ps[0].ParameterType == typeof(string)
+                    && ps[1].ParameterType == typeof(string))
+                {
+                    send = m;
+                    break;
+                }
+
+                if (send == null && ps.Length >= 2 && ps[0].ParameterType == typeof(string))
+                {
+                    send = m;
+                }
+            }
+
+            if (send == null)
+            {
+                return;
+            }
+
+            var ps2 = send.GetParameters();
+            if (ps2.Length >= 4)
+            {
+                send.Invoke(actMgr, new object[] { "远程个人宠物仓库", uid, 0, 19 });
+            }
+            else if (ps2.Length == 3)
+            {
+                send.Invoke(actMgr, new object[] { "远程个人宠物仓库", uid, 0 });
+            }
+            else if (ps2.Length == 2)
+            {
+                send.Invoke(actMgr, new object[] { "远程个人宠物仓库", uid });
             }
         }
-        catch (Exception ex)
+        catch
         {
-            WriteLog("open personal pet bank EX " + RootMessage(ex));
+            // 打不开远程仓也不阻断后续「存宠物」尝试
         }
     }
 
@@ -18317,12 +14540,6 @@ public static class SeqChapterTestUi
 
     private static string FormatEscortStatus()
     {
-        var zyHead = FormatZhongyuanLoopStatus();
-        if (!string.IsNullOrEmpty(zyHead))
-        {
-            zyHead += "\n";
-        }
-
         string state;
         if (_dragonLoopActive && _dragonPhase == 1)
         {
@@ -18444,8 +14661,7 @@ public static class SeqChapterTestUi
             }
         }
 
-        return zyHead
-               + "状态: " + state
+        return "状态: " + state
                + "\nRunTaskId: " + GetRunTaskId()
                + "\n对话自动点: " + _dialogueAutoClicks + " 次"
                + idleLine
@@ -19074,24 +15290,6 @@ public static class SeqChapterTestUi
             return;
         }
 
-        if (_zyLingTangOwnsEscort)
-        {
-            int lingFloor;
-            string lingName;
-            int lingMap;
-            TryGetCurrentMapInfo(out lingFloor, out lingName, out lingMap);
-            if (lingFloor == ZhongyuanHangupAFloor)
-            {
-                WriteLog("zy-lingtang #1003 mission-done at dest");
-                HandOffLingTangFromEscort("mission-done");
-                return;
-            }
-
-            WriteLog("zy-lingtang #1003 mission-done not dest floor=" + lingFloor);
-            BeginEscortAtIndex(0, "lingtang-reclick");
-            return;
-        }
-
         var doneId = _escortMissionId;
         WriteLog("escort done missionId=" + doneId + " idx=" + _escortQueueIndex);
         StopEscortEncounterWait("mission-done", false);
@@ -19295,12 +15493,6 @@ public static class SeqChapterTestUi
         if (_skCNavOwnsEscort)
         {
             StopSkCNav(string.IsNullOrEmpty(tipMsg) ? "护航已取消" : tipMsg);
-            return;
-        }
-
-        if (_zyLingTangOwnsEscort)
-        {
-            StopZhongyuanAll(string.IsNullOrEmpty(tipMsg) ? "已取消护航" : tipMsg);
             return;
         }
         // 若龙族循环激活，一并停止循环标志
@@ -19809,22 +16001,9 @@ public static class SeqChapterTestUi
             string skcFloorName;
             int skcMapRes;
             if (TryGetCurrentMapInfo(out skcFloor, out skcFloorName, out skcMapRes)
-                && IsSkCArriveFloor(skcFloor))
+                && skcFloor == SkCStopEscortFloor)
             {
-                HandOffSkCNavFromEscort("floor-" + skcFloor);
-                return;
-            }
-        }
-
-        if (_zyLingTangOwnsEscort)
-        {
-            int lingFloor;
-            string lingFloorName;
-            int lingMapRes;
-            if (TryGetCurrentMapInfo(out lingFloor, out lingFloorName, out lingMapRes)
-                && lingFloor == ZhongyuanHangupAFloor)
-            {
-                HandOffLingTangFromEscort("floor-52018");
+                HandOffSkCNavFromEscort("floor-402");
                 return;
             }
         }
@@ -20188,7 +16367,7 @@ public static class SeqChapterTestUi
             return;
         }
 
-        // 切图后短 settle：等官方 EndLoadMap 自己续上，不要代调 TryResumeTaskPathAfterMapLoad
+        // 切图后短 settle：等官方自己续上（切图已刷过静止计时，这里不再刷）
         if (_escortMapChangeAtMs > 0 && now - _escortMapChangeAtMs < EscortMapChangeSettleMs)
         {
             return;
@@ -20304,13 +16483,6 @@ public static class SeqChapterTestUi
             return;
         }
 
-        if (KeepOfficialPathAfterMap("escort-keep"))
-        {
-            _lastActivityMs = now;
-            _escortLastDiag = "官方恢复路径";
-            return;
-        }
-
         if (now - _lastActivityMs >= StuckIdleMs)
         {
             // 15000 上卡楼梯会 RunTask(400) 绕回芙蕾雅；中秋该图只走特例/手点
@@ -20343,13 +16515,6 @@ public static class SeqChapterTestUi
     /// </summary>
     private static void BeginEscortStuckRecovery(long now)
     {
-        if (KeepOfficialPathAfterMap("escort-stuck"))
-        {
-            _lastActivityMs = now;
-            _escortLastDiag = "官方恢复路径";
-            return;
-        }
-
         _escortRecoverAttempts++;
         WriteLog("escort stuck idle missionId=" + _escortMissionId
                  + " stepRecover=" + _escortRecoverAttempts + "/" + EscortMaxRecoverFails);
@@ -21585,8 +17750,52 @@ public static class SeqChapterTestUi
                 }
             }
 
-            // 第二处：WalkSystem.curRequest + waitRequest。只 Cancel 不清走路，官方过图会 resumeMove 旧路。
-            InvokeWalkStopMove(true);
+            var pm = GetManagerInstance("PlayerManager");
+            var walk = GetProp(pm, "walkSystem") ?? GetMember(pm, "walkSystem");
+            if (walk == null)
+            {
+                return;
+            }
+
+            MethodInfo stop = null;
+            foreach (var m in walk.GetType().GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+            {
+                if (m.Name != "StopMove")
+                {
+                    continue;
+                }
+
+                stop = m;
+                if (m.GetParameters().Length >= 1)
+                {
+                    break;
+                }
+            }
+
+            if (stop == null)
+            {
+                return;
+            }
+
+            var ps = stop.GetParameters();
+            var args = new object[ps.Length];
+            for (var i = 0; i < ps.Length; i++)
+            {
+                if (ps[i].ParameterType == typeof(bool))
+                {
+                    args[i] = true;
+                }
+                else if (ps[i].ParameterType.IsEnum || ps[i].ParameterType.IsValueType)
+                {
+                    args[i] = Activator.CreateInstance(ps[i].ParameterType);
+                }
+                else
+                {
+                    args[i] = null;
+                }
+            }
+
+            stop.Invoke(walk, args);
             if (writeLog)
             {
                 WriteLog("escort StopMove ok");
@@ -21599,9 +17808,7 @@ public static class SeqChapterTestUi
     }
 
     /// <summary>
-    /// 彻底终止官方任务导航。官方要清两处：TaskManager（Cancel + sameIndex + AutoWarpIndex）
-    /// 和 WalkSystem（StopMove 的 curRequest/waitRequest）以及 MissionData.TargetPoint。
-    /// 只清一处时过图会续上旧路（七夕 15000 已踩过）。
+    /// 彻底终止官方任务导航，含 TaskManager 缓存路径与 MissionData.AutoWarpIndex / TargetPoint。
     /// CancelTaskPathfinding 本身不清 AutoWarpIndex；m_IsStartingTaskPath 为 true 时 Cancel 会直接 return。
     /// </summary>
     private static void AbortEscortTaskPathFully(string reason)
@@ -22401,11 +18608,6 @@ public static class SeqChapterTestUi
                 return true;
             }
 
-            // 七夕 15000：官方要清两处。只清 sameIndex 时第一次 RunTask 不走路；
-            // 过期 TargetPoint 会寻路“忙”却不走。两处都清掉，这一下才真正走。
-            ClearTaskPathSameIndexStopGuard();
-            ClearMissionTargetPoint(mission);
-
             try
             {
                 SetProp(mission, "AutoWarpIndex", 0);
@@ -23031,77 +19233,6 @@ public static class SeqChapterTestUi
         return false;
     }
 
-    /// <summary>
-    /// 挂机导航真正的「前往」：TaskManager.StartWayThMissionStepByID(uid, WayId)。
-    /// 不要点挂机 UI「前往」按钮（补丁已把它绑成传送）。
-    /// </summary>
-    private static bool TrySendHangupGo(int wayId)
-    {
-        if (!IsLocalCaptain() || wayId <= 0)
-        {
-            return false;
-        }
-
-        try
-        {
-            if (GetEncounterStatus() != 0)
-            {
-                TrySendEscortAutoBattle("停止挂机");
-            }
-
-            StopTaskNavigation();
-            var tm = GetManagerInstance("TaskManager");
-            var cancel = tm?.GetType().GetMethod(
-                "CancelTaskPathfinding",
-                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-            cancel?.Invoke(tm, null);
-
-            var uid = Convert.ToString(
-                GetStaticMember("PlayerDataHolder", "MainPlayerUid") ?? "") ?? "";
-            if (string.IsNullOrEmpty(uid) || tm == null)
-            {
-                WriteLog("hangup-go miss uid/tm wayId=" + wayId);
-                return false;
-            }
-
-            var mission = GetMissionDataById(wayId);
-            if (mission == null)
-            {
-                WriteLog("hangup-go miss mission wayId=" + wayId);
-                return false;
-            }
-
-            var start = tm.GetType().GetMethod(
-                "StartWayThMissionStepByID",
-                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-            if (start == null)
-            {
-                WriteLog("hangup-go StartWayTh miss");
-                return false;
-            }
-
-            var ps = start.GetParameters();
-            var args = new object[ps.Length];
-            args[0] = uid;
-            args[1] = wayId;
-            for (var i = 2; i < ps.Length; i++)
-            {
-                args[i] = ps[i].ParameterType.IsValueType
-                    ? Activator.CreateInstance(ps[i].ParameterType)
-                    : null;
-            }
-
-            start.Invoke(tm, args);
-            WriteLog("hangup-go StartWayTh wayId=" + wayId);
-            return true;
-        }
-        catch (Exception ex)
-        {
-            WriteLog("hangup-go EX " + RootMessage(ex));
-            return false;
-        }
-    }
-
     /// <summary>挂机导航「传送前往」：TaskManager.SendMisc(id)，Type=挂机传送。</summary>
     private static bool TrySendHangupTeleport(int navId)
     {
@@ -23667,14 +19798,58 @@ public static class SeqChapterTestUi
                 SetMember(roleMgr, "OpenBankFromBag", true);
             }
 
-            if (!TrySendActivity(MoonRabbitAccountBankActivity, uid, 0, 19))
+            var actMgr = GetManagerInstance("ActivityManager");
+            if (actMgr == null)
             {
-                WriteLog("open account item bank send fail uid尾" + TailUid(uid));
+                return;
+            }
+
+            MethodInfo send = null;
+            foreach (var m in actMgr.GetType().GetMethods(
+                         BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+            {
+                if (m.Name != "SendActivity")
+                {
+                    continue;
+                }
+
+                var ps = m.GetParameters();
+                if (ps.Length == 4
+                    && ps[0].ParameterType == typeof(string)
+                    && ps[1].ParameterType == typeof(string))
+                {
+                    send = m;
+                    break;
+                }
+
+                if (send == null && ps.Length >= 2 && ps[0].ParameterType == typeof(string))
+                {
+                    send = m;
+                }
+            }
+
+            if (send == null)
+            {
+                return;
+            }
+
+            var ps2 = send.GetParameters();
+            if (ps2.Length >= 4)
+            {
+                send.Invoke(actMgr, new object[] { MoonRabbitAccountBankActivity, uid, 0, 19 });
+            }
+            else if (ps2.Length == 3)
+            {
+                send.Invoke(actMgr, new object[] { MoonRabbitAccountBankActivity, uid, 0 });
+            }
+            else if (ps2.Length == 2)
+            {
+                send.Invoke(actMgr, new object[] { MoonRabbitAccountBankActivity, uid });
             }
         }
-        catch (Exception ex)
+        catch
         {
-            WriteLog("open account item bank EX " + RootMessage(ex));
+            // 打不开远程仓也不阻断后续「存道具」尝试
         }
     }
 
@@ -25269,12 +21444,6 @@ public static class SeqChapterTestUi
         }
     }
 
-    /// <summary>只按名字找 NPC（不依赖格子）。</summary>
-    private static int FindNpcObjIndexByName(string fullName, string shortName)
-    {
-        return FindNpcObjIndexByNameOrPos(fullName, shortName, -999, -999);
-    }
-
     /// <summary>优先按名字找迪拉，找不到再用 (7,32) 附近的 NPC。</summary>
     private static int FindNpcObjIndexByNameOrPos(string fullName, string shortName, int nx, int ny)
     {
@@ -26004,285 +22173,54 @@ public static class SeqChapterTestUi
     {
         try
         {
-            InvokeWalkStopMove(true);
-        }
-        catch
-        {
-            // ignore
-        }
-    }
-
-    private static object GetWalkSystem()
-    {
-        try
-        {
             var pm = GetManagerInstance("PlayerManager");
             var walk = GetProp(pm, "walkSystem") ?? GetMember(pm, "walkSystem");
-            if (walk != null)
+            if (walk == null)
             {
-                return walk;
+                return;
             }
 
-            var entity = GetProp(pm, "playerEntity") ?? GetMember(pm, "playerEntity");
-            return GetProp(entity, "walkSys") ?? GetMember(entity, "walkSys");
-        }
-        catch
-        {
-            return null;
-        }
-    }
-
-    /// <summary>
-    /// WalkSystem.StopMove(immediate, CustomCancel)。
-    /// 必须带 CustomCancel：默认枚举是 None，OnTaskCallback 不会当取消处理。
-    /// 一次清 curRequest + waitRequest（官方 onMapBeginLoad 也是这两处）。
-    /// </summary>
-    private static void InvokeWalkStopMove(bool immediate)
-    {
-        var walk = GetWalkSystem();
-        if (walk == null)
-        {
-            return;
-        }
-
-        MethodInfo stop = null;
-        foreach (var m in walk.GetType().GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
-        {
-            if (m.Name != "StopMove")
+            MethodInfo stop = null;
+            foreach (var m in walk.GetType().GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
             {
-                continue;
-            }
+                if (m.Name != "StopMove")
+                {
+                    continue;
+                }
 
-            stop = m;
-            if (m.GetParameters().Length >= 2)
-            {
+                stop = m;
                 break;
             }
-        }
 
-        if (stop == null)
-        {
-            return;
-        }
-
-        var ps = stop.GetParameters();
-        var args = new object[ps.Length];
-        for (var i = 0; i < ps.Length; i++)
-        {
-            if (ps[i].ParameterType == typeof(bool))
+            if (stop == null)
             {
-                args[i] = immediate;
+                return;
             }
-            else if (ps[i].ParameterType.IsEnum)
+
+            var ps = stop.GetParameters();
+            var args = new object[ps.Length];
+            for (var i = 0; i < ps.Length; i++)
             {
-                try
+                if (ps[i].ParameterType == typeof(bool))
                 {
-                    args[i] = Enum.Parse(ps[i].ParameterType, "CustomCancel");
+                    args[i] = true;
                 }
-                catch
+                else if (ps[i].ParameterType.IsEnum || ps[i].ParameterType.IsValueType)
                 {
                     args[i] = Activator.CreateInstance(ps[i].ParameterType);
                 }
-            }
-            else if (ps[i].ParameterType.IsValueType)
-            {
-                args[i] = Activator.CreateInstance(ps[i].ParameterType);
-            }
-            else
-            {
-                args[i] = null;
-            }
-        }
-
-        stop.Invoke(walk, args);
-    }
-
-    private static bool WalkRequestIsActive(object req)
-    {
-        if (req == null)
-        {
-            return false;
-        }
-
-        try
-        {
-            var state = GetMember(req, "state") ?? GetProp(req, "state");
-            if (state == null)
-            {
-                return true;
-            }
-
-            var name = Convert.ToString(state) ?? "";
-            return name.IndexOf("Exit", StringComparison.Ordinal) < 0;
-        }
-        catch
-        {
-            return true;
-        }
-    }
-
-    private static bool WalkRequestIsWaitTransport(object req)
-    {
-        if (req == null)
-        {
-            return false;
-        }
-
-        try
-        {
-            var state = GetMember(req, "state") ?? GetProp(req, "state");
-            var name = Convert.ToString(state) ?? "";
-            return name.IndexOf("WaitTransport", StringComparison.Ordinal) >= 0;
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
-    /// <summary>
-    /// WalkSystem 过图中：pauseMove / WaitTransport / curMapLoadedAction。
-    /// 官方恢复路径的第二处（第一处是 TaskManager.TryResume）。
-    /// </summary>
-    private static bool IsWalkWaitingMap()
-    {
-        try
-        {
-            var walk = GetWalkSystem();
-            if (walk == null)
-            {
-                return false;
-            }
-
-            if (Convert.ToBoolean(GetMember(walk, "isPaused") ?? false))
-            {
-                return true;
-            }
-
-            if (GetMember(walk, "curMapLoadedAction") != null)
-            {
-                return true;
-            }
-
-            var cur = GetMember(walk, "curRequest");
-            var wait = GetMember(walk, "waitRequest");
-            return WalkRequestIsWaitTransport(cur) || WalkRequestIsWaitTransport(wait);
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
-    /// <summary>WalkSystem 仍有活路径：正在走 / 暂停 / 等过图 / curRequest 或 waitRequest 未 Exit。</summary>
-    private static bool IsWalkSystemPathBusy()
-    {
-        try
-        {
-            var walk = GetWalkSystem();
-            if (walk == null)
-            {
-                return false;
-            }
-
-            if (Convert.ToBoolean(GetProp(walk, "IsMoving") ?? GetMember(walk, "mIsMoveing") ?? false))
-            {
-                return true;
-            }
-
-            if (IsWalkWaitingMap())
-            {
-                return true;
-            }
-
-            return WalkRequestIsActive(GetMember(walk, "curRequest"))
-                   || WalkRequestIsActive(GetMember(walk, "waitRequest"));
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
-    /// <summary>官方过图第二处：WalkSystem.onMapEndLoad → resumeMove。</summary>
-    private static void TryResumeWalkAfterMap(string reason)
-    {
-        try
-        {
-            var walk = GetWalkSystem();
-            if (walk == null)
-            {
-                return;
-            }
-
-            var paused = false;
-            try
-            {
-                paused = Convert.ToBoolean(GetMember(walk, "isPaused") ?? false);
-            }
-            catch
-            {
-                paused = false;
-            }
-
-            if (!paused)
-            {
-                return;
-            }
-
-            var m = walk.GetType().GetMethod(
-                "resumeMove",
-                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-            if (m == null)
-            {
-                return;
-            }
-
-            m.Invoke(walk, null);
-            WriteLog("escort WalkSystem.resumeMove ok reason=" + reason);
-        }
-        catch (Exception ex)
-        {
-            WriteLog("TryResumeWalkAfterMap EX " + RootMessage(ex));
-        }
-    }
-
-    /// <summary>
-    /// 过图后官方 EndLoadMap 会自己 TryResumeTaskPathAfterMapLoad / resumeMove。
-    /// 这里只判断官方是否还在恢复，不要代调，避免过图抢跑。
-    /// </summary>
-    private static bool KeepOfficialPathAfterMap(string reason)
-    {
-        if (IsMapLoading() || IsWalkWaitingMap())
-        {
-            return true;
-        }
-
-        try
-        {
-            var tm = GetManagerInstance("TaskManager");
-            if (tm != null)
-            {
-                var resume = Convert.ToBoolean(
-                    GetMember(tm, "m_TaskPathResumePending")
-                    ?? GetProp(tm, "m_TaskPathResumePending")
-                    ?? false);
-                var waitNpc = Convert.ToBoolean(
-                    GetMember(tm, "m_TaskPathWaitingNpcMapChange")
-                    ?? GetProp(tm, "m_TaskPathWaitingNpcMapChange")
-                    ?? false);
-                if (resume || waitNpc)
+                else
                 {
-                    return true;
+                    args[i] = null;
                 }
             }
+
+            stop.Invoke(walk, args);
         }
         catch
         {
             // ignore
         }
-
-        return false;
     }
 
     /// <summary>官方切图后续航：TaskManager.TryResumeTaskPathAfterMapLoad。</summary>
@@ -28226,7 +24164,7 @@ public static class SeqChapterTestUi
         return false;
     }
 
-    /// <summary>龙族循环按钮已卸（2026-08-26）。flag 逻辑保留备用，护航页不再调用。</summary>
+    /// <summary>护航面板是否显示「龙族循环 A」：hotfixdata 存在 seqchapter_dragon_loop.flag 即显示。</summary>
     private static bool DragonLoopUiEnabled()
     {
         try
