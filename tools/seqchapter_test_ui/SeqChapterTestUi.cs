@@ -12529,7 +12529,7 @@ public static class SeqChapterTestUi
 
         if (!_wildExActive)
         {
-            return "中元循环: 未启动\n仓检 → 抓幽灵/僵尸/骷髅战士 → 兑换中元使者第2项 → 存券 → 再仓检";
+            return "中元循环: 未启动（仓检→抓三种→兑换）\n单独「兑换野生宠」：只兑换，不抓宠";
         }
 
         var exRound = _wildExRound > 0 ? "第" + _wildExRound + "轮后 " : "";
@@ -12671,7 +12671,20 @@ public static class SeqChapterTestUi
 
     private static void ToggleWildExchange()
     {
-        ToggleZhongyuanLoop();
+        if (_zyLoopActive)
+        {
+            Tip("请先停中元循环");
+            return;
+        }
+
+        if (_wildExActive)
+        {
+            StopWildExchange("已手动停止");
+            Tip("兑换野生宠已关闭");
+            return;
+        }
+
+        StartWildExchange();
     }
 
     private static void StartWildExchange()
@@ -17473,7 +17486,14 @@ public static class SeqChapterTestUi
 
         if (account)
         {
-            if (storeList != null)
+            // 超银最多 5 格。个人仓常 15 格，空的个人仓 Max 也是 15。
+            // 不能把 BankPanel 残留的普通银行列表当成超银。
+            if (IsLikelyPersonalBankUi(storeList, update))
+            {
+                return null;
+            }
+
+            if (storeList != null && storeList.Count <= ZhongyuanAccountSlots)
             {
                 return storeList;
             }
