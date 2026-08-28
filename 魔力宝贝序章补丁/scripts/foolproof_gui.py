@@ -73,11 +73,17 @@ def show_popup(title: str, text: str, *, error: bool = False) -> None:
     root = tk.Tk()
     root.withdraw()
     try:
+        root.attributes("-topmost", True)
+        root.update_idletasks()
         if error:
             messagebox.showerror(title, text, parent=root)
         else:
             messagebox.showinfo(title, text, parent=root)
     finally:
+        try:
+            root.attributes("-topmost", False)
+        except tk.TclError:
+            pass
         root.destroy()
 
 
@@ -164,7 +170,7 @@ class FoolproofApp(tk.Tk):
             "· 脚本页「立刻提取采集物」可手动触发一次\n"
             "· 分享改日常、礼包码默认带上\n"
             "· 「启动动画预览」使用上方游戏目录读取资源（需已填对目录）\n"
-            "· 「启动窗口监视」：右下角置顶，定时刷新所有 cg37 窗口标题\n"
+            "· 「启动窗口监视」：右下角置顶，刷新 cg37 标题；跑中元的窗口标红；卡死/卡循环会推送\n"
             "若提示客户端不干净：可点「从干净目录恢复…」。"
         )
         ttk.Label(body, text=tip, justify=tk.LEFT).pack(anchor=tk.W, pady=(10, 8))
@@ -257,6 +263,36 @@ class FoolproofApp(tk.Tk):
         self._progress_step = 0
         self._progress_total = 32
         self._load_default_path()
+        self.after(80, self._raise_front)
+
+    def _raise_front(self) -> None:
+        try:
+            self.deiconify()
+            self.lift()
+            self.attributes("-topmost", True)
+            self.focus_force()
+            self.update_idletasks()
+            self.after(500, self._drop_topmost)
+        except tk.TclError:
+            pass
+
+    def _drop_topmost(self) -> None:
+        try:
+            self.attributes("-topmost", False)
+        except tk.TclError:
+            pass
+
+    def _info(self, title: str, text: str) -> None:
+        self._raise_front()
+        messagebox.showinfo(title, text, parent=self)
+
+    def _error(self, title: str, text: str) -> None:
+        self._raise_front()
+        messagebox.showerror(title, text, parent=self)
+
+    def _askyesno(self, title: str, text: str) -> bool:
+        self._raise_front()
+        return bool(messagebox.askyesno(title, text, parent=self))
 
     def _load_default_path(self) -> None:
         try:
@@ -268,7 +304,7 @@ class FoolproofApp(tk.Tk):
                 self.path_var.set(str(root))
 
     def browse(self) -> None:
-        path = filedialog.askdirectory(title="选择游戏目录（含 cg37.exe）")
+        path = filedialog.askdirectory(title="选择游戏目录（含 cg37.exe）", parent=self)
         if path:
             self.path_var.set(path)
 
@@ -352,7 +388,7 @@ class FoolproofApp(tk.Tk):
             return
         cands = self._launcher_candidates()
         if not cands:
-            messagebox.showinfo(
+            self._info(
                 f"{_profile_title()}",
                 "包内未找到「多开器.exe」。\n\n"
                 "多开器需在新版傻瓜补丁包中随附（发布时已内置）。\n"
@@ -370,7 +406,7 @@ class FoolproofApp(tk.Tk):
                 subprocess.Popen([str(exe)], cwd=str(exe.parent))
             self._append(f"已启动多开器：{exe}")
         except Exception as exc:
-            messagebox.showerror(f"{_profile_title()} — 失败", f"无法启动多开器：\n{exc}")
+            self._error(f"{_profile_title()} — 失败", f"无法启动多开器：\n{exc}")
 
     def _launcher_candidates(self) -> list[Path]:
         cands: list[Path] = []
@@ -398,7 +434,7 @@ class FoolproofApp(tk.Tk):
             return
         cands = self._window_monitor_candidates()
         if not cands:
-            messagebox.showinfo(
+            self._info(
                 f"{_profile_title()}",
                 "包内未找到「窗口监视.exe」。\n\n"
                 "窗口监视需在新版傻瓜补丁包中随附（发布时已内置）。\n"
@@ -417,7 +453,7 @@ class FoolproofApp(tk.Tk):
                 subprocess.Popen([str(exe)], cwd=str(exe.parent))
             self._append(f"已启动窗口监视：{exe}")
         except Exception as exc:
-            messagebox.showerror(f"{_profile_title()} — 失败", f"无法启动窗口监视：\n{exc}")
+            self._error(f"{_profile_title()} — 失败", f"无法启动窗口监视：\n{exc}")
 
     def _window_monitor_candidates(self) -> list[Path]:
         cands: list[Path] = []
@@ -449,7 +485,7 @@ class FoolproofApp(tk.Tk):
             env["SEQCHAPTER_ROOT"] = str(Path(game).resolve())
 
         if game is None or not Path(game).is_dir():
-            messagebox.showerror(
+            self._error(
                 f"{_profile_title()} — 失败",
                 "请先填写正确的游戏目录（动画预览依赖该目录资源）。",
             )
@@ -468,14 +504,14 @@ class FoolproofApp(tk.Tk):
                     + "）"
                 )
             except Exception as exc:
-                messagebox.showerror(
+                self._error(
                     f"{_profile_title()} — 失败", f"无法启动动画预览：\n{exc}"
                 )
             return
 
         cands = self._animator_candidates()
         if not cands:
-            messagebox.showerror(
+            self._error(
                 f"{_profile_title()} — 失败",
                 "找不到动画预览脚本 pet_appear_gui.py。",
             )
@@ -491,7 +527,7 @@ class FoolproofApp(tk.Tk):
                 f"已启动动画预览：{script}（资源目录={Path(game).resolve()}）"
             )
         except Exception as exc:
-            messagebox.showerror(
+            self._error(
                 f"{_profile_title()} — 失败", f"无法启动动画预览：\n{exc}"
             )
 
@@ -500,10 +536,11 @@ class FoolproofApp(tk.Tk):
             return
         game_root = self._game_root()
         if game_root is None:
-            messagebox.showerror(f"{_profile_title()} — 失败", "请先填写游戏目录。")
+            self._error(f"{_profile_title()} — 失败", "请先填写游戏目录。")
             return
         clean = filedialog.askdirectory(
-            title="选择干净客户端目录（含 cg37.exe；勿选当前游戏目录）"
+            title="选择干净客户端目录（含 cg37.exe；勿选当前游戏目录）",
+            parent=self,
         )
         if not clean:
             return
@@ -520,23 +557,22 @@ class FoolproofApp(tk.Tk):
                 )
                 self.after(
                     0,
-                    lambda: messagebox.showinfo(
+                    lambda m="\n".join(msgs[-6:]): self._info(
                         f"{_profile_title()} — 恢复成功",
-                        "已从干净目录恢复 hotfix。\n可继续点「一键打补丁」。\n\n"
-                        + "\n".join(msgs[-6:]),
+                        "已从干净目录恢复 hotfix。\n可继续点「一键打补丁」。\n\n" + m,
                     ),
                 )
             except FoolproofError as exc:
                 self.after(0, self._append, str(exc))
                 self.after(
                     0,
-                    lambda: messagebox.showerror(f"{_profile_title()} — 失败", str(exc)),
+                    lambda e=str(exc): self._error(f"{_profile_title()} — 失败", e),
                 )
             except Exception as exc:
                 self.after(0, self._append, str(exc))
                 self.after(
                     0,
-                    lambda: messagebox.showerror(f"{_profile_title()} — 失败", str(exc)),
+                    lambda e=str(exc): self._error(f"{_profile_title()} — 失败", e),
                 )
             finally:
                 self.after(0, lambda: self._set_busy(False))
@@ -545,16 +581,17 @@ class FoolproofApp(tk.Tk):
 
     def _offer_restore_then_retry(self, err: FoolproofError) -> None:
         if not is_unclean_client_error(err):
-            messagebox.showerror(f"{_profile_title()} — 失败", str(err))
+            self._error(f"{_profile_title()} — 失败", str(err))
             return
-        if not messagebox.askyesno(
+        if not self._askyesno(
             f"{_profile_title()} — 客户端不干净",
             str(err)
             + "\n\n是否现在选择一份干净客户端目录，恢复 hotfix 后再打补丁？",
         ):
             return
         clean = filedialog.askdirectory(
-            title="选择干净客户端目录（含 cg37.exe；勿选当前游戏目录）"
+            title="选择干净客户端目录（含 cg37.exe；勿选当前游戏目录）",
+            parent=self,
         )
         if not clean:
             return
@@ -576,7 +613,7 @@ class FoolproofApp(tk.Tk):
                 self.after(0, self._append, str(exc))
                 self.after(
                     0,
-                    lambda: messagebox.showerror(f"{_profile_title()} — 失败", str(exc)),
+                    lambda e=str(exc): self._error(f"{_profile_title()} — 失败", e),
                 )
                 self.after(0, lambda: self._set_busy(False))
 
@@ -605,11 +642,12 @@ class FoolproofApp(tk.Tk):
                     on_log=on_log,
                 )
                 self.after(0, lambda: self._set_progress("", done=True))
+                detail = "\n".join(msgs[-6:])
                 self.after(
                     0,
-                    lambda: messagebox.showinfo(
+                    lambda d=detail: self._info(
                         f"{_profile_title()} — 成功",
-                        "补丁已打好。\n请启动游戏验证。\n\n" + "\n".join(msgs[-6:]),
+                        "补丁已打好。\n请启动游戏验证。\n\n" + d,
                     ),
                 )
                 self.after(0, lambda: self._set_busy(False))
@@ -627,7 +665,7 @@ class FoolproofApp(tk.Tk):
                 self.after(0, lambda: self._set_progress(str(exc), failed=True))
                 self.after(
                     0,
-                    lambda: messagebox.showerror(f"{_profile_title()} — 失败", str(exc)),
+                    lambda e=str(exc): self._error(f"{_profile_title()} — 失败", e),
                 )
                 self.after(0, lambda: self._set_busy(False))
 

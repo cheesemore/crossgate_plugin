@@ -266,11 +266,29 @@ def _ensure_clean_baseline(
 
     _emit(messages, on_log, "正在确认干净原版…")
     live_ok, live_reason = _is_clean_hotfix_file(hf)
-    if not live_ok:
+    src: Path | None = None
+    label = ""
+    if live_ok:
+        src, label = hf, "hotfix(更新后原版)"
+    else:
+        # 活文件已打过补丁是改勾选重打的正常情况：只要本地 .orig / neworig
+        # 仍是同体积干净底稿，就用它还原再打，不要逼用户再选一份干净目录。
         _emit(messages, on_log, f"活 hotfix 不是干净原版：{live_reason}")
-        raise unclean_client_error(live_reason)
-
-    src, label = hf, "hotfix(更新后原版)"
+        for cand, cand_label in ((orig, ".orig"), (neworig, "neworig")):
+            if not cand.is_file() or cand.stat().st_size != EXPECTED_SIZE:
+                continue
+            ok, why = _is_clean_hotfix_file(cand)
+            if ok:
+                src, label = cand, cand_label
+                _emit(
+                    messages,
+                    on_log,
+                    f"活文件已打过补丁，改用干净底稿 {cand_label} 重打",
+                )
+                break
+            _emit(messages, on_log, f"{cand_label} 不可用：{why}")
+        if src is None:
+            raise unclean_client_error(live_reason)
 
     neworig.parent.mkdir(parents=True, exist_ok=True)
     _emit(messages, on_log, f"底稿来源: {label} → 强制同步 neworig / .orig …")

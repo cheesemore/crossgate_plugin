@@ -339,6 +339,11 @@ public static class SeqChapterAutoCatchSell
 
 
             var partySlot = GetPartySlot(uid);
+            if (partySlot != 0 && IsVipAutoSwitchOn(uid, 0))
+            {
+                return false;
+            }
+
             if (partySlot == 0)
             {
                 if (!TryFindSealCard(uid, out var itemIndex, out _))
@@ -408,6 +413,11 @@ public static class SeqChapterAutoCatchSell
                 return false;
             }
 
+            if (IsVipAutoSwitchOn(uid, 0))
+            {
+                return false;
+            }
+
             return SendBattleCmd(battleMgr, uid, "G", setMagic: false);
         }
         catch
@@ -441,6 +451,11 @@ public static class SeqChapterAutoCatchSell
 
             var battleMgr = GetManagerInstance("BattleManager");
             if (battleMgr == null)
+            {
+                return false;
+            }
+
+            if (IsVipAutoSwitchOn(uid, 1))
             {
                 return false;
             }
@@ -1584,6 +1599,54 @@ public static class SeqChapterAutoCatchSell
 
             // FightProcessFlag.PlayerActionEnd = 1
             return (Convert.ToInt32(flag) & 1) != 0;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// 该 uid 是否打开了 VIP 自动技。kind 0=人物 1=宠（BattleAutoSkillManager.GetAutoSkillSwitch）。
+    /// </summary>
+    private static bool IsVipAutoSwitchOn(string uid, int kind)
+    {
+        if (string.IsNullOrEmpty(uid))
+        {
+            return false;
+        }
+
+        try
+        {
+            var mgr = GetManagerInstance("BattleAutoSkillManager");
+            if (mgr == null)
+            {
+                return false;
+            }
+
+            MethodInfo method = null;
+            foreach (var m in mgr.GetType().GetMethods(
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+            {
+                if (m.Name != "GetAutoSkillSwitch")
+                {
+                    continue;
+                }
+
+                if (m.GetParameters().Length == 2)
+                {
+                    method = m;
+                    break;
+                }
+            }
+
+            if (method == null)
+            {
+                return false;
+            }
+
+            var v = method.Invoke(mgr, new object[] { uid, kind });
+            return Convert.ToInt32(v ?? 0) == 1;
         }
         catch
         {

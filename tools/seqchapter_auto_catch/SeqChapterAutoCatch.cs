@@ -16,13 +16,16 @@ using System.Threading;
 ///   P1(队长/队序0) 扔封印卡（无卡则走原自动）；
 ///   P2(队序1) 放 1 号技能（Config[0] 的 Skillindex/Techindex，即位置编号非 SkillId）；
 ///   其余人物防御 G；所有宠物防御（PetSkills 中 SkillId=74 的栏位，W|slot|petIndex）。
+///   例外：该单位 VIPAUTO 开着（GetAutoSkillSwitch uid,0/1==1）则让出钩子，走官方 DoVip*；
+///   队长仍扔卡（抓宠需要）。
 #endif
 /// Pause 延迟加载后 Bootstrap；钩 AutoFight_PlayerAction / AutoFight_PlayerAction2 / AutoFight_PetAction。
 /// 侧栏百科 = 手动开关：默认 PipelineEnabled=false；点百科切换开/关，并用 NotifyManager.Tip 提示。
 /// 无「可抓一级」则走原自动。
 /// 抓野生宠（战斗页或脚本，默认幽灵+僵尸+骷髅战士都抓；地点不同、一战不混出）：
 /// 战斗中队长栏满则不抓、走原自动；
-/// 退战后仅当栏满才停挂机，存个人仓/凑满 15/账号仓倒腾交给 TestUi。
+/// 退战后栏满或无封印卡则停挂机；无卡时 TestUi 中元循环会暂停脚本。
+/// 栏满存个人仓/凑满 15/账号仓倒腾交给 TestUi。
 /// 退战后（仅队长，且 PipelineEnabled；普通抓宠）：
 ///   1) 需停挂机时立刻发「停止挂机」；
 ///   2) 扫背包：仅 1 级未正确标记 → #档位，单项随机≥6 才加 @N（满档 #满 / #满@N）；
@@ -71,6 +74,8 @@ public static class SeqChapterAutoCatch
     private const int StorePetLevel = 1;
     /// <summary>退战流水线相邻发包间隔。</summary>
     private const int ProtocolGapMs = 1000;
+    /// <summary>开始/停止挂机只给队长发；官方状态回写前禁止连发。</summary>
+    private const int AutoBattleSendGapMs = 1500;
     /// <summary>随机档单项 ≥ 此值才在名字里加 @N；否则仅 #档位 / #满。</summary>
     private const int MinRandomSuffix = 6;
 
@@ -79,6 +84,8 @@ public static class SeqChapterAutoCatch
     private static Action _onExitBattle;
     private static int _exitPipelineRunning;
     private static bool _exitNeedProtocolGap;
+    private static long _lastAutoBattleSendMs;
+    private static string _lastAutoBattleAction = "";
 
     /// <summary>开启抓宠后标题「★自动中★遇到1级N只」中的遇一级计数；关闭时清零。</summary>
     private static int _levelOneMeetCount;
@@ -450,14 +457,25 @@ public static class SeqChapterAutoCatch
             }
 
 #if AUTO_CATCH_NOPET
-            // 无宠时人物 2动：一律防御（FightProcessFlag.PlayerActionEnd 表示 1动已结束）
+            // 无宠时人物 2动：VIPAUTO 开着走官方；否则防御
             if (IsPlayerSecondAction(battleMgr))
             {
+                if (IsVipAutoSwitchOn(uid, 0))
+                {
+                    return false;
+                }
+
                 return SendBattleCmd(battleMgr, uid, "G", setMagic: false);
             }
 #endif
 
             var partySlot = GetPartySlot(uid);
+            // 队长必须扔卡；其余人开了 VIPAUTO 则走官方 VIP 出手
+            if (partySlot != 0 && IsVipAutoSwitchOn(uid, 0))
+            {
+                return false;
+            }
+
             if (partySlot == 0)
             {
                 if (!TryFindSealCard(uid, out var itemIndex, out _))
@@ -535,6 +553,11 @@ public static class SeqChapterAutoCatch
                 return false;
             }
 
+            if (IsVipAutoSwitchOn(uid, 0))
+            {
+                return false;
+            }
+
             return SendBattleCmd(battleMgr, uid, "G", setMagic: false);
         }
         catch
@@ -576,6 +599,11 @@ public static class SeqChapterAutoCatch
 
             var battleMgr = GetManagerInstance("BattleManager");
             if (battleMgr == null)
+            {
+                return false;
+            }
+
+            if (IsVipAutoSwitchOn(uid, 1))
             {
                 return false;
             }
@@ -1867,23 +1895,50 @@ public static class SeqChapterAutoCatch
     {
         try
         {
-            if (action == "停止挂机")
+            // 抓野生宠的遇敌由 TestUi 只给队长开/停；这里不要再发开始挂机。
+            if (IsWildCatchActive() && action == "开始挂机")
             {
-                var player = GetPlayerFromUid(mainUid);
-                if (player != null)
-                {
-                    var status = Convert.ToInt32(GetMember(player, "encounterStatus") ?? 0);
-                    if (status == 0)
-                    {
-                        var pdata = GetStaticField("PlayerDataHolder", "playerData");
-                        status = Convert.ToInt32(GetMember(pdata, "encounterStatus") ?? 0);
-                    }
+                return;
+            }
 
-                    if (status == 0)
-                    {
-                        return;
-                    }
-                }
+            var uid = GetStaticString("PlayerDataHolder", "MainPlayerUid");
+            if (string.IsNullOrEmpty(uid))
+            {
+                uid = mainUid;
+            }
+
+            if (string.IsNullOrEmpty(uid))
+            {
+                return;
+            }
+
+            var player = GetPlayerFromUid(uid);
+            var status = 0;
+            if (player != null)
+            {
+                status = Convert.ToInt32(GetMember(player, "encounterStatus") ?? 0);
+            }
+
+            if (status == 0)
+            {
+                var pdata = GetStaticField("PlayerDataHolder", "playerData");
+                status = Convert.ToInt32(GetMember(pdata, "encounterStatus") ?? 0);
+            }
+
+            if (action == "停止挂机" && status == 0)
+            {
+                return;
+            }
+
+            if (action == "开始挂机" && status != 0)
+            {
+                return;
+            }
+
+            var now = DateTime.UtcNow.Ticks / TimeSpan.TicksPerMillisecond;
+            if (action == _lastAutoBattleAction && now - _lastAutoBattleSendMs < AutoBattleSendGapMs)
+            {
+                return;
             }
 
             var roleMgr = GetManagerInstance("RoleManager");
@@ -1893,7 +1948,9 @@ public static class SeqChapterAutoCatch
                 null,
                 new[] { typeof(string), typeof(string) },
                 null);
-            send?.Invoke(roleMgr, new object[] { action, mainUid });
+            send?.Invoke(roleMgr, new object[] { action, uid });
+            _lastAutoBattleAction = action ?? "";
+            _lastAutoBattleSendMs = now;
         }
         catch
         {
@@ -1973,6 +2030,55 @@ public static class SeqChapterAutoCatch
 
             // FightProcessFlag.PlayerActionEnd = 1
             return (Convert.ToInt32(flag) & 1) != 0;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// 该 uid 是否打开了 VIP 自动技。kind 0=人物 1=宠（BattleAutoSkillManager.GetAutoSkillSwitch）。
+    /// 打开则抓宠钩子 return false，官方 DoVip* 继续出手。
+    /// </summary>
+    private static bool IsVipAutoSwitchOn(string uid, int kind)
+    {
+        if (string.IsNullOrEmpty(uid))
+        {
+            return false;
+        }
+
+        try
+        {
+            var mgr = GetManagerInstance("BattleAutoSkillManager");
+            if (mgr == null)
+            {
+                return false;
+            }
+
+            MethodInfo method = null;
+            foreach (var m in mgr.GetType().GetMethods(
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+            {
+                if (m.Name != "GetAutoSkillSwitch")
+                {
+                    continue;
+                }
+
+                if (m.GetParameters().Length == 2)
+                {
+                    method = m;
+                    break;
+                }
+            }
+
+            if (method == null)
+            {
+                return false;
+            }
+
+            var v = method.Invoke(mgr, new object[] { uid, kind });
+            return Convert.ToInt32(v ?? 0) == 1;
         }
         catch
         {

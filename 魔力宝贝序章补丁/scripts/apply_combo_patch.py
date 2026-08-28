@@ -577,7 +577,8 @@ def apply_wiki_test_ui_external(hotfix: Path, source: Path) -> tuple[bool, str]:
             str(source),
             "--output",
             str(hotfix),
-        ]
+        ],
+        timeout=300,
     )
     out = (proc.stdout or "") + (proc.stderr or "")
     if proc.returncode != 0:

@@ -108,9 +108,10 @@ LAUNCHER_ENTRY = GAME_ROOT / "新序章多开器" / "scripts" / "multi_launcher_
 LAUNCHER_SHARED = GAME_ROOT / "序章助手共享"
 LAUNCHER_NAME = "多开器"
 
-# 窗口监视：随包发布，右下角置顶刷新 cg37 窗口标题
+# 窗口监视：随包发布（包根 窗口监视.exe + 窗口监视\窗口监视.exe）
 WINDOW_MONITOR_ENTRY = SCRIPTS_DIR / "window_monitor_gui.py"
 WINDOW_MONITOR_NAME = "窗口监视"
+WINDOW_MONITOR_BAT = "启动窗口监视.bat"
 
 def _bat_content(app_name: str) -> str:
     return rf"""@echo off
@@ -128,6 +129,23 @@ exit /b %ERRORLEVEL%
 """
 
 
+def _window_monitor_bat() -> str:
+    return r"""@echo off
+chcp 65001 >nul
+cd /d "%~dp0"
+if exist "%~dp0窗口监视.exe" (
+  start "" "%~dp0窗口监视.exe"
+  exit /b 0
+)
+if exist "%~dp0窗口监视\窗口监视.exe" (
+  start "" "%~dp0窗口监视\窗口监视.exe"
+  exit /b 0
+)
+echo 找不到窗口监视.exe
+pause
+"""
+
+
 def _readme_content(app_name: str) -> str:
     return f"""魔力宝贝：序章 — {app_name}
 
@@ -142,7 +160,7 @@ def _readme_content(app_name: str) -> str:
 · 界面外层选项：「战斗加速」（默认关：开启→战斗倍速+心跳回传1.5x，会连带掐断倍速检测上报；关→原速+心跳回传1.0x）、「跳帧（切后台/老板键限帧 30FPS）」与「多开器适配功能」（默认不打：勾选=注入精简桥接，供包内「多开器」登录/拉多控/一键召唤；占 hotfixdata 容量）
 · 默认含：分享改日常、礼包码
 · 随包附「多开器」（多开器\多开器.exe，界面「启动多开器」按钮）：多开器需要打「多开器适配功能」才能连接游戏
-· 随包附「窗口监视」（窗口监视\窗口监视.exe，界面「启动窗口监视」按钮）：右下角置顶，定时刷新所有 cg37 窗口标题
+· 随包附「窗口监视.exe」（包根，也可「启动窗口监视.bat」或界面按钮）：右下角置顶，刷新 cg37 标题；跑中元的窗口标红；可填 Bark 链接测试推送；卡死/卡循环会推送（10 分钟最多 1 次）
 · 勾选「移动加速」可在打补丁时一并开启
 
 【用法】
@@ -152,7 +170,7 @@ def _readme_content(app_name: str) -> str:
 4. 进游戏用百科面板切换战斗模式
 5. 换皮预览：界面「启动动画预览」（依赖上方填写的游戏目录资源）
 6. 多开：界面「启动多开器」→ 勾选「多开器适配功能」打补丁后，多开器可登录/拉多控/一键召唤
-7. 窗口标题：界面「启动窗口监视」
+7. 窗口监视：解压后双击「窗口监视.exe」或「启动窗口监视.bat」，也可在界面点「启动窗口监视」
 
 多开：多开器/序章助手需要勾选「注入桥接」后连接（桥接含多开、账号登录、一键召唤等）。
 
@@ -442,6 +460,7 @@ def build_exe(app_name: str = APP_NAME, dragon_loop_ui: bool = False) -> Path:
     print(f"[OK] animator -> {anim_dst} ({copied_anim} files)")
 
     (out_dir / BAT_NAME).write_text(_bat_content(app_name), encoding="utf-8")
+    (out_dir / WINDOW_MONITOR_BAT).write_text(_window_monitor_bat(), encoding="utf-8")
     (out_dir / "使用说明.txt").write_text(_readme_content(app_name), encoding="utf-8")
     (out_dir / "融合版.flag").write_text("1\n", encoding="utf-8")
     if dragon_loop_ui:
@@ -520,7 +539,7 @@ def _build_launcher_exe(out_dir: Path) -> None:
 
 
 def _build_window_monitor_exe(out_dir: Path) -> None:
-    """用 PyInstaller 把窗口监视打成独立 exe，放入傻瓜补丁包目录。"""
+    """用 PyInstaller 把窗口监视打成单文件 exe，放到包根，并复制一份到 窗口监视\\。"""
     if not WINDOW_MONITOR_ENTRY.is_file():
         raise FileNotFoundError(f"找不到窗口监视入口: {WINDOW_MONITOR_ENTRY}")
 
@@ -535,7 +554,7 @@ def _build_window_monitor_exe(out_dir: Path) -> None:
         "PyInstaller",
         "--noconfirm",
         "--clean",
-        "--onedir",
+        "--onefile",
         "--windowed",
         "--name",
         WINDOW_MONITOR_NAME,
@@ -550,15 +569,15 @@ def _build_window_monitor_exe(out_dir: Path) -> None:
         str(WINDOW_MONITOR_ENTRY),
     ]
     _run(cmd)
-    built_dir = monitor_dist / WINDOW_MONITOR_NAME
-    built = built_dir / f"{WINDOW_MONITOR_NAME}.exe"
+    built = monitor_dist / f"{WINDOW_MONITOR_NAME}.exe"
     if not built.is_file():
         raise RuntimeError(f"未生成窗口监视 exe: {built}")
-    dst = out_dir / WINDOW_MONITOR_NAME
-    if dst.is_dir():
-        shutil.rmtree(dst, ignore_errors=True)
-    shutil.copytree(built_dir, dst)
-    print(f"[OK] 窗口监视目录 -> {dst}")
+    root_exe = out_dir / f"{WINDOW_MONITOR_NAME}.exe"
+    shutil.copy2(built, root_exe)
+    nested = out_dir / WINDOW_MONITOR_NAME
+    nested.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(built, nested / f"{WINDOW_MONITOR_NAME}.exe")
+    print(f"[OK] 窗口监视.exe -> {root_exe}")
 
 
 def zip_folder(folder: Path, zip_path: Path) -> None:
@@ -598,8 +617,10 @@ def verify_pack(folder: Path, zip_path: Path, app_name: str = APP_NAME) -> None:
         folder / "_internal" / "base_library.zip",
         folder / "patcher" / "HotfixPatcher.exe",
         folder / BAT_NAME,
+        folder / WINDOW_MONITOR_BAT,
         folder / "多开器" / "多开器.exe",
-        folder / "窗口监视" / "窗口监视.exe",
+        folder / f"{WINDOW_MONITOR_NAME}.exe",
+        folder / WINDOW_MONITOR_NAME / f"{WINDOW_MONITOR_NAME}.exe",
     ]
     # 外置 DLL 源码（引擎编译外部 DLL 必需，随包旁路）
     dir_required = [
@@ -613,7 +634,7 @@ def verify_pack(folder: Path, zip_path: Path, app_name: str = APP_NAME) -> None:
         folder / "patcher" / "seqchapter_helper_bridge",
         folder / "patcher" / "seqchapter_mini_bridge",
         folder / "多开器",
-        folder / "窗口监视",
+        folder / WINDOW_MONITOR_NAME,
     ]
     missing = [str(p.relative_to(folder)) for p in file_required if not p.is_file()]
     missing += [
@@ -630,8 +651,10 @@ def verify_pack(folder: Path, zip_path: Path, app_name: str = APP_NAME) -> None:
         f"{app_name}/_internal/base_library.zip",
         f"{app_name}/patcher/HotfixPatcher.exe",
         f"{app_name}/{BAT_NAME}",
+        f"{app_name}/{WINDOW_MONITOR_BAT}",
         f"{app_name}/多开器/多开器.exe",
-        f"{app_name}/窗口监视/窗口监视.exe",
+        f"{app_name}/{WINDOW_MONITOR_NAME}.exe",
+        f"{app_name}/{WINDOW_MONITOR_NAME}/{WINDOW_MONITOR_NAME}.exe",
     ]
     zip_dir_prefixes = [
         f"{app_name}/patcher/ref_stubs/",
@@ -640,7 +663,6 @@ def verify_pack(folder: Path, zip_path: Path, app_name: str = APP_NAME) -> None:
         f"{app_name}/patcher/seqchapter_helper_bridge/",
         f"{app_name}/patcher/seqchapter_mini_bridge/",
         f"{app_name}/多开器/_internal/",
-        f"{app_name}/窗口监视/_internal/",
     ]
     zip_missing = [n for n in zip_required if n not in names]
     zip_missing += [p for p in zip_dir_prefixes if not any(n.startswith(p) for n in names)]
