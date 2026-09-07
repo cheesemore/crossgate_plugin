@@ -4,14 +4,15 @@ using Mono.Cecil.Cil;
 namespace CrossgateMod.Patcher;
 
 /// <summary>
-/// 战斗钩多类型分发：卖银 → 无宠抓 → 普通抓。各自 PipelineEnabled=false 时返回 false，落到下一候选或原版自动。
+/// 战斗钩多类型分发：野生 → 卖银 → 无宠抓 → 普通抓。各自 PipelineEnabled=false 时返回 false，落到下一候选或原版自动。
 /// </summary>
 internal static class CatchBattleDispatchIl
 {
-    public const string Marker = "SeqChapterCatchDispatch.v1";
+    public const string Marker = "SeqChapterCatchDispatch.v2";
 
     public static readonly string[] TypeAssemblyNames =
     {
+        "SeqChapterAutoCatchWild, SeqChapterAutoCatchWild",
         "SeqChapterAutoCatchSell, SeqChapterAutoCatchSell",
         "SeqChapterAutoCatchNoPet, SeqChapterAutoCatchNoPet",
         "SeqChapterAutoCatch, SeqChapterAutoCatch",

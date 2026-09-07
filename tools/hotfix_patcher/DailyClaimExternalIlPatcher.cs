@@ -23,6 +23,7 @@ internal static class DailyClaimExternalIlPatcher
         string? output = null;
         var restore = false;
         var detect = false;
+        var dllOnly = false;
 
         for (var i = 0; i < args.Length; i++)
         {
@@ -40,6 +41,9 @@ internal static class DailyClaimExternalIlPatcher
                 case "--detect":
                     detect = true;
                     break;
+                case "--dll-only":
+                    dllOnly = true;
+                    break;
             }
         }
 
@@ -48,6 +52,7 @@ internal static class DailyClaimExternalIlPatcher
             Console.WriteLine(
                 "用法: HotfixPatcher daily-claim-external-patch --hotfix <orig> --output <out>\n" +
                 "      HotfixPatcher daily-claim-external-patch --hotfix <file> --detect\n" +
+                "      HotfixPatcher daily-claim-external-patch --hotfix <file> --dll-only\n" +
                 "      HotfixPatcher daily-claim-external-patch --hotfix <orig> --output <out> --restore");
             return 1;
         }
@@ -66,6 +71,23 @@ internal static class DailyClaimExternalIlPatcher
             File.Copy(source, output, overwrite: true);
             Console.WriteLine("[RESTORE] 已从原版复制: " + output);
             return 0;
+        }
+
+        if (dllOnly)
+        {
+            try
+            {
+                var dllPath = BuildDailyClaimDll(source);
+                var assetOut = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(source))!, AssetFileName);
+                File.Copy(dllPath, assetOut, overwrite: true);
+                Console.WriteLine("[DAILY] 已重编译并部署 " + assetOut);
+                return 0;
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine("[FAIL] " + ex.Message);
+                return 1;
+            }
         }
 
         try

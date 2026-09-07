@@ -5,12 +5,12 @@ using System.Reflection;
 
 /// <summary>
 /// 采集自动提取 DLL。部署为 hotfixdata/SeqChapterAreaExtract.dll.bytes
-/// 由助手面板「战斗」页开关（SetEnabled），与战斗模式共存（不互斥）；
+/// 由助手面板「战斗」页开关；仅「护航战斗」模式每 30 场强制提取一轮。
 /// 「脚本」页有「立刻提取」按钮（ExtractNowFromUi，绕过冷却强制提取一轮）。
 /// 不需要自动采集：对账号所有在线角色逐个请求采集数据，已采物品共 5 格，
 /// 单格达到 999 时对该格发 SendArea("取出物品到账号仓库", uid, index+1, pile) 提取到账号银行。
-/// 节奏：状态机 + 主线程 Timer；5 个号 × 每号 5 格分开遍历，格间/号间加短延时，
-/// 每 tick 最多发 1 条协议，避免一瞬间扫完导致卡顿。
+/// 节奏：状态机 + 主线程 Timer；按角色 uid 取数/提取（只改 SelectPlayerUid，不发头像切换）。
+/// 未满格立刻看下一格，不空转。每 tick 最多发 1 条协议。
 /// 角色覆盖：MultiInfo 在线角色（五开）→ 当前队伍 → 保底主角色。
 /// 触发：开启/立刻提取强制一轮；采集推送仅在空闲且冷却后排队；每 10 分钟兜底。
 /// </summary>
@@ -26,19 +26,22 @@ public static class SeqChapterAreaExtract
     private const int SlotCount = 5;
 
     /// <summary>节奏 tick 间隔（秒）。</summary>
-    private const float StepSec = 0.5f;
+    private const float StepSec = 0.15f;
 
-    /// <summary>发包后至少等待这么多 tick 再读回包（避免旧缓存误判成功）。</summary>
+    /// <summary>发包后至少等待这么多 tick 再读回包（约 0.3s）。</summary>
     private const int MinWaitAfterSendTicks = 2;
 
-    /// <summary>等待服务端回推的最大 tick 数（约 6.5s）。</summary>
-    private const int WaitTicksMax = 13;
+    /// <summary>等待服务端回推的最大 tick 数（约 1.2s）。</summary>
+    private const int WaitTicksMax = 8;
 
-    /// <summary>格与格之间空转 tick（约 1s）。</summary>
-    private const int PauseBetweenSlotsTicks = 2;
+    /// <summary>切号后最少等这么多 tick 再取数（约 0.45s）。</summary>
+    private const int MinWaitSwitchTicks = 3;
 
-    /// <summary>角色与角色之间空转 tick（约 1.5s）。</summary>
-    private const int PauseBetweenUidsTicks = 3;
+    /// <summary>切号等待上限（约 0.9s）。</summary>
+    private const int WaitSwitchMaxTicks = 6;
+
+    /// <summary>获取多控后等待 tick（约 0.6s）。</summary>
+    private const int WaitMultiInfoTicks = 4;
 
     /// <summary>每个等待操作超时后再重发次数，之后跳过。</summary>
     private const int MaxOpRetries = 2;
@@ -74,6 +77,9 @@ public static class SeqChapterAreaExtract
     private static bool _forceRun;
     private static int _fullSlotCount;
     private static int _resumeAfterPause;
+    private static string _homeUid;
+    private static string _switchTargetUid;
+    private static int _switchNextState;
 
     private static bool _areaHooked;
     private static Action<object> _onAreaEvent;
@@ -90,6 +96,8 @@ public static class SeqChapterAreaExtract
     private const int StNextUid = 8;
     private const int StDone = 9;
     private const int StAdvanceSlot = 10;
+    private const int StWaitMulti = 11;
+    private const int StWaitSwitch = 12;
 
     public static bool IsPipelineActive()
     {
@@ -99,6 +107,12 @@ public static class SeqChapterAreaExtract
         }
 
         return ReadPipelineEnabledFromAnyCopy();
+    }
+
+    /// <summary>立刻提取 / 护航战斗满 30 场：是否还在跑这一轮。</summary>
+    public static bool IsBusy()
+    {
+        return _forceRun || _pipelineRunning || _state != StIdle;
     }
 
     public static void Bootstrap()
@@ -287,15 +301,10 @@ public static class SeqChapterAreaExtract
 
     private static void Tick()
     {
-        if (!IsPipelineActive())
+        // 总开关关闭时只允许「立刻提取 / 护航战斗满30场」这一轮跑完，不走 10 分钟兜底。
+        var forced = _forceRun || _pipelineRunning || _state != StIdle;
+        if (!IsPipelineActive() && !forced)
         {
-            if (_pipelineRunning)
-            {
-                _pipelineRunning = false;
-                _state = StIdle;
-                _uids = null;
-            }
-
             return;
         }
 
@@ -309,7 +318,7 @@ public static class SeqChapterAreaExtract
         }
     }
 
-    // ---------------- 状态机：5 号 × 5 格分开遍历 + 短延时 ----------------
+    // ---------------- 状态机：切号 → 取数 → 满格提取 ----------------
 
     private static void StepExtract()
     {
@@ -340,27 +349,55 @@ public static class SeqChapterAreaExtract
             }
             case StCollect:
             {
+                _homeUid = GetSelectUid();
                 _uids = CollectUids();
                 _uidIndex = 0;
                 _slotIndex = 0;
                 _extractedCount = 0;
                 _fullSlotCount = 0;
-                if (_uids == null || _uids.Count == 0)
+                if ((_uids == null || _uids.Count <= 1) && !MultiInfoHasOnline())
                 {
-                    _lastScanMs = NowMs();
-                    _pipelineRunning = false;
-                    _state = StIdle;
+                    SendFetchMultiInfo();
+                    _waitTicks = 0;
+                    _state = StWaitMulti;
                     return;
                 }
 
-                _state = StRequestData;
+                StartRoundFromUids();
+                return;
+            }
+            case StWaitMulti:
+            {
+                _waitTicks++;
+                if (_waitTicks < WaitMultiInfoTicks)
+                {
+                    return;
+                }
+
+                _uids = CollectUids();
+                StartRoundFromUids();
+                return;
+            }
+            case StWaitSwitch:
+            {
+                _waitTicks++;
+                if (_waitTicks < MinWaitSwitchTicks)
+                {
+                    return;
+                }
+
+                if (_waitTicks >= WaitSwitchMaxTicks || IsSelectUid(_switchTargetUid))
+                {
+                    _state = _switchNextState;
+                }
+
                 return;
             }
             case StRequestData:
             {
-                if (_uidIndex >= _uids.Count)
+                if (_uids == null || _uidIndex >= _uids.Count)
                 {
-                    _state = StDone;
+                    BeginSwitchTo(_homeUid, StDone);
                     return;
                 }
 
@@ -377,7 +414,6 @@ public static class SeqChapterAreaExtract
             {
                 _waitTicks++;
                 var uid = _uids[_uidIndex];
-                // 至少等 MinWaitAfterSendTicks，避免立刻读到未清干净的旧缓存
                 if (_waitTicks >= MinWaitAfterSendTicks && ReadAreaData(uid) != null)
                 {
                     _state = StCheckSlot;
@@ -391,7 +427,7 @@ public static class SeqChapterAreaExtract
                         return;
                     }
 
-                    _state = StRequestData; // 重发获取数据
+                    _state = StRequestData;
                 }
 
                 return;
@@ -400,7 +436,7 @@ public static class SeqChapterAreaExtract
             {
                 if (_slotIndex >= SlotCount)
                 {
-                    BeginPause(PauseBetweenUidsTicks, StNextUid);
+                    _state = StNextUid;
                     return;
                 }
 
@@ -413,8 +449,7 @@ public static class SeqChapterAreaExtract
                     return;
                 }
 
-                // 未满：也按格空转一下，避免连扫反射卡主线程
-                BeginPause(PauseBetweenSlotsTicks, StAdvanceSlot);
+                _state = StAdvanceSlot;
                 return;
             }
             case StExtract:
@@ -423,7 +458,7 @@ public static class SeqChapterAreaExtract
                 var pile = ReadSlotPile(uid, _slotIndex);
                 if (pile < FullPile)
                 {
-                    BeginPause(PauseBetweenSlotsTicks, StAdvanceSlot);
+                    _state = StAdvanceSlot;
                     return;
                 }
 
@@ -447,11 +482,10 @@ public static class SeqChapterAreaExtract
 
                 var uid = _uids[_uidIndex];
                 var cur = ReadSlotPile(uid, _slotIndex);
-                // cur < 0：读失败，继续等，勿当成功
                 if (cur >= 0 && cur < FullPile)
                 {
                     _extractedCount++;
-                    BeginPause(PauseBetweenSlotsTicks, StAdvanceSlot);
+                    _state = StAdvanceSlot;
                     return;
                 }
 
@@ -460,11 +494,11 @@ public static class SeqChapterAreaExtract
                     _attempt++;
                     if (_attempt < MaxAttemptsPerSlot)
                     {
-                        _state = StExtract; // 重发一次
+                        _state = StExtract;
                     }
                     else
                     {
-                        BeginPause(PauseBetweenSlotsTicks, StAdvanceSlot);
+                        _state = StAdvanceSlot;
                     }
                 }
 
@@ -486,7 +520,7 @@ public static class SeqChapterAreaExtract
                 _slotIndex++;
                 if (_slotIndex >= SlotCount)
                 {
-                    BeginPause(PauseBetweenUidsTicks, StNextUid);
+                    _state = StNextUid;
                 }
                 else
                 {
@@ -498,13 +532,13 @@ public static class SeqChapterAreaExtract
             case StNextUid:
             {
                 _uidIndex++;
-                if (_uidIndex >= _uids.Count)
+                if (_uids == null || _uidIndex >= _uids.Count)
                 {
-                    _state = StDone;
+                    BeginSwitchTo(_homeUid, StDone);
                 }
                 else
                 {
-                    _state = StRequestData;
+                    BeginSwitchTo(_uids[_uidIndex], StRequestData);
                 }
 
                 return;
@@ -512,10 +546,10 @@ public static class SeqChapterAreaExtract
             case StDone:
             {
                 _lastScanMs = NowMs();
-                // 本轮提取回包产生的 OnEvent 不连环开下一轮
                 _pendingEvent = false;
                 _pipelineRunning = false;
                 _uids = null;
+                _switchTargetUid = null;
                 if (_extractedCount > 0)
                 {
                     Tip("自动提取：本轮提取 " + _extractedCount + " 格到账号银行");
@@ -552,6 +586,194 @@ public static class SeqChapterAreaExtract
 
         _opRetryCount = 0;
         _state = skipState;
+        return true;
+    }
+
+    private static void StartRoundFromUids()
+    {
+        if (_uids == null || _uids.Count == 0)
+        {
+            var main = GetMainUid();
+            if (!string.IsNullOrEmpty(main))
+            {
+                _uids = new List<string>();
+                AddUidUnique(_uids, main);
+            }
+        }
+
+        if (_uids == null || _uids.Count == 0)
+        {
+            _lastScanMs = NowMs();
+            _pipelineRunning = false;
+            _state = StIdle;
+            return;
+        }
+
+        PutCurrentFirst(_uids, _homeUid);
+        Tip("采集提取：遍历 " + _uids.Count + " 个角色");
+        _uidIndex = 0;
+        _slotIndex = 0;
+        BeginSwitchTo(_uids[0], StRequestData);
+    }
+
+    /// <summary>切到目标角色后再进入 nextState。已是该角色则立刻继续。不发头像切换包。</summary>
+    private static void BeginSwitchTo(string uid, int nextState)
+    {
+        _switchTargetUid = uid ?? "";
+        _switchNextState = nextState;
+        if (!string.IsNullOrEmpty(uid) && !IsSelectUid(uid))
+        {
+            SendSwitchChar(uid);
+        }
+
+        _state = nextState;
+    }
+
+    private static string GetMainUid()
+    {
+        return Convert.ToString(GetStaticMember("PlayerDataHolder", "MainPlayerUid") ?? "") ?? "";
+    }
+
+    private static string GetSelectUid()
+    {
+        var sel = Convert.ToString(GetStaticMember("PlayerDataHolder", "SelectPlayerUid") ?? "") ?? "";
+        if (!string.IsNullOrEmpty(sel))
+        {
+            return sel;
+        }
+
+        return GetMainUid();
+    }
+
+    private static bool IsSelectUid(string uid)
+    {
+        if (string.IsNullOrEmpty(uid))
+        {
+            return false;
+        }
+
+        return uid == GetSelectUid();
+    }
+
+    private static void PutCurrentFirst(List<string> list, string current)
+    {
+        if (list == null || list.Count <= 1 || string.IsNullOrEmpty(current))
+        {
+            return;
+        }
+
+        var idx = -1;
+        for (var i = 0; i < list.Count; i++)
+        {
+            if (list[i] == current)
+            {
+                idx = i;
+                break;
+            }
+        }
+
+        if (idx <= 0)
+        {
+            return;
+        }
+
+        list.RemoveAt(idx);
+        list.Insert(0, current);
+    }
+
+    private static bool MultiInfoHasOnline()
+    {
+        try
+        {
+            var teamMgr = GetManagerInstance("TeamManager");
+            var multi = GetMember(teamMgr, "MultiInfo");
+            var players = multi != null ? GetMember(multi, "Players") as IList : null;
+            if (players == null)
+            {
+                return false;
+            }
+
+            var n = 0;
+            foreach (var p in players)
+            {
+                if (p == null)
+                {
+                    continue;
+                }
+
+                if (Convert.ToInt32(GetMember(p, "Online") ?? 0) >= 1)
+                {
+                    n++;
+                    if (n >= 2)
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+        catch
+        {
+            // ignore
+        }
+
+        return false;
+    }
+
+    /// <summary>只改采集用的 SelectPlayerUid，不发头像切换（切头像会刷图，护航地图上容易掉线）。</summary>
+    private static bool SendSwitchChar(string uid)
+    {
+        try
+        {
+            if (string.IsNullOrEmpty(uid))
+            {
+                return false;
+            }
+
+            SetStaticMember("PlayerDataHolder", "SelectPlayerUid", uid);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static void SendFetchMultiInfo()
+    {
+        try
+        {
+            SendMultiRaw("获取多控", "", false);
+        }
+        catch
+        {
+            // ignore
+        }
+    }
+
+    private static bool SendMultiRaw(string type, string uid, bool refreshPos)
+    {
+        var teamMgr = GetManagerInstance("TeamManager");
+        if (teamMgr == null)
+        {
+            return false;
+        }
+
+        var playerData = GetStaticMember("PlayerDataHolder", "playerData");
+        var mapId = Convert.ToInt32(GetMember(playerData, "mapId") ?? 0);
+        var floor = Convert.ToInt32(GetMember(playerData, "floor") ?? 0);
+        var location = GetStaticMember("PlayerDataHolder", "location");
+        var sendMulti = teamMgr.GetType().GetMethod("SendMulti");
+        if (sendMulti == null)
+        {
+            return false;
+        }
+
+        sendMulti.Invoke(teamMgr, new object[] { type, mapId, floor, location, uid ?? "" });
+        if (refreshPos)
+        {
+            SetMember(teamMgr, "IsRefreshPos", true);
+        }
+
         return true;
     }
 
@@ -1204,6 +1426,52 @@ public static class SeqChapterAreaExtract
             name,
             BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.FlattenHierarchy);
         return f?.GetValue(null);
+    }
+
+    private static void SetStaticMember(string typeName, string name, object value)
+    {
+        var t = FindType(typeName);
+        if (t == null)
+        {
+            return;
+        }
+
+        var p = t.GetProperty(
+            name,
+            BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.FlattenHierarchy);
+        if (p != null && p.CanWrite)
+        {
+            p.SetValue(null, value, null);
+            return;
+        }
+
+        var f = t.GetField(
+            name,
+            BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.FlattenHierarchy);
+        f?.SetValue(null, value);
+    }
+
+    private static void SetMember(object obj, string name, object value)
+    {
+        if (obj == null)
+        {
+            return;
+        }
+
+        var t = obj.GetType();
+        var p = t.GetProperty(
+            name,
+            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        if (p != null && p.CanWrite)
+        {
+            p.SetValue(obj, value, null);
+            return;
+        }
+
+        var f = t.GetField(
+            name,
+            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        f?.SetValue(obj, value);
     }
 
     private static MethodInfo FindMethod(Type type, string name, Type[] parameters)

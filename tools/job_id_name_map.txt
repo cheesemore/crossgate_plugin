@@ -1,0 +1,193 @@
+JobsConfig count=139  JobsAncestryConfig count=48
+编码: PlayerData.Job = JOBSID；个位=进阶；系码 Job-Job%10 常对加点 JobType
+
+=== 职业系 JobsAncestry（含该系各阶 JOBSID） ===
+ancestryId=0	游民	jobs=[1,1,1,1,1,1,1]	fameLimit=0
+ancestryId=10	剑士	jobs=[11,12,13,14,15,16,17]	fameLimit=600
+ancestryId=20	战斧斗士	jobs=[21,22,23,24,25,26,27]	fameLimit=600
+ancestryId=30	骑士	jobs=[31,32,33,34,35,36,37]	fameLimit=600
+ancestryId=40	弓箭手	jobs=[41,42,43,44,45,46,47]	fameLimit=600
+ancestryId=50	士兵	jobs=[51,52,53,54,55,56,57]	fameLimit=600
+ancestryId=60	传教士	jobs=[61,62,63,64,65,66,67]	fameLimit=600
+ancestryId=70	魔术师	jobs=[71,72,73,74,75,76,77]	fameLimit=600
+ancestryId=80	咒术师	jobs=[81,82,83,84,85,86,87]	fameLimit=600
+ancestryId=90	封印师	jobs=[91,92,93,94,95,96,97]	fameLimit=600
+ancestryId=100	饲养师	jobs=[101,102,103,104,105,106,107]	fameLimit=600
+ancestryId=110	驯兽师	jobs=[111,112,113,114,115,116,117]	fameLimit=600
+ancestryId=120	盗贼	jobs=[121,122,123,124,125,126,127]	fameLimit=600
+ancestryId=130	巫师	jobs=[131,132,133,134,135,136,137]	fameLimit=600
+ancestryId=140	格斗士	jobs=[141,142,143,144,145,146,147]	fameLimit=600
+ancestryId=150	忍者	jobs=[151,152,153,154,155,156,157]	fameLimit=600
+ancestryId=160	舞者	jobs=[161,162,163,164,165,166,167]	fameLimit=600
+ancestryId=170	圣骑士	jobs=[171,172,173,174,175,176,177]	fameLimit=600
+ancestryId=190	魔剑士	jobs=[191,192,193,194,195,196,197]	fameLimit=600
+ancestryId=200	剑职人	jobs=[201,202,203,204,205,206,207]	fameLimit=600
+ancestryId=210	斧职人	jobs=[211,212,213,214,215,216,217]	fameLimit=600
+ancestryId=220	枪职人	jobs=[221,222,223,224,225,226,227]	fameLimit=600
+ancestryId=230	弓职人	jobs=[231,232,233,234,235,236,237]	fameLimit=600
+ancestryId=240	杖职人	jobs=[241,242,243,244,245,246,247]	fameLimit=600
+ancestryId=250	回力职人	jobs=[251,252,253,254,255,256,257]	fameLimit=600
+ancestryId=260	小刀职人	jobs=[261,262,263,264,265,266,267]	fameLimit=600
+ancestryId=270	兜职人	jobs=[271,272,273,274,275,276,277]	fameLimit=600
+ancestryId=280	帽子职人	jobs=[281,282,283,284,285,286,287]	fameLimit=600
+ancestryId=290	铠职人	jobs=[291,292,293,294,295,296,297]	fameLimit=600
+ancestryId=300	服职人	jobs=[301,302,303,304,305,306,307]	fameLimit=600
+ancestryId=310	袍职人	jobs=[311,312,313,314,315,316,317]	fameLimit=600
+ancestryId=320	靴职人	jobs=[321,322,323,324,325,326,327]	fameLimit=600
+ancestryId=330	鞋职人	jobs=[331,332,333,334,335,336,337]	fameLimit=600
+ancestryId=340	盾职人	jobs=[341,342,343,344,345,346,347]	fameLimit=600
+ancestryId=350	厨师	jobs=[351,352,353,354,355,356,357]	fameLimit=600
+ancestryId=360	药剂师	jobs=[361,362,363,364,365,366,367]	fameLimit=600
+ancestryId=370	武器修理师	jobs=[371,372,373,374,375,376,377]	fameLimit=600
+ancestryId=380	防具修理师	jobs=[381,382,383,384,385,386,387]	fameLimit=600
+ancestryId=390	鉴定师	jobs=[391,392,393,394,395,396,397]	fameLimit=600
+ancestryId=400	はんこ屋	jobs=[401,402,403,404,405,406,407]	fameLimit=600
+ancestryId=410	探侦	jobs=[411,412,413,414,415,416,417]	fameLimit=600
+ancestryId=420	仙人	jobs=[421,422,423,424,425,426,427]	fameLimit=600
+ancestryId=430	护士	jobs=[431,432,433,434,435,436,437]	fameLimit=600
+ancestryId=440	医生	jobs=[441,442,443,444,445,446,447]	fameLimit=600
+ancestryId=450	樵夫	jobs=[451,452,453,454,455,456,457]	fameLimit=600
+ancestryId=460	猎人	jobs=[461,462,463,464,465,466,467]	fameLimit=600
+ancestryId=470	矿工	jobs=[471,472,473,474,475,476,477]	fameLimit=600
+ancestryId=690	神	jobs=[691,691,691,691,691,691,691]	fameLimit=0
+
+=== 职业 Job 两位数（按 JOBSID） ===
+1	游民	sys=法兰大陆的新手，尚未就职任何职业，需要前往职业介绍所接取就职任务进行就职	assort=1	cost=0	fame=0	flg=Civilian
+2	游民2	sys=法兰大陆的新手，尚未就职任何职业，需要前往职业介绍所接取就职任务进行就职	assort=1	cost=2000000	fame=2000000	flg=Civilian
+11	见习剑士	sys=攻防均衡的近战职业，以稳定的单体输出和全面的适应性著称。技能兼顾伤害与生存，无论是单刷还是组队都能轻松胜任，是 “万金油” 职业	assort=1	cost=0	fame=0	flg=Sword
+12	剑士	sys=攻防均衡的近战职业，以稳定的单体输出和全面的适应性著称。技能兼顾伤害与生存，无论是单刷还是组队都能轻松胜任，是 “万金油” 职业	assort=1	cost=5000	fame=10000	flg=Sword
+13	王宫剑士	sys=	assort=1	cost=10000	fame=50000	flg=Sword
+14	剑术师范	sys=	assort=1	cost=20000	fame=100000	flg=Sword
+15	剑术大师	sys=	assort=1	cost=40000	fame=200000	flg=Sword
+16	武士	sys=	assort=1	cost=2000000	fame=0	flg=Sword
+17	剑圣	sys=	assort=1	cost=2000000	fame=0	flg=Sword
+18	剑圣2	sys=	assort=1	cost=2000000	fame=0	flg=Sword
+21	见习战斧斗士	sys=追求极致输出的暴力近战，拥有单体爆发伤害。战斧斗士挥舞巨斧，是 PVP 和 BOSS 战中瞬间破防的利器，也是喜欢暴力美学玩家的首选。	assort=1	cost=0	fame=0	flg=axe
+22	战斧斗士	sys=追求极致输出的暴力近战，拥有单体爆发伤害。战斧斗士挥舞巨斧，是 PVP 和 BOSS 战中瞬间破防的利器，也是喜欢暴力美学玩家的首选。	assort=1	cost=5000	fame=10000	flg=axe
+23	王宫战斧斗士	sys=	assort=1	cost=10000	fame=50000	flg=axe
+24	战斧师范	sys=	assort=1	cost=20000	fame=100000	flg=axe
+25	战斧大师	sys=	assort=1	cost=40000	fame=200000	flg=axe
+26	狂战士	sys=	assort=1	cost=2000000	fame=0	flg=axe
+27	破坏狂	sys=	assort=1	cost=2000000	fame=0	flg=axe
+28	破坏狂2	sys=	assort=1	cost=2000000	fame=0	flg=axe
+31	见习骑士	sys=以高防御、高生命值和保护队友的能力为核心定位。骑士能可主动吸引敌人火力，为队友创造安全的输出环境，是团队中最可靠的前排坦克。	assort=1	cost=0	fame=0	flg=knight
+32	骑士	sys=以高防御、高生命值和保护队友的能力为核心定位。骑士能可主动吸引敌人火力，为队友创造安全的输出环境，是团队中最可靠的前排坦克。	assort=1	cost=5000	fame=10000	flg=knight
+33	王宫骑士	sys=	assort=1	cost=10000	fame=50000	flg=knight
+34	近卫骑士	sys=	assort=1	cost=20000	fame=100000	flg=knight
+35	枪术大师	sys=	assort=1	cost=40000	fame=200000	flg=knight
+36	黑骑士	sys=	assort=1	cost=2000000	fame=0	flg=knight
+37	圣骑士	sys=	assort=1	cost=2000000	fame=0	flg=knight
+38	圣骑士2	sys=	assort=1	cost=2000000	fame=0	flg=knight
+41	见习弓箭手	sys=标志性的远程物理职业，以乱射技能为核心招牌，凭借高敏捷和群体攻击，无论是清怪还是 PVP 都表现亮眼，是队伍里稳定的远程火力担当	assort=1	cost=0	fame=0	flg=Archer
+42	弓箭手	sys=标志性的远程物理职业，以乱射技能为核心招牌，凭借高敏捷和群体攻击，无论是清怪还是 PVP 都表现亮眼，是队伍里稳定的远程火力担当	assort=1	cost=5000	fame=10000	flg=Archer
+43	王宫弓箭手	sys=	assort=1	cost=10000	fame=50000	flg=Archer
+44	弓术师范	sys=	assort=1	cost=20000	fame=100000	flg=Archer
+45	弓术大师	sys=	assort=1	cost=40000	fame=200000	flg=Archer
+46	神射手	sys=	assort=1	cost=2000000	fame=0	flg=Archer
+47	森林守护者	sys=	assort=1	cost=2000000	fame=0	flg=Archer
+48	森林守护者2	sys=	assort=1	cost=2000000	fame=0	flg=Archer
+51	见习士兵	sys=能学习多种职业的基础技能，士兵可根据喜好自由搭配加点和技能，既能当半肉输出，也能玩辅助控制，玩法灵活，是挑战个性养成的最佳选择	assort=1	cost=0	fame=0	flg=Soldier
+52	士兵	sys=能学习多种职业的基础技能，士兵可根据喜好自由搭配加点和技能，既能当半肉输出，也能玩辅助控制，玩法灵活，是挑战个性养成的最佳选择	assort=1	cost=5000	fame=10000	flg=Soldier
+53	王宫士兵	sys=	assort=1	cost=10000	fame=50000	flg=Soldier
+54	士兵长	sys=	assort=1	cost=20000	fame=100000	flg=Soldier
+55	重战士	sys=	assort=1	cost=40000	fame=200000	flg=Soldier
+56	装甲兵	sys=	assort=1	cost=2000000	fame=0	flg=Soldier
+57	蹂躏兵	sys=	assort=1	cost=2000000	fame=0	flg=Soldier
+58	蹂躏兵2	sys=	assort=1	cost=2000000	fame=0	flg=Soldier
+61	见习传教士	sys=能使用高级恢复魔法的职业。核心能为队友回复生命、解除异常状态，是副本和 PVP 中保障团队续航的关键角色。是最受欢迎的辅助职业。	assort=1	cost=0	fame=0	flg=Pastor
+62	传教士	sys=能使用高级恢复魔法的职业。核心能为队友回复生命、解除异常状态，是副本和 PVP 中保障团队续航的关键角色。是最受欢迎的辅助职业。	assort=1	cost=5000	fame=10000	flg=Pastor
+63	牧师	sys=	assort=1	cost=10000	fame=50000	flg=Pastor
+64	主教	sys=	assort=1	cost=20000	fame=100000	flg=Pastor
+65	大主教	sys=	assort=1	cost=40000	fame=200000	flg=Pastor
+66	李贝留斯的仆人	sys=	assort=1	cost=2000000	fame=0	flg=Pastor
+67	阿尔杰斯的使徒	sys=	assort=1	cost=2000000	fame=0	flg=Pastor
+68	阿尔杰斯的使徒2	sys=	assort=1	cost=2000000	fame=0	flg=Pastor
+71	见习魔术师	sys=掌控四大元素魔法的职业，拥有最顶尖魔法伤害，是刷怪和群战的 “移动炮台”。范围攻击压制力无可替代，是团队中不可或缺的法系核心	assort=1	cost=0	fame=0	flg=Enchanter
+72	魔术师	sys=掌控四大元素魔法的职业，拥有最顶尖魔法伤害，是刷怪和群战的 “移动炮台”。范围攻击压制力无可替代，是团队中不可或缺的法系核心	assort=1	cost=5000	fame=10000	flg=Enchanter
+73	王宫魔术师	sys=	assort=1	cost=10000	fame=50000	flg=Enchanter
+74	魔导士	sys=	assort=1	cost=20000	fame=100000	flg=Enchanter
+75	大魔导师	sys=	assort=1	cost=40000	fame=200000	flg=Enchanter
+76	狂魔	sys=	assort=1	cost=2000000	fame=0	flg=Enchanter
+77	法王	sys=	assort=1	cost=2000000	fame=0	flg=Enchanter
+78	法王2	sys=	assort=1	cost=2000000	fame=0	flg=Enchanter
+81	见习咒术师	sys=	assort=1	cost=0	fame=0	flg=Conjurer
+82	咒术师	sys=	assort=1	cost=5000	fame=10000	flg=Conjurer
+83	王宫咒术师	sys=	assort=1	cost=10000	fame=50000	flg=Conjurer
+84	降头师	sys=	assort=1	cost=20000	fame=100000	flg=Conjurer
+85	咒术大师	sys=	assort=1	cost=40000	fame=200000	flg=Conjurer
+86	右月咒缚者	sys=	assort=1	cost=2000000	fame=0	flg=Conjurer
+87	左月咒缚者	sys=	assort=1	cost=2000000	fame=0	flg=Conjurer
+88	左月咒缚者2	sys=	assort=1	cost=2000000	fame=0	flg=Conjurer
+91	见习封印师	sys=	assort=1	cost=0	fame=0	flg=Seal
+92	封印师	sys=	assort=1	cost=5000	fame=10000	flg=Seal
+93	王宫封印师	sys=	assort=1	cost=10000	fame=50000	flg=Seal
+94	封印术师范	sys=	assort=1	cost=20000	fame=100000	flg=Seal
+95	封印大师	sys=	assort=1	cost=40000	fame=200000	flg=Seal
+96	黑暗召唤师	sys=	assort=1	cost=2000000	fame=0	flg=Seal
+97	恶魔召唤师	sys=	assort=1	cost=2000000	fame=0	flg=Seal
+98	恶魔召唤师2	sys=	assort=1	cost=2000000	fame=0	flg=Seal
+101	见习饲养师	sys=	assort=1	cost=0	fame=0	flg=Feeder
+102	饲养师	sys=	assort=1	cost=5000	fame=10000	flg=Feeder
+103	王宫饲养师	sys=	assort=1	cost=10000	fame=50000	flg=Feeder
+104	高级饲养师	sys=	assort=1	cost=20000	fame=100000	flg=Feeder
+105	饲养大师	sys=	assort=1	cost=40000	fame=200000	flg=Feeder
+106	顶尖饲养师	sys=	assort=1	cost=2000000	fame=0	flg=Feeder
+107	星之饲养师	sys=	assort=1	cost=2000000	fame=0	flg=Feeder
+108	星之饲养师2	sys=	assort=1	cost=2000000	fame=0	flg=Feeder
+111	见习驯兽师	sys=	assort=1	cost=0	fame=0	flg=Trainer
+112	驯兽师	sys=	assort=1	cost=5000	fame=10000	flg=Trainer
+113	王宫驯兽师	sys=	assort=1	cost=10000	fame=50000	flg=Trainer
+114	驯兽师范	sys=	assort=1	cost=20000	fame=100000	flg=Trainer
+115	驯兽大师	sys=	assort=1	cost=40000	fame=200000	flg=Trainer
+116	伟大驯兽师	sys=	assort=1	cost=2000000	fame=0	flg=Trainer
+117	黑暗驯兽师	sys=	assort=1	cost=2000000	fame=0	flg=Trainer
+118	黑暗驯兽师2	sys=	assort=1	cost=2000000	fame=0	flg=Trainer
+121	见习盗贼	sys=	assort=1	cost=0	fame=0	flg=Robber
+122	盗贼	sys=	assort=1	cost=5000	fame=10000	flg=Robber
+123	小偷	sys=	assort=1	cost=10000	fame=50000	flg=Robber
+124	诈欺师	sys=	assort=1	cost=20000	fame=100000	flg=Robber
+125	偷窃高手	sys=	assort=1	cost=40000	fame=200000	flg=Robber
+126	盗贼王	sys=	assort=1	cost=2000000	fame=0	flg=Robber
+127	大头目	sys=	assort=1	cost=2000000	fame=0	flg=Robber
+128	大头目2	sys=	assort=1	cost=2000000	fame=0	flg=Robber
+131	见习巫师	sys=	assort=1	cost=0	fame=0	flg=Wizard
+132	巫师	sys=	assort=1	cost=5000	fame=10000	flg=Wizard
+133	王宫巫师	sys=	assort=1	cost=10000	fame=50000	flg=Wizard
+134	巫术大师	sys=	assort=1	cost=20000	fame=100000	flg=Wizard
+135	巫王	sys=	assort=1	cost=40000	fame=200000	flg=Wizard
+136	阿斯提亚神官	sys=	assort=1	cost=2000000	fame=0	flg=Wizard
+137	哈贝鲁巫女	sys=	assort=1	cost=2000000	fame=0	flg=Wizard
+138	哈贝鲁巫女2	sys=	assort=1	cost=2000000	fame=0	flg=Wizard
+141	见习格斗士	sys=	assort=1	cost=0	fame=0	flg=Fighter
+142	格斗士	sys=	assort=1	cost=5000	fame=10000	flg=Fighter
+143	格斗专家	sys=	assort=1	cost=10000	fame=50000	flg=Fighter
+144	格斗家师范	sys=	assort=1	cost=20000	fame=100000	flg=Fighter
+145	格斗王	sys=	assort=1	cost=40000	fame=200000	flg=Fighter
+146	铁拳	sys=	assort=1	cost=2000000	fame=0	flg=Fighter
+147	干架王	sys=	assort=1	cost=2000000	fame=0	flg=Fighter
+148	干架王2	sys=	assort=1	cost=2000000	fame=0	flg=Fighter
+151	初级忍者	sys=	assort=1	cost=0	fame=0	flg=Ninja
+152	中级忍者	sys=	assort=1	cost=5000	fame=10000	flg=Ninja
+153	上级忍者	sys=	assort=1	cost=10000	fame=50000	flg=Ninja
+154	影	sys=	assort=1	cost=20000	fame=100000	flg=Ninja
+155	忍术大师	sys=	assort=1	cost=40000	fame=200000	flg=Ninja
+156	暗杀者	sys=	assort=1	cost=2000000	fame=0	flg=Ninja
+157	女忍者	sys=	assort=1	cost=2000000	fame=0	flg=Ninja
+158	女忍者2	sys=	assort=1	cost=2000000	fame=0	flg=Ninja
+401	见习未知	sys=	assort=2	cost=0	fame=0	flg=
+402	未知	sys=	assort=2	cost=5000	fame=10000	flg=
+403	资深未知	sys=	assort=2	cost=10000	fame=50000	flg=
+404	御用未知	sys=	assort=2	cost=20000	fame=100000	flg=
+405	未知	sys=	assort=2	cost=1000000	fame=200000	flg=
+406	未知	sys=	assort=2	cost=1000000	fame=0	flg=
+407	未知	sys=	assort=2	cost=1000000	fame=0	flg=
+408	未知2	sys=	assort=2	cost=2000000	fame=0	flg=
+441	见习医师	sys=	assort=1	cost=0	fame=0	flg=
+442	医师	sys=	assort=1	cost=5000	fame=10000	flg=
+443	资深医师	sys=	assort=1	cost=10000	fame=50000	flg=
+444	御用医师	sys=	assort=1	cost=20000	fame=100000	flg=
+445	大医师	sys=	assort=1	cost=40000	fame=200000	flg=
+446	神医师	sys=	assort=1	cost=2000000	fame=0	flg=
+447	名医师	sys=	assort=1	cost=2000000	fame=0	flg=
+448	名医师2	sys=	assort=1	cost=2000000	fame=0	flg=
+691	管理员	sys=	assort=1	cost=1000001	fame=1	flg=

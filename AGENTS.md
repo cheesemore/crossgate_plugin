@@ -19,7 +19,7 @@
 1. **不写游戏客户端文件**（`hotfix.dll.bytes` 等）除非用户明确要求代打；默认 `repatch`/`auto-update` 是用户允许的固化流程。
 2. **永不污染 crosscopy**。
 3. **不杀 cg37** 除非用户明确同意。
-4. 默认组合：拦截倍速上报、日常、客服→autoskill、精简桥接、**地图 Sprint 8 速**；战斗倍速 / 技能特效仍默认关；九动封存不提。龙族/七夕护航循环已卸（快照 `tools/seqchapter_escort_loops_backup/`）。傻瓜包仍默认不打加速。
+4. 默认组合：拦截倍速上报、日常、客服→autoskill、精简桥接、**地图 Sprint 8 速**；战斗倍速 / 技能特效仍默认关；九动封存不提。龙族/七夕护航循环已卸；**中元循环已永久删除**（快照 `tools/seqchapter_escort_loops_backup/ZhongyuanLoop.extracted.cs`）；战斗页「抓野生宠」独立保留。傻瓜包仍默认不打加速。
 5. 新功能先查 `tools/常用反射方法速查.md`，复用已有协议片段。
 6. 废弃模块见 `tools/DEPRECATED.md`，默认不打开。
 
@@ -29,8 +29,8 @@
 
 - `傻瓜补丁_融合版_*.zip`
 
-包内含多开器、窗口监视。说明文件**不提**龙族。
-护航页有「中元循环测试版」占位按钮（暂无功能）。龙族循环与七夕阿凯/哥拉尔循环已卸，源码快照见 `tools/seqchapter_escort_loops_backup/`。
+包内含多开器、窗口监视。说明文件**不提**龙族/中元循环。
+龙族 / 七夕循环已卸下面板；**中元循环已永久删除**（快照见 `tools/seqchapter_escort_loops_backup/ZhongyuanLoop.extracted.cs`）；战斗页「抓野生宠」独立保留。
 
 ## 协议复用
 

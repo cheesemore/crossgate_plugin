@@ -7,6 +7,8 @@ using System.Reflection;
 /// <summary>
 /// 日常 / 新手礼包码 DLL。部署为 hotfixdata/SeqChapterDailyClaim.dll.bytes
 /// 侧栏分享 OnShareClick：切页（日常 | 新手礼包码）+ 再点开始（主线程 Timer）。
+/// 月卡：2026-09 起改挂背包第 3 页（BackPackPanel.OpenMonthCard，活动 Id=19）；
+///   日常流水线每人先开背包领月卡，领完关掉背包，再签到/在线。
 /// 礼包码协议：ActivityManager.SendActivity("CDKey兑换", uid, id=0, activityId=4, code)
 ///   （码含 "N_" 时改发 giftCode，与 Com_Cdkey 一致）。
 /// 不占用 OnApplicationPause / 百科，可与九动/抓宠/烧卡/加速并存。
@@ -32,7 +34,7 @@ public static class SeqChapterDailyClaim
     private static readonly string[] DefaultNewbieGiftCodes =
     {
         "VIP666", "VIP777", "VIP888", "VIP999",
-        "mlbb0813", "mlbb0814", "mlbb0818",
+        "mlbb0904",
     };
 
     /// <summary>运行时列表：优先读 hotfixdata/seqchapter_gift_codes.txt（一行一个，# 注释）。</summary>
@@ -58,6 +60,8 @@ public static class SeqChapterDailyClaim
     private static int _giftSent;
     /// <summary>当前流水线是否礼包码页（决定 Trace 前缀）。</summary>
     private static bool _runningGift;
+    /// <summary>当前流水线是否「仅用背包道具」（脚本独立按钮，不跑签到/月卡/在线）。</summary>
+    private static bool _runningUseItems;
     private static int _signTitleId;
     private static int _monthTitleId;
     private static int _onlineTitleId;
@@ -109,15 +113,21 @@ public static class SeqChapterDailyClaim
     private const int TraceHeartbeatEvery = 5;
 
 
+    /// <summary>官方 BackPackPanel.OpenMonthCard 写死的月卡活动 TitleId / ActivityId。</summary>
+    private const int MonthCardActivityId = 19;
+
     // states
     private const int StSendList = 1;
     private const int StWaitList = 2;
     private const int StSendSignInfo = 13;
     private const int StWaitSignInfo = 14;
     private const int StClaimSign = 15;
+    /// <summary>开背包并切月卡页（原发月卡活动信息）。</summary>
     private const int StSendMonthInfo = 3;
     private const int StWaitMonthInfo = 4;
     private const int StClaimMonth = 5;
+    /// <summary>领完月卡后关背包，再进活动列表。</summary>
+    private const int StCloseMonthBag = 16;
     private const int StSendOnlineInfo = 6;
     private const int StWaitOnlineInfo = 7;
     private const int StClaimOnline = 8;
@@ -317,6 +327,20 @@ public static class SeqChapterDailyClaim
         return StartGiftPipeline();
     }
 
+    /// <summary>测试 UI / 脚本：开/停「用背包道具」流水线（原做日常末尾扫包，现独立）。</summary>
+    public static bool ToggleUseItemsFromUi()
+    {
+        Bootstrap();
+        if (_pipelineRunning || IsAnyCopyPipelineRunning())
+        {
+            AbortDailyAllCopies();
+            Tip("用道具：已停止");
+            return false;
+        }
+
+        return StartUseItemsPipeline();
+    }
+
     /// <summary>
     /// 分享：切页（日常 / 新手礼包码）→ 限时内再点开始；进行中再点则停止。
     /// 返回值仅兼容加载器；提示一律走 Tip()。
@@ -405,6 +429,7 @@ public static class SeqChapterDailyClaim
         }
 
         _runningGift = false;
+        _runningUseItems = false;
         _pipelineRunning = true;
         SyncPipelineRunningAllCopies(true);
         _signClaims = 0;
@@ -412,7 +437,7 @@ public static class SeqChapterDailyClaim
         _onlineClaims = 0;
         _itemUses = 0;
         _uidIndex = 0;
-        _state = StSendList;
+        _state = StSendMonthInfo;
         _waitTicks = 0;
         _onlineClaimable = null;
         _onlineClaimIndex = 0;
@@ -453,6 +478,7 @@ public static class SeqChapterDailyClaim
         }
 
         _runningGift = true;
+        _runningUseItems = false;
         _pipelineRunning = true;
         SyncPipelineRunningAllCopies(true);
         _giftUidIndex = 0;
@@ -473,6 +499,43 @@ public static class SeqChapterDailyClaim
         return true;
     }
 
+    /// <summary>仅扫背包用道具（原日常末尾步骤）；多角色与日常同一套 uid 收集。</summary>
+    private static bool StartUseItemsPipeline()
+    {
+        _uids = CollectUids();
+        if (_uids == null || _uids.Count == 0)
+        {
+            Tip("用道具：未找到角色");
+            return false;
+        }
+
+        _runningGift = false;
+        _runningUseItems = true;
+        _pipelineRunning = true;
+        SyncPipelineRunningAllCopies(true);
+        _signClaims = 0;
+        _monthClaims = 0;
+        _onlineClaims = 0;
+        _itemUses = 0;
+        _uidIndex = 0;
+        _useUidIndex = 0;
+        _useSlot = 8;
+        _useAttempt = 0;
+        _awaitingUseConfirm = false;
+        _confirmWaitTicks = 0;
+        _pipelineTicks = 0;
+        _skipConfirmTicks = 0;
+        _staleUseCount = 0;
+        _stalePile = -1;
+        _staleItemId = 0;
+        _staleSlot = -1;
+        _tracePrevState = -1;
+        _traceSameTicks = 0;
+        _state = StUsePrep;
+        Tip(string.Format("用道具：开始 角色{0}个（{1}）", _uids.Count, _uidSource));
+        StartDailyTimer();
+        return true;
+    }
 
     private static string StateName(int state)
     {
@@ -483,9 +546,10 @@ public static class SeqChapterDailyClaim
             case StSendSignInfo: return "发签到信息";
             case StWaitSignInfo: return "等签到信息";
             case StClaimSign: return "领签到";
-            case StSendMonthInfo: return "发月卡信息";
+            case StSendMonthInfo: return "开背包月卡";
             case StWaitMonthInfo: return "等月卡信息";
             case StClaimMonth: return "领月卡";
+            case StCloseMonthBag: return "关背包";
             case StSendOnlineInfo: return "发在线信息";
             case StWaitOnlineInfo: return "等在线信息";
             case StClaimOnline: return "领在线";
@@ -503,8 +567,8 @@ public static class SeqChapterDailyClaim
     private static void TraceTip(string detail)
     {
         var uidN = _uids != null ? _uids.Count : 0;
-        var head = _runningGift ? "礼包" : "日常";
-        var ang = _runningGift ? _giftUidIndex : _uidIndex;
+        var head = _runningGift ? "礼包" : (_runningUseItems ? "用道具" : "日常");
+        var ang = _runningGift ? _giftUidIndex : (_runningUseItems ? _useUidIndex : _uidIndex);
         var msg = string.Format(
             "{0}[{1}] t{2} 角{3}/{4} · {5}",
             head,
@@ -678,8 +742,9 @@ public static class SeqChapterDailyClaim
         }
         catch (Exception ex)
         {
-            WriteStatus("daily_tick_err", ex.GetType().Name + ": " + ex.Message);
-            FinishDaily("日常异常：" + ex.GetType().Name);
+            var detail = ex.GetType().Name + ": " + (ex.Message ?? "");
+            WriteStatus("daily_tick_err", detail);
+            FinishDaily("日常异常：" + detail);
         }
     }
 
@@ -755,8 +820,8 @@ public static class SeqChapterDailyClaim
             {
                 if (_signTitleId < 0)
                 {
-                    TraceTip("无签到活动→月卡");
-                    _state = StSendMonthInfo;
+                    TraceTip("无签到活动→在线");
+                    _state = StSendOnlineInfo;
                     return;
                 }
 
@@ -784,7 +849,7 @@ public static class SeqChapterDailyClaim
 
                 if (_waitTicks >= WaitTicksMax)
                 {
-                    if (RetryOrSkip("等签到信息", StSendMonthInfo))
+                    if (RetryOrSkip("等签到信息", StSendOnlineInfo))
                     {
                         return;
                     }
@@ -808,43 +873,87 @@ public static class SeqChapterDailyClaim
                     TraceTip("签到跳过(已领/不可领)");
                 }
 
-                _state = StSendMonthInfo;
+                _state = StSendOnlineInfo;
                 return;
             }
             case StSendMonthInfo:
             {
-                if (_monthTitleId < 0)
+                if (_uids == null || _uidIndex >= _uids.Count)
                 {
-                    TraceTip("无月卡活动→在线");
-                    _state = StSendOnlineInfo;
+                    TraceTip("月卡角色已走完→用道具");
+                    _state = StUsePrep;
                     return;
                 }
 
                 var uid = _uids[_uidIndex];
                 _expectUid = uid;
                 _expectInfoType = "特权月卡";
-                SendActivity("活动信息", uid, _monthTitleId, 0);
-                TraceTip("已发月卡信息 id=" + _monthTitleId);
+                _pendingInfo = null;
+                if (!TryOpenBackPackMonthTab(uid))
+                {
+                    TraceTip("开背包失败→协议领月卡");
+                    SendActivity("活动信息", uid, MonthCardActivityId, 0);
+                    SendMonthCardStatus("更新权益状态", uid);
+                }
+
+                TraceTip("已开背包月卡页 uid尾" + TailUid(uid));
                 _waitTicks = 0;
+                _opRetryCount = 0;
                 _state = StWaitMonthInfo;
                 return;
             }
             case StWaitMonthInfo:
             {
                 _waitTicks++;
-                var info = FindActivityInfo("特权月卡", _uids[_uidIndex]);
+                var wantUid = _uids[_uidIndex];
+                var info = FindMonthCardActivityInfo(wantUid);
                 if (info != null)
                 {
-                    _state = StClaimMonth;
                     _pendingInfo = info;
+                    _opRetryCount = 0;
                     TraceTip("月卡信息到→领取");
+                    _state = StClaimMonth;
                     return;
+                }
+
+                // 诊断：背包里有月卡对象但 uid/Type 对不上（常见于 Open 后仍是 SelectPlayerUid）
+                if (_waitTicks == 3 || _waitTicks == WaitTicksMax)
+                {
+                    try
+                    {
+                        var bag = FindExistingUiPanel("BackPackPanel");
+                        var bagUid = Convert.ToString(GetMember(bag, "m_Uid") ?? "") ?? "";
+                        var raw = GetMember(bag, "m_MonthCardActivityInfo");
+                        var rawUid = Convert.ToString(GetMember(raw, "KUid") ?? "") ?? "";
+                        var rawType = Convert.ToString(GetMember(raw, "Type") ?? "") ?? "";
+                        var rawAid = Convert.ToInt32(GetMember(raw, "ActivityId") ?? 0);
+                        TraceTip(string.Format(
+                            "等月卡诊断 want尾{0} bag尾{1} raw尾{2} type={3} aid={4} tick={5}",
+                            TailUid(wantUid),
+                            TailUid(bagUid),
+                            TailUid(rawUid),
+                            string.IsNullOrEmpty(rawType) ? "(空)" : rawType,
+                            rawAid,
+                            _waitTicks));
+                    }
+                    catch
+                    {
+                        // ignore
+                    }
                 }
 
                 if (_waitTicks >= WaitTicksMax)
                 {
-                    TraceTip("等月卡信息超时→在线");
-                    _state = StSendOnlineInfo;
+                    if (_opRetryCount < MaxOpRetries)
+                    {
+                        _opRetryCount++;
+                        TraceTip("等月卡超时→重开 " + _opRetryCount + "/" + MaxOpRetries);
+                        _state = StSendMonthInfo;
+                        return;
+                    }
+
+                    TraceTip("等月卡信息超时→关背包");
+                    _state = StCloseMonthBag;
                 }
 
                 return;
@@ -858,6 +967,11 @@ public static class SeqChapterDailyClaim
                     var tqkTime = Convert.ToInt32(GetMember(info, "TqkTime") ?? 0);
                     var tqkbDay = Convert.ToBoolean(GetMember(info, "TqkbDay") ?? true);
                     var activityId = Convert.ToInt32(GetMember(info, "ActivityId") ?? 0);
+                    if (activityId <= 0)
+                    {
+                        activityId = MonthCardActivityId;
+                    }
+
                     var now = GetServerTime();
                     if (tqkTime > now && !tqkbDay && activityId > 0)
                     {
@@ -879,7 +993,14 @@ public static class SeqChapterDailyClaim
                     TraceTip("月卡无数据");
                 }
 
-                _state = StSendOnlineInfo;
+                _state = StCloseMonthBag;
+                return;
+            }
+            case StCloseMonthBag:
+            {
+                TryCloseBackPackPanel();
+                TraceTip("已关背包→活动列表");
+                _state = StSendList;
                 return;
             }
             case StSendOnlineInfo:
@@ -951,8 +1072,15 @@ public static class SeqChapterDailyClaim
             case StNextUid:
             {
                 _uidIndex++;
+                if (_uids == null || _uidIndex >= _uids.Count)
+                {
+                    TraceTip("全部角色领完→用道具");
+                    _state = StUsePrep;
+                    return;
+                }
+
                 TraceTip("切换下一角色");
-                _state = StSendList;
+                _state = StSendMonthInfo;
                 return;
             }
             case StUsePrep:
@@ -1021,12 +1149,22 @@ public static class SeqChapterDailyClaim
             }
             case StDone:
             {
-                FinishDaily(string.Format(
-                    "日常完成：签到{0} · 月卡{1} · 在线{2}档 · 用道具{3}次",
-                    _signClaims,
-                    _monthClaims,
-                    _onlineClaims,
-                    _itemUses));
+                if (_runningUseItems)
+                {
+                    FinishDaily(string.Format("用道具完成：角色{0} · 使用{1}次",
+                        _uids != null ? _uids.Count : 0,
+                        _itemUses));
+                }
+                else
+                {
+                    FinishDaily(string.Format(
+                        "日常完成：签到{0} · 月卡{1} · 在线{2}档 · 用道具{3}次",
+                        _signClaims,
+                        _monthClaims,
+                        _onlineClaims,
+                        _itemUses));
+                }
+
                 return;
             }
             case StGiftSend:
@@ -1247,6 +1385,7 @@ public static class SeqChapterDailyClaim
         StopDailyTimer();
         _pipelineRunning = false;
         _runningGift = false;
+        _runningUseItems = false;
         _shareArmed = false;
         SyncPipelineRunningAllCopies(false);
         _state = 0;
@@ -1272,6 +1411,7 @@ public static class SeqChapterDailyClaim
 
         _pipelineRunning = false;
         _runningGift = false;
+        _runningUseItems = false;
         _shareArmed = false;
         _state = 0;
         _awaitingUseConfirm = false;
@@ -1504,14 +1644,24 @@ public static class SeqChapterDailyClaim
             // ignore
         }
 
-        // 2) MonthCardChildPanel.m_ActivityInfo
+        // 2) 背包挂载的月卡页（2026-09 起特权月卡从活动页挪到背包）
+        if (type.IndexOf("特权", StringComparison.Ordinal) >= 0 || type.IndexOf("月卡", StringComparison.Ordinal) >= 0)
+        {
+            var month = FindMonthCardActivityInfo(uid);
+            if (month != null)
+            {
+                return month;
+            }
+        }
+
+        // 3) MonthCardChildPanel.m_ActivityInfo
         if (type.IndexOf("特权", StringComparison.Ordinal) >= 0 || type.IndexOf("月卡", StringComparison.Ordinal) >= 0)
         {
             try
             {
                 var child = GetUiChildPanel("MonthCardChildPanel");
                 var info = GetMember(child, "m_ActivityInfo");
-                if (InfoMatches(info, type, uid))
+                if (InfoMatches(info, type, uid) || IsMonthCardActivityInfo(info, uid))
                 {
                     return info;
                 }
@@ -1522,7 +1672,7 @@ public static class SeqChapterDailyClaim
             }
         }
 
-        // 3) SingInChildPanel.m_info（周期签到）
+        // 4) SingInChildPanel.m_info（周期签到）
         if (type.IndexOf("签到", StringComparison.Ordinal) >= 0)
         {
             try
@@ -1541,6 +1691,279 @@ public static class SeqChapterDailyClaim
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// 背包月卡：优先 BackPackPanel.m_MonthCardActivityInfo，再 MonthCardChildPanel。
+    /// ActivityId=19 即视为月卡详情（Type 可能是「特权月卡」或尚未写 Type 的占位）。
+    /// </summary>
+    private static object FindMonthCardActivityInfo(string uid)
+    {
+        try
+        {
+            var bag = FindExistingUiPanel("BackPackPanel") ?? GetUiPanel("BackPackPanel");
+            var info = GetMember(bag, "m_MonthCardActivityInfo");
+            if (IsMonthCardActivityInfo(info, uid))
+            {
+                return info;
+            }
+        }
+        catch
+        {
+            // ignore
+        }
+
+        try
+        {
+            var child = FindExistingUiChild("MonthCardChildPanel") ?? GetUiChildPanel("MonthCardChildPanel");
+            var info = GetMember(child, "m_ActivityInfo");
+            if (IsMonthCardActivityInfo(info, uid))
+            {
+                return info;
+            }
+        }
+        catch
+        {
+            // ignore
+        }
+
+        return null;
+    }
+
+    private static bool IsMonthCardActivityInfo(object info, string uid)
+    {
+        if (info == null)
+        {
+            return false;
+        }
+
+        var k = Convert.ToString(GetMember(info, "KUid") ?? "") ?? "";
+        if (!string.IsNullOrEmpty(uid) && !string.IsNullOrEmpty(k)
+            && !string.Equals(k, uid, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        var activityId = Convert.ToInt32(GetMember(info, "ActivityId") ?? 0);
+        var t = Convert.ToString(GetMember(info, "Type") ?? "") ?? "";
+        // OpenMonthCardPanel 会先塞 ActivityId=19 的空 Type 占位；等「活动信息」回包才算数。
+        if (activityId == MonthCardActivityId)
+        {
+            return !string.IsNullOrEmpty(t);
+        }
+
+        return t.IndexOf("月卡", StringComparison.Ordinal) >= 0
+               || string.Equals(t, "特权月卡", StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// 开背包并切到月卡页，再按目标 uid 拉活动信息。
+    /// 注意：BackPackPanel.OnShow 会把 m_Uid 写成 SelectPlayerUid，必须在 Open 之后强制 OnChangeUid(目标)
+    /// （并清缓存后手发「活动信息」+「更新权益状态」），否则多角色日常会一直等错号的月卡回包。
+    /// </summary>
+    private static bool TryOpenBackPackMonthTab(string uid)
+    {
+        try
+        {
+            var panel = GetUiPanel("BackPackPanel");
+            if (panel == null)
+            {
+                return false;
+            }
+
+            // Open(2) → OnShow 会订阅 Tab3，并把 mOpenPage=2 时切到月卡页
+            var openInt = panel.GetType().GetMethod(
+                "Open",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+                null,
+                new[] { typeof(int) },
+                null);
+            if (openInt != null)
+            {
+                openInt.Invoke(panel, new object[] { 2 });
+            }
+            else
+            {
+                var open0 = panel.GetType().GetMethod(
+                    "Open",
+                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+                    null,
+                    Type.EmptyTypes,
+                    null);
+                open0?.Invoke(panel, null);
+            }
+
+            // OnShow 已覆盖 m_Uid；Tab3 可能已用 SelectPlayerUid 发过包。强制切到目标角色。
+            if (!string.IsNullOrEmpty(uid))
+            {
+                var onChange = panel.GetType().GetMethod(
+                    "OnChangeUid",
+                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+                    null,
+                    new[] { typeof(string) },
+                    null);
+                if (onChange != null)
+                {
+                    // Tab3 已亮时：清 m_MonthCardActivityInfo + 以本 uid 重发两包
+                    onChange.Invoke(panel, new object[] { uid });
+                }
+
+                SetMember(panel, "m_Uid", uid);
+                SetMember(panel, "m_MonthCardActivityInfo", null);
+                SetMember(panel, "m_WaitingMonthCard", true);
+
+                // 无论 OnChangeUid 是否走到 Tab3 分支，都按目标 uid 再发官方两包（幂等）
+                SendActivity("活动信息", uid, MonthCardActivityId, 0);
+                SendMonthCardStatus("更新权益状态", uid);
+            }
+
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static void TryCloseBackPackPanel()
+    {
+        try
+        {
+            var panel = FindExistingUiPanel("BackPackPanel");
+            if (panel == null)
+            {
+                return;
+            }
+
+            MethodInfo close = null;
+            for (var t = panel.GetType(); t != null; t = t.BaseType)
+            {
+                close = t.GetMethod(
+                    "Close",
+                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly,
+                    null,
+                    Type.EmptyTypes,
+                    null);
+                if (close != null)
+                {
+                    break;
+                }
+            }
+
+            close?.Invoke(panel, null);
+        }
+        catch
+        {
+            // ignore
+        }
+    }
+
+    private static object FindExistingUiPanel(string typeName)
+    {
+        return FindExistingUiByType(typeName, "FindUIPanelByType");
+    }
+
+    private static object FindExistingUiChild(string typeName)
+    {
+        return FindExistingUiByType(typeName, "FindChildPanelByType");
+    }
+
+    private static object FindExistingUiByType(string typeName, string findMethodName)
+    {
+        try
+        {
+            var ui = FindType("UIManager");
+            var panelType = FindType(typeName);
+            if (ui == null || panelType == null)
+            {
+                return null;
+            }
+
+            foreach (var m in ui.GetMethods(BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic))
+            {
+                if (m.Name != findMethodName || !m.IsGenericMethodDefinition)
+                {
+                    continue;
+                }
+
+                try
+                {
+                    return m.MakeGenericMethod(panelType).Invoke(null, null);
+                }
+                catch
+                {
+                    // next
+                }
+            }
+        }
+        catch
+        {
+            // ignore
+        }
+
+        return null;
+    }
+
+    private static void SendMonthCardStatus(string type, string uid)
+    {
+        try
+        {
+            var mgr = GetManagerInstance("ActivityManager");
+            if (mgr == null)
+            {
+                return;
+            }
+
+            MethodInfo send = null;
+            foreach (var m in mgr.GetType().GetMethods(
+                         BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+            {
+                if (m.Name != "SendMonthCardStatus")
+                {
+                    continue;
+                }
+
+                var ps = m.GetParameters();
+                if (ps.Length >= 2
+                    && ps[0].ParameterType == typeof(string)
+                    && ps[1].ParameterType == typeof(string))
+                {
+                    send = m;
+                    break;
+                }
+            }
+
+            if (send == null)
+            {
+                return;
+            }
+
+            var psAll = send.GetParameters();
+            var args = new object[psAll.Length];
+            args[0] = type;
+            args[1] = uid;
+            for (var i = 2; i < psAll.Length; i++)
+            {
+                args[i] = psAll[i].HasDefaultValue ? psAll[i].DefaultValue : null;
+            }
+
+            send.Invoke(mgr, args);
+        }
+        catch
+        {
+            // ignore
+        }
+    }
+
+    private static string TailUid(string uid)
+    {
+        var s = uid ?? "";
+        if (s.Length <= 4)
+        {
+            return s;
+        }
+
+        return s.Substring(s.Length - 4);
     }
 
     private static bool InfoMatches(object info, string type, string uid)
@@ -2309,7 +2732,16 @@ public static class SeqChapterDailyClaim
         try
         {
             EnsureStatusPath();
-            File.WriteAllText(_statusPath, key + "=" + value + "\n" + DateTime.Now.ToString("o"));
+            var line = key + "=" + value + "\n" + DateTime.Now.ToString("o");
+            File.WriteAllText(_statusPath, line);
+            // 追加滚动日志，便于事后查看「等月卡」等过程（status 本身只保留最后一条）
+            var logPath = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                ".seqchapter_helper",
+                "daily_claim.log");
+            File.AppendAllText(
+                logPath,
+                DateTime.Now.ToString("HH:mm:ss") + " " + key + "=" + value + "\n");
         }
         catch
         {

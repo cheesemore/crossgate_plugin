@@ -37,6 +37,7 @@ REF_STUBS_BUILD = GAME_ROOT / "tools" / "hotfix_patcher" / "build_ref_stubs.py"
 AUTO_SEAL_SRC = GAME_ROOT / "tools" / "seqchapter_auto_seal"
 AUTO_CATCH_SRC = GAME_ROOT / "tools" / "seqchapter_auto_catch"
 AUTO_CATCH_SELL_SRC = GAME_ROOT / "tools" / "seqchapter_auto_catch_sell"
+AUTO_CATCH_WILD_SRC = GAME_ROOT / "tools" / "seqchapter_auto_catch_wild"
 DAILY_CLAIM_SRC = GAME_ROOT / "tools" / "seqchapter_daily_claim"
 BOSS_KEY_FPS_SRC = GAME_ROOT / "tools" / "seqchapter_boss_key_fps"
 WIKI_FPS_SRC = GAME_ROOT / "tools" / "seqchapter_wiki_fps"
@@ -160,7 +161,7 @@ def _readme_content(app_name: str) -> str:
 · 界面外层选项：「战斗加速」（默认关：开启→战斗倍速+心跳回传1.5x，会连带掐断倍速检测上报；关→原速+心跳回传1.0x）、「跳帧（切后台/老板键限帧 30FPS）」与「多开器适配功能」（默认不打：勾选=注入精简桥接，供包内「多开器」登录/拉多控/一键召唤；占 hotfixdata 容量）
 · 默认含：分享改日常、礼包码
 · 随包附「多开器」（多开器\多开器.exe，界面「启动多开器」按钮）：多开器需要打「多开器适配功能」才能连接游戏
-· 随包附「窗口监视.exe」（包根，也可「启动窗口监视.bat」或界面按钮）：右下角置顶，刷新 cg37 标题；跑中元的窗口标红；可填 Bark 链接测试推送；卡死/卡循环会推送（10 分钟最多 1 次）
+· 随包附「窗口监视.exe」（包根，也可「启动窗口监视.bat」或界面按钮）：右下角置顶，刷新 cg37 标题；可填 Bark 链接测试推送；卡死/卡循环会推送（10 分钟最多 1 次）
 · 勾选「移动加速」可在打补丁时一并开启
 
 【用法】
@@ -400,6 +401,7 @@ def build_exe(app_name: str = APP_NAME, dragon_loop_ui: bool = False) -> Path:
         (AUTO_SEAL_SRC, "seqchapter_auto_seal"),
         (AUTO_CATCH_SRC, "seqchapter_auto_catch"),
         (AUTO_CATCH_SELL_SRC, "seqchapter_auto_catch_sell"),
+        (AUTO_CATCH_WILD_SRC, "seqchapter_auto_catch_wild"),
         (DAILY_CLAIM_SRC, "seqchapter_daily_claim"),
         (BOSS_KEY_FPS_SRC, "seqchapter_boss_key_fps"),
         (WIKI_FPS_SRC, "seqchapter_wiki_fps"),
@@ -628,11 +630,13 @@ def verify_pack(folder: Path, zip_path: Path, app_name: str = APP_NAME) -> None:
         folder / "patcher" / "seqchapter_auto_seal",
         folder / "patcher" / "seqchapter_auto_catch",
         folder / "patcher" / "seqchapter_auto_catch_sell",
+        folder / "patcher" / "seqchapter_auto_catch_wild",
         folder / "patcher" / "seqchapter_daily_claim",
         folder / "patcher" / "seqchapter_battle_appear",
         folder / "patcher" / "seqchapter_test_ui",
         folder / "patcher" / "seqchapter_helper_bridge",
         folder / "patcher" / "seqchapter_mini_bridge",
+        folder / "tools" / "seqchapter_auto_catch_wild",
         folder / "多开器",
         folder / WINDOW_MONITOR_NAME,
     ]
@@ -659,9 +663,13 @@ def verify_pack(folder: Path, zip_path: Path, app_name: str = APP_NAME) -> None:
     zip_dir_prefixes = [
         f"{app_name}/patcher/ref_stubs/",
         f"{app_name}/patcher/seqchapter_auto_seal/",
+        f"{app_name}/patcher/seqchapter_auto_catch/",
+        f"{app_name}/patcher/seqchapter_auto_catch_sell/",
+        f"{app_name}/patcher/seqchapter_auto_catch_wild/",
         f"{app_name}/patcher/seqchapter_battle_appear/",
         f"{app_name}/patcher/seqchapter_helper_bridge/",
         f"{app_name}/patcher/seqchapter_mini_bridge/",
+        f"{app_name}/tools/seqchapter_auto_catch_wild/",
         f"{app_name}/多开器/_internal/",
     ]
     zip_missing = [n for n in zip_required if n not in names]

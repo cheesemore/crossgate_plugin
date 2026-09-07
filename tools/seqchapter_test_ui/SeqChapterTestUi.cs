@@ -96,6 +96,10 @@ public static class SeqChapterTestUi
     /// <summary>两次对话面板弹出间隔实测约 0.5s；0.8s 足够，不必等 SendWindows 的 2s 冷却。</summary>
     private const long DialogueClickIntervalMs = 800;
     private const long StuckIdleMs = 5000;
+    /// <summary>静止已逾期（&gt;5s）时，每秒再检一次并尝试恢复。</summary>
+    private const long EscortStuckOverdueCheckMs = 1000;
+    /// <summary>逾期超过此时长仍被「硬过图」挡住时，强制进恢复（防 isPaused/加载标志卡死）。</summary>
+    private const long EscortStuckOverdueForceMs = 10000;
     /// <summary>本步骤第 1 次卡位：清路径后等这么久再官方点任务。</summary>
     private const long EscortStuckFirstAbortWaitMs = 500;
     /// <summary>挪格后短观察，再点任务 / 再走回原格。</summary>
@@ -526,10 +530,37 @@ public static class SeqChapterTestUi
     private static bool _escortWasInBattle;
     /// <summary>上一 tick 是否在战斗；用于退战边沿重置静止基线。</summary>
     private static bool _escortPrevInBattle;
+    /// <summary>洗礼预备：本场战斗中是否见过 forceQuitBattle（战败/踢出/逃跑类）。</summary>
+    private static bool _baptismSawForceQuit;
+    /// <summary>洗礼4完成后、洗礼5开始前：等道具#651022（无则暂停）。</summary>
+    private static bool _baptismNeedItemBefore5;
+    /// <summary>洗礼4后法兰治疗失败：点继续时重跑治疗。</summary>
+    private static bool _baptismNeedFloraBefore5;
+    /// <summary>已用#651022，短等后开洗礼5。</summary>
+    private static bool _baptism5ItemUsePending;
+    private static long _baptism5ItemUseAtMs;
+    /// <summary>洗礼5：已进 60305 并掐过任务导航。</summary>
+    private static bool _baptism5NavAborted;
+    /// <summary>洗礼5：已在 Boss 点暂停过（防连触发）。</summary>
+    private static bool _baptism5BossPauseDone;
+    private static long _baptism5LastNavNudgeMs;
     /// <summary>护航要求队伍至少人数（战后不足则暂停等手动继续）。</summary>
     private const int EscortTeamMinMembers = 5;
     /// <summary>战斗页：PVE 清表现队列让 RunProcess 自然 OnCompleted，再等 CHAR。默认关。</summary>
     private static bool _skipBattleAnim = false;
+    /// <summary>战斗辅助：血条下显示血/蓝与恢/攻无等标记。默认关。</summary>
+    private static bool _battleAssist = false;
+    private static readonly Dictionary<int, object> BattleAssistLabels = new Dictionary<int, object>();
+    private static long _battleAssistLastRefreshMs;
+    private const long BattleAssistRefreshMs = 200;
+    private const string BattleAssistChildName = "SeqBaHint";
+    private const long BcRcvUp = 0x100000L;
+    private const long BcAtkRebound = 0x200000L;
+    private const long BcMagicRebound = 0x400000L;
+    private const long BcAtkAbsorb = 0x800000L;
+    private const long BcMagicAbsorb = 0x20000000L;
+    private const long BcAtkInvalid = 0x40000000L;
+    private const long BcMagicInvalid = unchecked((long)0x80000000L);
     private static bool _skipBattleAnimFlushLogged;
     private static long _skipBattleAnimLastDiagMs;
     private static long _skipBattleAnimCmdSinceMs;
@@ -682,6 +713,11 @@ public static class SeqChapterTestUi
     private const long FloraHealDropDelayMs = 1000;
     private static bool _floraHealActive;
     private static bool _floraHealResumeEscort;
+    /// <summary>法兰治疗由洗礼预备拉起：0=否 1=开局后重置#99 2=洗礼4后开#99前。</summary>
+    private static int _floraHealBaptismStage;
+    private const int FloraBaptismNone = 0;
+    private const int FloraBaptismPrepStart = 1;
+    private const int FloraBaptismBefore5 = 2;
     private static bool _floraHealNeedRetry;
     private static int _floraHealPhase;
     private static int _floraHealStepTries;
@@ -826,6 +862,8 @@ public static class SeqChapterTestUi
     private static int _lastPosX = int.MinValue;
     private static int _lastPosY = int.MinValue;
     private static long _lastActivityMs;
+    /// <summary>静止已&gt;5s 时上次逾期检测时刻（节流 1s）。</summary>
+    private static long _escortStuckOverdueLastCheckMs;
     private static long _stuckMoveAtMs;
     private static bool _stuckResumePending;
     /// <summary>本步骤第 1 次卡位：清路径后等 2 秒再官方点任务（与 15000/传送相同）。</summary>
@@ -835,11 +873,8 @@ public static class SeqChapterTestUi
     /// <summary>阶段3：随机挪格前的坐标，用于走回原格。</summary>
     private static int _stuckReturnX;
     private static int _stuckReturnY;
-    /// <summary>护航观测到的上一地图 floor；切图只刷新静止计时，续航交给官方。</summary>
+    /// <summary>护航观测到的上一地图 floor；正常切图只记一下，不中断官方导航。</summary>
     private static int _escortLastFloor = int.MinValue;
-    private static long _escortMapChangeAtMs;
-    /// <summary>切图后约 1.5s 内不判普通卡图，避免打断官方续航。</summary>
-    private const long EscortMapChangeSettleMs = 2000;
     /// <summary>任务已完成后，等待弹窗出现/点完的起始时间；0=未进入收尾。</summary>
     private static long _escortFinishWaitMs;
     private const long EscortFinishGraceMs = 2500;
@@ -890,6 +925,34 @@ public static class SeqChapterTestUi
     private static int _dragonCheckRetries;
     private const int DragonCheckMaxRetries = 5;
     private const long DragonCheckRetryMs = 1500;
+
+    // ----- 洗礼预备（护航页）：合击→治疗→重置#99→护航1/2/4→再治疗→用651022→#99 -----
+    private static bool _baptismPrepActive;
+    /// <summary>0=未运行 1=法兰治疗 2=重置后等待 3=护航中。</summary>
+    private static int _baptismPrepPhase;
+    private static long _baptismPrepPhaseAtMs;
+    private const int BaptismPhaseFlora = 1;
+    private const int BaptismPhaseResetWait = 2;
+    private const int BaptismPhaseEscort = 3;
+    private const long BaptismResetDelayMs = 2500;
+    private const long Baptism5ItemUseDelayMs = 1500;
+    private const int Baptism1MissionId = 84;
+    private const int Baptism2MissionId = 85;
+    private const int Baptism4MissionId = 87;
+    private const int Baptism5MissionId = 99;
+    /// <summary>洗礼5开场前队长需使用的道具。</summary>
+    private const int Baptism5StartItemId = 651022;
+    private const int Baptism5BossFloor = 60305;
+    private const int Baptism5BossX = 173;
+    private const int Baptism5BossY = 28;
+    private const int Baptism5BossArriveNear = 2;
+    private const long Baptism5NavNudgeMs = 3000;
+    /// <summary>洗礼预备开局：队长非绑定魔币下限（不含等号，须大于）。</summary>
+    private const long BaptismCaptainUnbindGoldMin = 120000;
+    /// <summary>洗礼预备开局：队员非绑定魔币下限（不含等号，须大于）。</summary>
+    private const long BaptismMemberUnbindGoldMin = 20000;
+    private static readonly int[] BaptismPrepMissionIds =
+        { Baptism1MissionId, Baptism2MissionId, Baptism4MissionId, Baptism5MissionId };
     private const int StorePetLevel = 1;
     private const int PetStatusRest = 0;
 
@@ -1024,6 +1087,10 @@ public static class SeqChapterTestUi
         public string Uid;
         public string JobName;
         public string JobAncestry;
+        /// <summary>JobAncestry 数值：60传教 80咒术 130巫师。</summary>
+        public int JobAncestryId;
+        /// <summary>被 AI 强制接管：不参与丢药/吃瓶优先级（由各自 AI 自决）。</summary>
+        public bool AiForceTakeover;
         /// <summary>开战时按 MaxHp 定的敌方角色档；我方为 None。</summary>
         public SuperAiEnemyRole EnemyRole;
         /// <summary>开战快照 MaxHp（定档用）。</summary>
@@ -1045,6 +1112,7 @@ public static class SeqChapterTestUi
         public int Count;
         public int BagIndex;
         public int Type;
+        public int ItemId;
     }
 
     private struct SuperAiPlannedCmd
@@ -1057,11 +1125,42 @@ public static class SeqChapterTestUi
     private static readonly List<SuperAiPlannedCmd> _superAiPlannedCmds = new List<SuperAiPlannedCmd>();
     private const int SuperAiPetAttackSkillId = 73;
     private const int SuperAiBattleItemMinType = 23;
+    /// <summary>高压战斗吃瓶阈值；普通 Boss / 低压 50%。</summary>
+    private const float SuperAiPotionHpHighPressure = 0.60f;
+    private const float SuperAiPotionHpLowPressure = 0.50f;
+    private const int SuperAiPotionLowMpPriority = 100;
+    private const int SuperAiJobPriest = 60;
+    private const int SuperAiJobSorcerer = 80;
+    private const int SuperAiJobWizard = 130;
+    private const int SuperAiWizardRcvPreferCount = 5;
 
-    private const float SuperAiPlayerPotionHpRatio = 0.5f;
-    private const float SuperAiPetPotionHpRatio = 0.4f;
-    private const int SuperAiPriestSkipPotionMp = 200;
     private const string SuperAiPotionNamePrefix = "生命力回复药";
+    /// <summary>生命力回复药400/500/600/800/1000。</summary>
+    private static readonly int[] SuperAiHpPotionItemIds = { 15611, 15612, 15613, 15614, 15615 };
+    private static readonly int[] SuperAiHpPotionPowers = { 400, 500, 600, 800, 1000 };
+
+    /// <summary>备战准备：已扫过背包+账号银行库存。</summary>
+    private static bool _superAiPrepReady;
+    private static bool _superAiPrepActive;
+    private static int _superAiPrepPhase;
+    private static int _superAiPrepUidIndex;
+    private static long _superAiPrepWaitMs;
+    private static string _superAiPrepNote = "";
+    private static readonly List<string> _superAiPrepUids = new List<string>();
+    private static readonly Dictionary<string, int[]> _superAiPrepBagCounts =
+        new Dictionary<string, int[]>();
+    private static readonly Dictionary<string, int[]> _superAiPrepBankCounts =
+        new Dictionary<string, int[]>();
+    /// <summary>uid → {itemId, bankIndex, pile}。</summary>
+    private static readonly Dictionary<string, List<int[]>> _superAiPrepBankRows =
+        new Dictionary<string, List<int[]>>();
+
+    private static bool _superAiBankPullActive;
+    private static string _superAiBankPullUid = "";
+    private static int _superAiBankPullPhase;
+    private static long _superAiBankPullWaitMs;
+    private static bool _superAiBankPullWhTabDone;
+    private static long _superAiBankPullLastWhOpenMs;
 
     /// <summary>MaxHp &lt; 此值 → 杂兵；首领1 也须 ≥ 此值才算首领战。</summary>
     private const int SuperAiTrashMaxHp = 3000;
@@ -1071,7 +1170,10 @@ public static class SeqChapterTestUi
 
     private static int _superAiClassifiedBattleIndex = -1;
     private static bool _superAiIsBossBattle;
+    /// <summary>高压战斗（吃瓶 60%）；普通 Boss 战为 false（50%）。</summary>
+    private static bool _superAiIsHighPressure;
     private static string _superAiSpecialRuleId = "";
+    /// <summary>特殊模式标题后缀，完整标题为「AI战斗-{Title}」。</summary>
     private static string _superAiSpecialRuleTitle = "";
     private static int _superAiLastFocusAnchorIdx = -1;
     private static readonly Dictionary<int, SuperAiEnemyRole> _superAiEnemyRoleByIdx =
@@ -1079,14 +1181,42 @@ public static class SeqChapterTestUi
     private static readonly List<string> _superAiStartEnemyNames = new List<string>();
     private static object _superAiHintTitleText;
 
-    /// <summary>特殊定制表：开场名字关键字（各关键字不同单位）。暂无定制逻辑时仍走默认精英→首领序。</summary>
+    private const string SuperAiSpecialIdKillbear = "killbear";
+    private const string SuperAiSpecialIdFerni = "ferni";
+
+    /// <summary>战栗袭心（宠，任意等级同一 SkillId）。</summary>
+    private const int SuperAiSkillIdTremble = 6;
+    /// <summary>骑士之誉（人物）。</summary>
+    private const int SuperAiSkillIdKnightHonor = 1005;
+    /// <summary>菲尔尼一阶段：士官长蓝绝对值低于此值即视为抽完（不是百分比）。</summary>
+    private const int SuperAiFerniDrainMpThreshold = 70;
+    private const string SuperAiEnemyNameFerni = "菲尔尼";
+    private const string SuperAiEnemyNameSergeant = "士官长";
+
+    private enum SuperAiFerniPhase : byte
+    {
+        None = 0,
+        Drain = 1,
+        Focus = 2,
+        Cleanup = 3
+    }
+
+    private static SuperAiFerniPhase _superAiFerniPhase;
+
+    /// <summary>特殊定制表：开场敌名关键字（各关键字须落在不同单位）。</summary>
     private static readonly SuperAiSpecialRule[] SuperAiSpecialRules =
     {
         new SuperAiSpecialRule
         {
-            Id = "killbear_hotsand",
-            Title = "杀熊者·热砂",
-            Keywords = new[] { "杀熊者", "热砂" }
+            Id = SuperAiSpecialIdKillbear,
+            Title = "杀熊者模式",
+            Keywords = new[] { "杀熊者" }
+        },
+        new SuperAiSpecialRule
+        {
+            Id = SuperAiSpecialIdFerni,
+            Title = "菲尔尼",
+            Keywords = new[] { "菲尔尼" }
         }
     };
     /// <summary>VIP AutoSkillType：与 BattleProcesser.TryUseVipAutoSkill 一致，便于后续决策。</summary>
@@ -1265,6 +1395,8 @@ public static class SeqChapterTestUi
             TickLingTang();
             TickSkCNav();
             TickSuperAi();
+            TickSuperAiPrep();
+            TickSuperAiPotionBankPull();
             TickPetNamer();
             TickJunkDrop();
             TickScriptWingTest();
@@ -1281,6 +1413,7 @@ public static class SeqChapterTestUi
             // 跳过动画开着时仍跑无法行动兜底（石化/死亡漏 N）；与清队列不冲突。
             TickBattleUnableActFix();
             TickBattleRoundTimeoutLog();
+            TickBattleAssist();
         }
         catch (Exception ex)
         {
@@ -1691,7 +1824,7 @@ public static class SeqChapterTestUi
 
     private static bool IsSuperAiModeAllowed(string mode)
     {
-        return mode == ModeNormal || mode == ModeNopet2Act;
+        return mode == ModeNormal;
     }
 
     private static void ApplyBattleMode(string mode)
@@ -4439,6 +4572,7 @@ public static class SeqChapterTestUi
         if (BattleModeShowsSkipAnim(_battleMode))
         {
             AddSkipBattleAnimToggleRow(rtType, ref y);
+            AddBattleAssistToggleRow(rtType, ref y);
         }
 
         if (_battleMode == ModeEscortBattle)
@@ -4519,6 +4653,34 @@ public static class SeqChapterTestUi
         y -= 34f;
     }
 
+    private static void AddBattleAssistToggleRow(Type rtType, ref float y)
+    {
+        var row = CreateUiChild(_bodyRoot, "BattleAssistRow", rtType);
+        SetAnchoredTop(RequireRect(row, "bar"), 0f, y, 540f, 32f);
+        var img = AddComp(row, "UnityEngine.UI.Image");
+        SetColor(img, 0.18f, 0.2f, 0.28f, 1f);
+        var lab = CreateUiChild(row, "L", rtType);
+        StretchFull(RequireRect(lab, "bal"));
+        var text = AddText(lab);
+        SetText(text, (_battleAssist ? "● " : "○ ") + "战斗辅助（血条下：血/蓝·恢·攻无等）", 13);
+        BindButton(row, img, ToggleBattleAssistFromUi);
+        y -= 36f;
+    }
+
+    private static void ToggleBattleAssistFromUi()
+    {
+        _battleAssist = !_battleAssist;
+        ClearBattleAssistLabels();
+        Tip(_battleAssist ? "战斗辅助已开启" : "战斗辅助已关闭");
+        WriteLog("ToggleBattleAssist=" + _battleAssist);
+        if (_tab == TabBattle)
+        {
+            ClearBody();
+            BuildBattleBody();
+            RefreshTabButtonLabels();
+        }
+    }
+
     private static void ToggleSkipBattleAnimFromUi()
     {
         CaptureSkipAnimDelayInputsFromUi();
@@ -4530,6 +4692,7 @@ public static class SeqChapterTestUi
         {
             ReleaseHeldBattleChars("toggle-off");
         }
+
         Tip(_skipBattleAnim ? "跳过动画已开启" : "跳过动画已关闭");
         WriteLog("ToggleSkipBattleAnim=" + _skipBattleAnim
                  + " firstExtraSec=" + _skipAnimFirstRoundExtraSec
@@ -4576,6 +4739,339 @@ public static class SeqChapterTestUi
         }
 
         return v;
+    }
+
+    /// <summary>战斗辅助：在各单位 BattleUnitUI 血条下方画血/蓝与恢·攻无等。</summary>
+    private static void TickBattleAssist()
+    {
+        try
+        {
+            if (!_battleAssist || !IsInBattleNow())
+            {
+                if (BattleAssistLabels.Count > 0)
+                {
+                    ClearBattleAssistLabels();
+                }
+
+                return;
+            }
+
+            var now = NowMs();
+            if (now - _battleAssistLastRefreshMs < BattleAssistRefreshMs)
+            {
+                return;
+            }
+
+            _battleAssistLastRefreshMs = now;
+            RefreshBattleAssistLabels();
+        }
+        catch (Exception ex)
+        {
+            WriteLog("TickBattleAssist EX: " + RootMessage(ex));
+        }
+    }
+
+    private static void ClearBattleAssistLabels()
+    {
+        foreach (var kv in BattleAssistLabels)
+        {
+            try
+            {
+                DestroyUnityObject(kv.Value);
+            }
+            catch
+            {
+                // ignore
+            }
+        }
+
+        BattleAssistLabels.Clear();
+    }
+
+    private static void RefreshBattleAssistLabels()
+    {
+        var brc = FindType("BattleRoleContainer");
+        var dic = brc?.GetField("BattleRoleDic", BindingFlags.Public | BindingFlags.Static)
+            ?.GetValue(null) as IDictionary;
+        if (dic == null || dic.Count == 0)
+        {
+            ClearBattleAssistLabels();
+            return;
+        }
+
+        var alive = new HashSet<int>();
+        foreach (DictionaryEntry kv in dic)
+        {
+            var role = kv.Value;
+            if (role == null)
+            {
+                continue;
+            }
+
+            var idx = Convert.ToInt32(GetMember(role, "Index") ?? kv.Key ?? -1);
+            if (idx < 0)
+            {
+                continue;
+            }
+
+            var dead = Convert.ToBoolean(GetMember(role, "IsDead") ?? false);
+            var roleData = GetMember(role, "RoleData");
+            var ch = roleData != null ? GetMember(roleData, "Char") : null;
+            var hp = ch != null ? Convert.ToInt32(GetMember(ch, "Hp") ?? 0) : 0;
+            if (dead || hp <= 0)
+            {
+                continue;
+            }
+
+            alive.Add(idx);
+            var mp = ch != null ? Convert.ToInt32(GetMember(ch, "Mp") ?? 0) : 0;
+            var bc = GetBattleRoleStatus(role);
+            var line = FormatBattleAssistLine(hp, mp, bc);
+            EnsureBattleAssistLabel(role, idx, line);
+        }
+
+        var stale = new List<int>();
+        foreach (var idx in BattleAssistLabels.Keys)
+        {
+            if (!alive.Contains(idx))
+            {
+                stale.Add(idx);
+            }
+        }
+
+        for (var i = 0; i < stale.Count; i++)
+        {
+            object go;
+            if (BattleAssistLabels.TryGetValue(stale[i], out go))
+            {
+                DestroyUnityObject(go);
+                BattleAssistLabels.Remove(stale[i]);
+            }
+        }
+    }
+
+    private static string FormatBattleAssistLine(int hp, int mp, long bc)
+    {
+        var sb = new StringBuilder();
+        sb.Append("血").Append(hp).Append(" 蓝").Append(mp);
+        if ((bc & BcRcvUp) != 0)
+        {
+            sb.Append(" 恢");
+        }
+
+        // 六种理论互斥，按用户顺序只写一种
+        if ((bc & BcAtkAbsorb) != 0)
+        {
+            sb.Append(" 攻吸");
+        }
+        else if ((bc & BcAtkInvalid) != 0)
+        {
+            sb.Append(" 攻无");
+        }
+        else if ((bc & BcAtkRebound) != 0)
+        {
+            sb.Append(" 攻反");
+        }
+        else if ((bc & BcMagicInvalid) != 0)
+        {
+            sb.Append(" 魔无");
+        }
+        else if ((bc & BcMagicRebound) != 0)
+        {
+            sb.Append(" 魔反");
+        }
+        else if ((bc & BcMagicAbsorb) != 0)
+        {
+            sb.Append(" 魔吸");
+        }
+
+        return sb.ToString();
+    }
+
+    private static void EnsureBattleAssistLabel(object role, int idx, string line)
+    {
+        object labelGo;
+        if (!BattleAssistLabels.TryGetValue(idx, out labelGo) || labelGo == null || IsUnityNull(labelGo))
+        {
+            labelGo = CreateBattleAssistLabel(role);
+            if (labelGo == null)
+            {
+                BattleAssistLabels.Remove(idx);
+                return;
+            }
+
+            BattleAssistLabels[idx] = labelGo;
+        }
+
+        var text = GetComp(labelGo, "UnityEngine.UI.Text")
+                   ?? GetComp(labelGo, "TMPro.TextMeshProUGUI");
+        if (text == null)
+        {
+            var child = FindChildByName(labelGo, "L");
+            if (child != null)
+            {
+                text = GetComp(child, "UnityEngine.UI.Text")
+                       ?? GetComp(child, "TMPro.TextMeshProUGUI");
+            }
+        }
+
+        if (text != null)
+        {
+            SetText(text, line, 14);
+        }
+    }
+
+    private static object CreateBattleAssistLabel(object role)
+    {
+        var worldUi = GetMember(role, "WorldUI") ?? GetMember(role, "m_WorldUI");
+        if (worldUi == null || IsUnityNull(worldUi))
+        {
+            return null;
+        }
+
+        var isEnemy = Convert.ToBoolean(GetMember(worldUi, "isEmeny")
+                                        ?? GetMember(worldUi, "isEnemy")
+                                        ?? false);
+        // 己方贴蓝条(mpSlider)；敌方无蓝条则贴血条
+        var slider = isEnemy
+            ? (GetMember(worldUi, "enemeyHpSlider") ?? GetProp(worldUi, "enemeyHpSlider"))
+            : (GetMember(worldUi, "mpSlider") ?? GetProp(worldUi, "mpSlider"));
+        if (slider == null)
+        {
+            slider = GetMember(worldUi, "hpSlider") ?? GetProp(worldUi, "hpSlider");
+        }
+
+        var sliderGo = slider != null
+            ? (GetProp(slider, "gameObject") ?? slider)
+            : null;
+        var area = isEnemy
+            ? (GetMember(worldUi, "enemyArea") ?? GetProp(worldUi, "enemyArea"))
+            : (GetMember(worldUi, "playerArea") ?? GetProp(worldUi, "playerArea"));
+        // 清掉旧版挂在 area / 其它位置的残留
+        DestroyUnityObject(FindChildByName(area, BattleAssistChildName));
+        DestroyUnityObject(FindChildByName(sliderGo, BattleAssistChildName));
+        DestroyUnityObject(FindChildByName(
+            GetProp(worldUi, "gameObject") ?? worldUi, BattleAssistChildName));
+
+        var parent = sliderGo ?? area ?? GetProp(worldUi, "gameObject") ?? worldUi;
+        if (parent == null || IsUnityNull(parent))
+        {
+            return null;
+        }
+
+        var rtType = RequireType("UnityEngine.RectTransform");
+        var go = CreateUiChild(parent, BattleAssistChildName, rtType);
+
+        // 紧贴条下方：只向下、向右放大，不往上挤血/蓝条
+        var barH = 12f;
+        try
+        {
+            var srt = RequireRect(parent, "bas");
+            var rect = GetProp(srt, "rect");
+            if (rect != null)
+            {
+                barH = Math.Max(8f, Convert.ToSingle(GetMember(rect, "height") ?? barH));
+            }
+        }
+        catch
+        {
+            // ignore
+        }
+
+        // 左上锚点：加宽向右，加高向下
+        SetAnchoredTopLeft(RequireRect(go, "ba"), 0f, -(barH + 1f), 220f, 28f);
+
+        var bg = AddComp(go, "UnityEngine.UI.Image");
+        SetColor(bg, 0f, 0f, 0f, 0.88f);
+        try
+        {
+            SetProp(bg, "raycastTarget", false);
+        }
+        catch
+        {
+            // ignore
+        }
+
+        try
+        {
+            var cg = AddComp(go, "UnityEngine.CanvasGroup");
+            SetProp(cg, "blocksRaycasts", false);
+            SetProp(cg, "interactable", false);
+        }
+        catch
+        {
+            // ignore
+        }
+
+        var lab = CreateUiChild(go, "L", rtType);
+        StretchFull(RequireRect(lab, "bal"));
+        var text = AddText(lab);
+        SetProp(text, "color", MakeColor(1f, 1f, 1f, 1f));
+        try
+        {
+            SetProp(text, "raycastTarget", false);
+            SetProp(text, "alignment", EnumValue("UnityEngine.TextAnchor", "MiddleLeft", 3));
+        }
+        catch
+        {
+            // ignore
+        }
+
+        SetText(text, "", 14);
+        return go;
+    }
+
+    private static object FindChildByName(object parent, string name)
+    {
+        try
+        {
+            var tr = GetProp(parent, "transform") ?? parent;
+            if (tr == null)
+            {
+                return null;
+            }
+
+            var find = tr.GetType().GetMethod("Find", new[] { typeof(string) });
+            var childTr = find?.Invoke(tr, new object[] { name });
+            if (childTr == null || IsUnityNull(childTr))
+            {
+                return null;
+            }
+
+            return GetProp(childTr, "gameObject") ?? childTr;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static void DestroyUnityObject(object obj)
+    {
+        if (obj == null || IsUnityNull(obj))
+        {
+            return;
+        }
+
+        try
+        {
+            var go = GetProp(obj, "gameObject") ?? obj;
+            var ot = FindType("UnityEngine.Object");
+            var destroy = ot?.GetMethod("Destroy", BindingFlags.Public | BindingFlags.Static, null,
+                new[] { ot }, null);
+            destroy?.Invoke(null, new object[] { go });
+        }
+        catch
+        {
+            try
+            {
+                SetGoActive(obj, false);
+            }
+            catch
+            {
+                // ignore
+            }
+        }
     }
 
     private static string FormatSkipAnimDelaySec(float sec)
@@ -8794,8 +9290,25 @@ public static class SeqChapterTestUi
         }
 
         y -= 48f;
+        var prepBtn = CreateUiChild(_bodyRoot, "SuperAiPrep", rtType);
+        SetAnchoredTop(RequireRect(prepBtn, "saip"), 0f, y, 540f, 32f);
+        var prepImg = AddComp(prepBtn, "UnityEngine.UI.Image");
+        SetColor(prepImg,
+            _superAiPrepReady ? 0.16f : 0.22f,
+            _superAiPrepReady ? 0.38f : 0.28f,
+            _superAiPrepReady ? 0.26f : 0.18f, 1f);
+        var prepLab = CreateUiChild(prepBtn, "L", rtType);
+        StretchFull(RequireRect(prepLab, "saipl"));
+        SetText(AddText(prepLab),
+            _superAiPrepActive
+                ? "● 备战准备中…"
+                : (_superAiPrepReady ? "● 备战准备（已完成·点此重扫）" : "○ 备战准备（扫包+账号银血瓶）"),
+            13);
+        BindButton(prepBtn, prepImg, StartSuperAiPrep);
+
+        y -= 40f;
         _superAiBattleRoot = CreateUiChild(_bodyRoot, "SuperAiHintHelp", rtType);
-        SetAnchoredTop(RequireRect(_superAiBattleRoot, "saib"), 0f, y, 540f, 280f);
+        SetAnchoredTop(RequireRect(_superAiBattleRoot, "saib"), 0f, y, 540f, 240f);
         SetColor(AddComp(_superAiBattleRoot, "UnityEngine.UI.Image"), 0.08f, 0.1f, 0.14f, 0.75f);
         var tip = CreateUiChild(_superAiBattleRoot, "Tip", rtType);
         StretchFull(RequireRect(tip, "tip"));
@@ -9125,14 +9638,20 @@ public static class SeqChapterTestUi
     {
         if (!_superAiActive)
         {
+            var prep = _superAiPrepReady
+                ? ("备战:已完成\n" + (_superAiPrepNote.Length > 0 ? _superAiPrepNote + "\n" : ""))
+                : (_superAiPrepActive ? ("备战中: " + _superAiPrepNote + "\n") : "备战:未跑（空包取银需先备战）\n");
             return "AI战斗（虚拟）：关闭\n"
-                   + "开启后只接管首领战（敌方最高 MaxHp≥3000）。\n"
-                   + "首领战时左侧标题显示「AI接管」；非首领不介入。\n"
-                   + "只写本客户端能实际发出的包（H/I/G/N/W）。";
+                   + prep
+                   + "仅「常规」模式可开；遇首领战标题变为「AI战斗」。\n"
+                   + "普通 Boss 非高压；菲尔尼为高压三阶段；特殊另有杀熊者模式。\n"
+                   + "血瓶15611–15615，回血=药力×回复/100。\n"
+                   + "只写本客户端能实际发出的包（H/I/G/N/W/S）。";
         }
 
+        var prepLine = _superAiPrepReady ? "备战✓" : (_superAiPrepActive ? "备战中" : "备战未跑");
         return "AI战斗（虚拟）：运行中（只显示，不发包）\n模式: " + ModeLabel(_battleMode)
-               + "\n只接管首领战；非首领战不介入。\n"
+               + " · " + prepLine + "\n只接管首领战；非首领战不介入。\n"
                + (_superAiLastSimLine.Length > 0 ? _superAiLastSimLine : "等待进入战斗…");
     }
 
@@ -9199,11 +9718,44 @@ public static class SeqChapterTestUi
     {
         _superAiClassifiedBattleIndex = -1;
         _superAiIsBossBattle = false;
+        _superAiIsHighPressure = false;
         _superAiSpecialRuleId = "";
         _superAiSpecialRuleTitle = "";
+        _superAiFerniPhase = SuperAiFerniPhase.None;
         _superAiEnemyRoleByIdx.Clear();
         _superAiStartEnemyNames.Clear();
         ClearSuperAiVipFocusAnchor();
+    }
+
+    /// <summary>首领战标题：普通「AI战斗」；特殊「AI战斗-{后缀}」；菲尔尼带阶段。</summary>
+    private static string FormatSuperAiBattleTitle()
+    {
+        if (!_superAiIsBossBattle)
+        {
+            return "AI战斗（虚拟）非首领战·不接管";
+        }
+
+        if (_superAiSpecialRuleId == SuperAiSpecialIdFerni)
+        {
+            switch (ResolveSuperAiFerniPhase())
+            {
+                case SuperAiFerniPhase.Drain:
+                    return "AI战斗-菲尔尼-第一阶段抽蓝";
+                case SuperAiFerniPhase.Focus:
+                    return "AI战斗-菲尔尼-第二阶段集火";
+                case SuperAiFerniPhase.Cleanup:
+                    return "AI战斗-菲尔尼-第三阶段收尾";
+                default:
+                    return "AI战斗-菲尔尼";
+            }
+        }
+
+        if (_superAiSpecialRuleTitle.Length > 0)
+        {
+            return "AI战斗-" + _superAiSpecialRuleTitle;
+        }
+
+        return "AI战斗";
     }
 
     /// <summary>
@@ -9418,13 +9970,10 @@ public static class SeqChapterTestUi
         }
         else
         {
-            var spec = _superAiSpecialRuleTitle.Length > 0
-                ? (" · " + _superAiSpecialRuleTitle)
-                : "";
             var anchor = _superAiLastFocusAnchorIdx >= 0
                 ? (" 锚点#" + _superAiLastFocusAnchorIdx)
                 : "";
-            _superAiLastSimLine = "AI接管" + spec + anchor + " · 第" + (turn + 1) + "回合 将发 "
+            _superAiLastSimLine = FormatSuperAiBattleTitle() + anchor + " · 第" + (turn + 1) + "回合 将发 "
                                   + _superAiPlannedCmds.Count + " 条";
         }
 
@@ -9554,17 +10103,9 @@ public static class SeqChapterTestUi
         {
             title = "AI战斗（虚拟）等待战斗";
         }
-        else if (!_superAiIsBossBattle)
-        {
-            title = "AI战斗（虚拟）非首领战·不接管";
-        }
-        else if (_superAiSpecialRuleTitle.Length > 0)
-        {
-            title = "AI接管 · " + _superAiSpecialRuleTitle;
-        }
         else
         {
-            title = "AI接管 · 本回合将发";
+            title = FormatSuperAiBattleTitle();
         }
 
         SetText(_superAiHintTitleText, title, 13);
@@ -9605,12 +10146,7 @@ public static class SeqChapterTestUi
             return sb.ToString();
         }
 
-        sb.Append("第").Append(turn + 1).Append("回合 · AI接管");
-        if (_superAiSpecialRuleTitle.Length > 0)
-        {
-            sb.Append(" · ").Append(_superAiSpecialRuleTitle);
-        }
-
+        sb.Append("第").Append(turn + 1).Append("回合 · ").Append(FormatSuperAiBattleTitle());
         sb.Append(" · 虚拟不发包");
         sb.AppendLine();
         var focus = ResolveSuperAiFocusTier();
@@ -9719,6 +10255,8 @@ public static class SeqChapterTestUi
                 snap.Uid = "";
                 snap.JobName = "";
                 snap.JobAncestry = "";
+                snap.JobAncestryId = -1;
+                snap.AiForceTakeover = false;
                 snap.Rec = 0;
                 snap.EnemyRole = SuperAiEnemyRole.None;
                 snap.StartMaxHp = maxHp;
@@ -9784,6 +10322,7 @@ public static class SeqChapterTestUi
 
             snap.JobName = Convert.ToString(GetMember(player, "JobName") ?? "") ?? "";
             snap.JobAncestry = Convert.ToString(GetMember(player, "JobAncestryName") ?? "") ?? "";
+            snap.JobAncestryId = Convert.ToInt32(GetMember(player, "JobAncestry") ?? -1);
             if (snap.IsPlayer)
             {
                 snap.Rec = Convert.ToInt32(GetMember(player, "Recovery") ?? 0);
@@ -9801,10 +10340,46 @@ public static class SeqChapterTestUi
 
     private static bool IsSuperAiPriestJob(SuperAiUnitSnap u)
     {
+        if (u.JobAncestryId == SuperAiJobPriest)
+        {
+            return true;
+        }
+
         var a = u.JobAncestry ?? "";
         var j = u.JobName ?? "";
         return a.IndexOf("传教", StringComparison.Ordinal) >= 0
                || j.IndexOf("传教", StringComparison.Ordinal) >= 0;
+    }
+
+    private static bool IsSuperAiWizardJob(SuperAiUnitSnap u)
+    {
+        if (u.JobAncestryId == SuperAiJobWizard)
+        {
+            return true;
+        }
+
+        var a = u.JobAncestry ?? "";
+        var j = u.JobName ?? "";
+        return a.IndexOf("巫师", StringComparison.Ordinal) >= 0
+               || j.IndexOf("巫师", StringComparison.Ordinal) >= 0;
+    }
+
+    private static bool IsSuperAiSorcererJob(SuperAiUnitSnap u)
+    {
+        if (u.JobAncestryId == SuperAiJobSorcerer)
+        {
+            return true;
+        }
+
+        var a = u.JobAncestry ?? "";
+        var j = u.JobName ?? "";
+        return a.IndexOf("咒术", StringComparison.Ordinal) >= 0
+               || j.IndexOf("咒术", StringComparison.Ordinal) >= 0;
+    }
+
+    private static bool IsSuperAiPriestWizardSorcerer(SuperAiUnitSnap u)
+    {
+        return IsSuperAiPriestJob(u) || IsSuperAiWizardJob(u) || IsSuperAiSorcererJob(u);
     }
 
     private static void FillSuperAiRoundSuggestions()
@@ -9845,8 +10420,10 @@ public static class SeqChapterTestUi
         _superAiEnemyRoleByIdx.Clear();
         _superAiStartEnemyNames.Clear();
         _superAiIsBossBattle = false;
+        _superAiIsHighPressure = false;
         _superAiSpecialRuleId = "";
         _superAiSpecialRuleTitle = "";
+        _superAiFerniPhase = SuperAiFerniPhase.None;
         _superAiClassifiedBattleIndex = battleIndex;
 
         var enemies = new List<SuperAiUnitSnap>();
@@ -9892,6 +10469,8 @@ public static class SeqChapterTestUi
         }
 
         _superAiIsBossBattle = true;
+        // 普通 Boss 战非高压；高压仅由特定特殊 AI 日后开启
+        _superAiIsHighPressure = false;
         _superAiEnemyRoleByIdx[boss1.Idx] = SuperAiEnemyRole.Boss1;
         var used = new HashSet<int> { boss1.Idx };
         var ratioCut = (int)Math.Ceiling(boss1.MaxHp * SuperAiBossHpRatioOfBoss1);
@@ -9941,6 +10520,11 @@ public static class SeqChapterTestUi
         }
 
         TryMatchSuperAiSpecialRule();
+        if (_superAiSpecialRuleId == SuperAiSpecialIdFerni)
+        {
+            _superAiIsHighPressure = true;
+        }
+
         ApplySuperAiEnemyRolesToUnits();
 
         var sb = new StringBuilder();
@@ -10090,8 +10674,8 @@ public static class SeqChapterTestUi
     }
 
     /// <summary>
-    /// 本回合锁定的攻击档：有杂兵→杂兵；否则有精英→精英；否则首领。
-    /// 人/宠本回合只打这一档里的目标。
+    /// 本回合锁定的攻击档。
+    /// 默认：杂兵→精英→首领。杀熊者模式：首领→杂兵→精英（先 Boss 再打小的）。
     /// </summary>
     private enum SuperAiFocusTier : byte
     {
@@ -10126,6 +10710,27 @@ public static class SeqChapterTestUi
             {
                 hasBoss = true;
             }
+        }
+
+        // 杀熊者：先集火 Boss，再打小的
+        if (_superAiSpecialRuleId == SuperAiSpecialIdKillbear)
+        {
+            if (hasBoss)
+            {
+                return SuperAiFocusTier.Boss;
+            }
+
+            if (hasTrash)
+            {
+                return SuperAiFocusTier.Trash;
+            }
+
+            if (hasElite)
+            {
+                return SuperAiFocusTier.Elite;
+            }
+
+            return SuperAiFocusTier.None;
         }
 
         if (hasTrash)
@@ -10220,6 +10825,9 @@ public static class SeqChapterTestUi
             return;
         }
 
+        var ferniPhase = ResolveSuperAiFerniPhase();
+        _superAiFerniPhase = ferniPhase;
+
         int enemyIdx;
         string enemyName;
         string enemyRole;
@@ -10237,6 +10845,13 @@ public static class SeqChapterTestUi
             string potLabel;
             if (TryBuildSuperAiPotionCmd(player, hasPet, pet, out potStr, out potLabel))
             {
+                AddSuperAiPlannedCmd(playerActor, potStr, potLabel);
+                player.Suggest = potStr;
+            }
+            else if (ferniPhase == SuperAiFerniPhase.Drain
+                     && TryBuildSuperAiKnightHonorCmd(player, out potStr, out potLabel))
+            {
+                // 一阶段：有骑士之誉则一直用（对自身）
                 AddSuperAiPlannedCmd(playerActor, potStr, potLabel);
                 player.Suggest = potStr;
             }
@@ -10267,10 +10882,45 @@ public static class SeqChapterTestUi
             AddSuperAiPlannedCmd(petActor, "W|FF|FF", "待机（" + (pet.Status ?? "异常") + "）");
             pet.Suggest = "W|FF|FF";
         }
+        else if (ferniPhase == SuperAiFerniPhase.Drain)
+        {
+            // 一阶段宠：优先战栗抽士官长蓝；无战栗则改打菲尔尼
+            int trembleSlot;
+            if (hasEnemy
+                && TryGetSuperAiPetSkillSlot(player.Uid, SuperAiSkillIdTremble, out trembleSlot)
+                && trembleSlot >= 0)
+            {
+                var str = "W|" + SuperAiHex(trembleSlot) + "|" + SuperAiHex(enemyIdx);
+                AddSuperAiPlannedCmd(petActor, str,
+                    "战栗袭心→[" + enemyRole + "] " + enemyName + "#" + enemyIdx);
+                pet.Suggest = str;
+            }
+            else
+            {
+                int ferniIdx;
+                string ferniName;
+                int atkSlot;
+                if (TryFindSuperAiNamedEnemy(SuperAiEnemyNameFerni, out ferniIdx, out ferniName)
+                    && TryGetSuperAiPetSkillSlot(player.Uid, SuperAiPetAttackSkillId, out atkSlot)
+                    && atkSlot >= 0)
+                {
+                    var str = "W|" + SuperAiHex(atkSlot) + "|" + SuperAiHex(ferniIdx);
+                    AddSuperAiPlannedCmd(petActor, str,
+                        "无战栗→攻击菲尔尼 " + ferniName + "#" + ferniIdx);
+                    pet.Suggest = str;
+                }
+                else
+                {
+                    AddSuperAiPlannedCmd(petActor, "W|FF|FF", "待机");
+                    pet.Suggest = "W|FF|FF";
+                }
+            }
+        }
         else
         {
             int slot;
-            if (hasEnemy && TryGetSuperAiPetAttackSlot(player.Uid, out slot) && slot >= 0)
+            if (hasEnemy && TryGetSuperAiPetSkillSlot(player.Uid, SuperAiPetAttackSkillId, out slot)
+                && slot >= 0)
             {
                 var str = "W|" + SuperAiHex(slot) + "|" + SuperAiHex(enemyIdx);
                 AddSuperAiPlannedCmd(petActor, str,
@@ -10363,6 +11013,14 @@ public static class SeqChapterTestUi
         idx = -1;
         name = "";
         roleLabel = "";
+
+        var ferniPhase = ResolveSuperAiFerniPhase();
+        _superAiFerniPhase = ferniPhase;
+        if (ferniPhase != SuperAiFerniPhase.None)
+        {
+            return TryFindSuperAiFerniPhaseEnemy(ferniPhase, out idx, out name, out roleLabel);
+        }
+
         var focus = ResolveSuperAiFocusTier();
         if (focus == SuperAiFocusTier.None)
         {
@@ -10398,6 +11056,280 @@ public static class SeqChapterTestUi
         return idx >= 0;
     }
 
+    private static SuperAiFerniPhase ResolveSuperAiFerniPhase()
+    {
+        if (_superAiSpecialRuleId != SuperAiSpecialIdFerni || !_superAiIsBossBattle)
+        {
+            return SuperAiFerniPhase.None;
+        }
+
+        // 一阶段：仍有活着且蓝≥70（绝对值）的士官长
+        if (SuperAiAnySergeant(u => u.Hp > 0 && !u.Unable && u.Mp >= SuperAiFerniDrainMpThreshold))
+        {
+            return SuperAiFerniPhase.Drain;
+        }
+
+        // 二阶段：菲尔尼仍存活
+        int ferniIdx;
+        string ferniName;
+        if (TryFindSuperAiNamedEnemy(SuperAiEnemyNameFerni, out ferniIdx, out ferniName))
+        {
+            return SuperAiFerniPhase.Focus;
+        }
+
+        // 三阶段：收尾击杀剩余士官长
+        return SuperAiFerniPhase.Cleanup;
+    }
+
+    private static bool TryFindSuperAiFerniPhaseEnemy(
+        SuperAiFerniPhase phase, out int idx, out string name, out string roleLabel)
+    {
+        idx = -1;
+        name = "";
+        roleLabel = "";
+        switch (phase)
+        {
+            case SuperAiFerniPhase.Drain:
+                if (TryFindSuperAiSergeant(true, out idx, out name))
+                {
+                    roleLabel = "士官长抽蓝";
+                    return true;
+                }
+
+                return false;
+            case SuperAiFerniPhase.Focus:
+                if (TryFindSuperAiNamedEnemy(SuperAiEnemyNameFerni, out idx, out name))
+                {
+                    roleLabel = "菲尔尼";
+                    return true;
+                }
+
+                return false;
+            case SuperAiFerniPhase.Cleanup:
+                if (TryFindSuperAiSergeant(false, out idx, out name))
+                {
+                    roleLabel = "士官长收尾";
+                    return true;
+                }
+
+                return false;
+            default:
+                return false;
+        }
+    }
+
+    private static bool SuperAiUnitNameHas(SuperAiUnitSnap u, string keyword)
+    {
+        return !string.IsNullOrEmpty(keyword)
+               && u.Name != null
+               && u.Name.IndexOf(keyword, StringComparison.Ordinal) >= 0;
+    }
+
+    private static bool SuperAiAnySergeant(Func<SuperAiUnitSnap, bool> pred)
+    {
+        for (var i = 0; i < _superAiUnits.Count; i++)
+        {
+            var u = _superAiUnits[i];
+            if (u.Mine || !SuperAiUnitNameHas(u, SuperAiEnemyNameSergeant))
+            {
+                continue;
+            }
+
+            if (pred(u))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>找士官长：drainMpOnly=true 时仅蓝≥70（绝对值）；按站位扫描序依次。</summary>
+    private static bool TryFindSuperAiSergeant(bool drainMpOnly, out int idx, out string name)
+    {
+        idx = -1;
+        name = "";
+        var playerIdx = Convert.ToInt32(GetStaticMember("BattleDataHolder", "battlePlayerIndex") ?? -1);
+        var enemyHighSide = playerIdx < 10;
+        var bestPri = int.MaxValue;
+        for (var i = 0; i < _superAiUnits.Count; i++)
+        {
+            var u = _superAiUnits[i];
+            if (u.Mine || u.Unable || u.Hp <= 0
+                || !SuperAiUnitNameHas(u, SuperAiEnemyNameSergeant))
+            {
+                continue;
+            }
+
+            if (drainMpOnly && u.Mp < SuperAiFerniDrainMpThreshold)
+            {
+                continue;
+            }
+
+            var pri = SuperAiEliteScanRank(u.Idx, enemyHighSide);
+            if (pri > bestPri || (pri == bestPri && idx >= 0 && u.Idx >= idx))
+            {
+                continue;
+            }
+
+            bestPri = pri;
+            idx = u.Idx;
+            name = u.Name ?? "";
+        }
+
+        return idx >= 0;
+    }
+
+    private static bool TryFindSuperAiNamedEnemy(string keyword, out int idx, out string name)
+    {
+        idx = -1;
+        name = "";
+        var playerIdx = Convert.ToInt32(GetStaticMember("BattleDataHolder", "battlePlayerIndex") ?? -1);
+        var enemyHighSide = playerIdx < 10;
+        var bestPri = int.MaxValue;
+        for (var i = 0; i < _superAiUnits.Count; i++)
+        {
+            var u = _superAiUnits[i];
+            if (u.Mine || u.Unable || u.Hp <= 0 || !SuperAiUnitNameHas(u, keyword))
+            {
+                continue;
+            }
+
+            var pri = SuperAiEliteScanRank(u.Idx, enemyHighSide);
+            if (pri > bestPri || (pri == bestPri && idx >= 0 && u.Idx >= idx))
+            {
+                continue;
+            }
+
+            bestPri = pri;
+            idx = u.Idx;
+            name = u.Name ?? "";
+        }
+
+        return idx >= 0;
+    }
+
+    /// <summary>一阶段人物：骑士之誉 → S|skill|tech|自身。</summary>
+    private static bool TryBuildSuperAiKnightHonorCmd(
+        SuperAiUnitSnap player, out string str, out string label)
+    {
+        str = "";
+        label = "";
+        int skillIndex;
+        int techIndex;
+        if (!TryGetSuperAiPlayerSkillIndices(
+                player.Uid, SuperAiSkillIdKnightHonor, player.Mp, out skillIndex, out techIndex))
+        {
+            return false;
+        }
+
+        str = "S|" + SuperAiHex(skillIndex) + "|" + SuperAiHex(techIndex) + "|"
+              + SuperAiHex(player.Idx);
+        label = "骑士之誉";
+        return true;
+    }
+
+    private static bool TryGetSuperAiPlayerSkillIndices(
+        string uid, int skillId, int currentMp, out int skillIndex, out int techIndex)
+    {
+        skillIndex = -1;
+        techIndex = -1;
+        if (string.IsNullOrEmpty(uid) || skillId < 0)
+        {
+            return false;
+        }
+
+        try
+        {
+            var getMag = FindType("PlayerDataHolder")?.GetMethod(
+                "GetMagicDatasFromUid", BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic);
+            var magics = getMag?.Invoke(null, new object[] { uid }) as IList;
+            if (magics == null)
+            {
+                return false;
+            }
+
+            for (var si = 0; si < magics.Count; si++)
+            {
+                var magic = magics[si];
+                if (magic == null || Convert.ToInt32(GetMember(magic, "useFlag") ?? 0) != 1)
+                {
+                    continue;
+                }
+
+                var sid = Convert.ToInt32(GetMember(magic, "skillId") ?? GetMember(magic, "SkillId") ?? 0);
+                if (sid != skillId)
+                {
+                    continue;
+                }
+
+                if (Convert.ToBoolean(GetMember(magic, "forgetInBatlle") ?? false))
+                {
+                    continue;
+                }
+
+                if (Convert.ToBoolean(GetMember(magic, "isCD") ?? false))
+                {
+                    continue;
+                }
+
+                var techs = GetMember(magic, "techs") as IList;
+                if (techs == null)
+                {
+                    continue;
+                }
+
+                var bestLv = -1;
+                var bestTechIndex = -1;
+                for (var ti = 0; ti < techs.Count; ti++)
+                {
+                    var tech = techs[ti];
+                    if (tech == null)
+                    {
+                        continue;
+                    }
+
+                    var use = Convert.ToBoolean(GetMember(tech, "Use") ?? GetMember(tech, "use") ?? false);
+                    var flg = Convert.ToBoolean(GetMember(tech, "Flg") ?? GetMember(tech, "flg") ?? false);
+                    if (!use || !flg)
+                    {
+                        continue;
+                    }
+
+                    var fp = Convert.ToInt32(GetMember(tech, "Fp") ?? GetMember(tech, "fp") ?? 0);
+                    if (currentMp < fp)
+                    {
+                        continue;
+                    }
+
+                    var lv = Convert.ToInt32(GetMember(tech, "Level") ?? GetMember(tech, "level") ?? (ti + 1));
+                    if (lv < bestLv)
+                    {
+                        continue;
+                    }
+
+                    bestLv = lv;
+                    bestTechIndex = Convert.ToInt32(GetMember(tech, "Index") ?? GetMember(tech, "index") ?? ti);
+                }
+
+                if (bestTechIndex < 0)
+                {
+                    continue;
+                }
+
+                skillIndex = si;
+                techIndex = bestTechIndex;
+                return true;
+            }
+        }
+        catch (Exception ex)
+        {
+            WriteLog("TryGetSuperAiPlayerSkillIndices EX: " + RootMessage(ex));
+        }
+
+        return false;
+    }
+
     private static bool TryFindSuperAiLiveEnemy(out int idx, out string name)
     {
         string role;
@@ -10410,12 +11342,7 @@ public static class SeqChapterTestUi
     {
         str = "";
         label = "";
-        if (player.Unable)
-        {
-            return false;
-        }
-
-        if (IsSuperAiPriestJob(player) && player.Mp > SuperAiPriestSkipPotionMp)
+        if (player.Unable || player.AiForceTakeover)
         {
             return false;
         }
@@ -10423,41 +11350,31 @@ public static class SeqChapterTestUi
         var pots = ScanSuperAiHpPotions(player.Uid);
         if (pots.Count == 0)
         {
+            // 备战已扫过且银行有货：排队从账号银行取（战外 Tick 执行）
+            if (_superAiPrepReady && SuperAiPrepBankHasAny(player.Uid))
+            {
+                TryQueueSuperAiPotionBankPull(player.Uid);
+            }
+
+            return false;
+        }
+
+        var rcvCount = CountSuperAiAllyRcvUp();
+        var hasPrayer = SuperAiBattleHasPrayerField();
+        var giverTier = GetSuperAiPotionGiverTier(player, rcvCount, hasPrayer);
+        if (giverTier >= int.MaxValue)
+        {
+            return false;
+        }
+
+        // 场上若有更优丢药者，本客户端不抢丢（虚拟版只发本号包）
+        if (!IsSuperAiBestPotionGiver(player, giverTier, rcvCount, hasPrayer))
+        {
             return false;
         }
 
         SuperAiUnitSnap target;
-        var hasTarget = false;
-        if (SuperAiNeedsPotion(player))
-        {
-            target = player;
-            hasTarget = true;
-        }
-        else if (hasPet && SuperAiNeedsPotion(pet))
-        {
-            target = pet;
-            hasTarget = true;
-        }
-        else
-        {
-            target = default(SuperAiUnitSnap);
-            for (var i = 0; i < _superAiUnits.Count; i++)
-            {
-                var u = _superAiUnits[i];
-                if (!u.Mine || !SuperAiNeedsPotion(u))
-                {
-                    continue;
-                }
-
-                if (!hasTarget || (u.IsPlayer && !target.IsPlayer))
-                {
-                    target = u;
-                    hasTarget = true;
-                }
-            }
-        }
-
-        if (!hasTarget)
+        if (!TryPickSuperAiPotionTarget(out target))
         {
             return false;
         }
@@ -10473,7 +11390,7 @@ public static class SeqChapterTestUi
                 continue;
             }
 
-            var heal = pots[i].Power * rec;
+            var heal = pots[i].Power * rec / 100;
             var over = Math.Abs(heal - missing);
             if (over < bestScore)
             {
@@ -10494,10 +11411,220 @@ public static class SeqChapterTestUi
         return true;
     }
 
-    private static bool TryGetSuperAiPetAttackSlot(string uid, out int slot)
+    /// <summary>高压吃瓶 60%；普通 Boss / 低压 50%。</summary>
+    private static float GetSuperAiPotionHpThreshold()
+    {
+        return _superAiIsHighPressure ? SuperAiPotionHpHighPressure : SuperAiPotionHpLowPressure;
+    }
+
+    private static float SuperAiHpRatio(SuperAiUnitSnap u)
+    {
+        if (u.MaxHp <= 0)
+        {
+            return 1f;
+        }
+
+        return u.Hp / (float)u.MaxHp;
+    }
+
+    private static bool SuperAiNeedsPotion(SuperAiUnitSnap u)
+    {
+        if (!u.Mine || u.MaxHp <= 0 || u.Hp <= 0)
+        {
+            return false;
+        }
+
+        if (u.AiForceTakeover)
+        {
+            return false;
+        }
+
+        // 死亡不算需求；被控仍可能需要被丢药（Unable 仍可进目标）
+        if ((u.Bc & 2L) != 0)
+        {
+            return false;
+        }
+
+        return SuperAiHpRatio(u) < GetSuperAiPotionHpThreshold();
+    }
+
+    private static bool TryPickSuperAiPotionTarget(out SuperAiUnitSnap target)
+    {
+        target = default(SuperAiUnitSnap);
+        var bestRatio = 2f;
+        var found = false;
+        for (var i = 0; i < _superAiUnits.Count; i++)
+        {
+            var u = _superAiUnits[i];
+            if (!SuperAiNeedsPotion(u))
+            {
+                continue;
+            }
+
+            var r = SuperAiHpRatio(u);
+            if (!found || r < bestRatio || (Math.Abs(r - bestRatio) < 0.0001f && u.Idx < target.Idx))
+            {
+                target = u;
+                bestRatio = r;
+                found = true;
+            }
+        }
+
+        return found;
+    }
+
+    private static int CountSuperAiAllyRcvUp()
+    {
+        var n = 0;
+        for (var i = 0; i < _superAiUnits.Count; i++)
+        {
+            var u = _superAiUnits[i];
+            if (!u.Mine || u.Hp <= 0 || (u.Bc & 2L) != 0)
+            {
+                continue;
+            }
+
+            if ((u.Bc & BcRcvUp) != 0)
+            {
+                n++;
+            }
+        }
+
+        return n;
+    }
+
+    private static bool SuperAiBattleHasPrayerField()
+    {
+        try
+        {
+            var bm = GetManagerInstance("BattleManager");
+            if (bm == null)
+            {
+                return false;
+            }
+
+            var flag = GetMember(bm, "m_PropertyIndex");
+            if (flag == null)
+            {
+                return false;
+            }
+
+            var v = Convert.ToInt32(flag);
+            // BC_FIELD_FLAG: EARTH=1 WATER=2 FIRE=4 WIND=8
+            return (v & (1 | 2 | 4 | 8)) != 0;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// 丢药优先级（越小越优先；MaxValue=无资格）。
+    /// 0 传巫咒蓝&lt;100；1 巫师且场上恢≥5；2 咒术且有祈祷；3 非传巫咒；4 传教蓝&gt;100。
+    /// 需丢恢的巫师 / 需丢祈祷的咒术 / 被控死 / 无瓶 / AI强制接管 → 无资格。
+    /// </summary>
+    private static int GetSuperAiPotionGiverTier(SuperAiUnitSnap u, int rcvCount, bool hasPrayer)
+    {
+        if (!u.Mine || !u.IsPlayer)
+        {
+            return int.MaxValue;
+        }
+
+        if (u.Unable || u.Hp <= 0 || (u.Bc & 2L) != 0 || u.AiForceTakeover)
+        {
+            return int.MaxValue;
+        }
+
+        if (string.IsNullOrEmpty(u.Uid) || ScanSuperAiHpPotions(u.Uid).Count == 0)
+        {
+            return int.MaxValue;
+        }
+
+        var priest = IsSuperAiPriestJob(u);
+        var wizard = IsSuperAiWizardJob(u);
+        var sorcerer = IsSuperAiSorcererJob(u);
+
+        if (priest || wizard || sorcerer)
+        {
+            if (u.Mp < SuperAiPotionLowMpPriority)
+            {
+                return 0;
+            }
+        }
+
+        if (wizard)
+        {
+            if (rcvCount >= SuperAiWizardRcvPreferCount)
+            {
+                return 1;
+            }
+
+            // 恢不足：应丢恢复，不参与丢瓶
+            return int.MaxValue;
+        }
+
+        if (sorcerer)
+        {
+            if (hasPrayer)
+            {
+                return 2;
+            }
+
+            // 无祈祷：应丢祈祷，不参与丢瓶
+            return int.MaxValue;
+        }
+
+        if (!priest && !wizard && !sorcerer)
+        {
+            return 3;
+        }
+
+        // 传教蓝≥100
+        if (priest && u.Mp > SuperAiPotionLowMpPriority)
+        {
+            return 4;
+        }
+
+        // 传教蓝==100：归入低蓝档之外，按传教低优先
+        if (priest)
+        {
+            return 4;
+        }
+
+        return int.MaxValue;
+    }
+
+    private static bool IsSuperAiBestPotionGiver(
+        SuperAiUnitSnap self, int selfTier, int rcvCount, bool hasPrayer)
+    {
+        for (var i = 0; i < _superAiUnits.Count; i++)
+        {
+            var u = _superAiUnits[i];
+            if (u.Idx == self.Idx)
+            {
+                continue;
+            }
+
+            var t = GetSuperAiPotionGiverTier(u, rcvCount, hasPrayer);
+            if (t < selfTier)
+            {
+                return false;
+            }
+
+            if (t == selfTier && u.Idx < self.Idx)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static bool TryGetSuperAiPetSkillSlot(string uid, int wantSkillId, out int slot)
     {
         slot = -1;
-        if (string.IsNullOrEmpty(uid))
+        if (string.IsNullOrEmpty(uid) || wantSkillId < 0)
         {
             return false;
         }
@@ -10542,8 +11669,9 @@ public static class SeqChapterTestUi
                     continue;
                 }
 
+                // 任意等级：同一 SkillId（战栗=6 / 攻击=73）
                 var skillId = Convert.ToInt32(GetMember(tech, "SkillId") ?? GetMember(tech, "skillId") ?? 0);
-                if (skillId == SuperAiPetAttackSkillId)
+                if (skillId == wantSkillId)
                 {
                     slot = i;
                     return true;
@@ -10552,213 +11680,13 @@ public static class SeqChapterTestUi
         }
         catch (Exception ex)
         {
-            WriteLog("TryGetSuperAiPetAttackSlot EX: " + RootMessage(ex));
+            WriteLog("TryGetSuperAiPetSkillSlot EX: " + RootMessage(ex));
         }
 
         return false;
     }
 
-    /// <summary>
-    /// 血瓶：生命力回复药N，回血=N×目标回复力。
-    /// 人&lt;50%、宠&lt;40%才建议；优先人；优先自己给自己；宠物不丢（等位）；
-    /// 传教 MP&gt;200 不用药；不能行动者不丢，改由其他人丢。
-    /// </summary>
-    private static void AssignSuperAiPotionSuggestions()
-    {
-        var need = new List<int>();
-        var throwers = new List<int>();
-        var potions = new Dictionary<int, List<SuperAiPotion>>();
-
-        for (var i = 0; i < _superAiUnits.Count; i++)
-        {
-            var u = _superAiUnits[i];
-            if (!u.Mine)
-            {
-                continue;
-            }
-
-            if (SuperAiNeedsPotion(u))
-            {
-                need.Add(i);
-            }
-
-            if (!u.IsPlayer || u.Unable)
-            {
-                continue;
-            }
-
-            if (IsSuperAiPriestJob(u) && u.Mp > SuperAiPriestSkipPotionMp)
-            {
-                continue;
-            }
-
-            var pots = ScanSuperAiHpPotions(u.Uid);
-            if (pots.Count == 0)
-            {
-                continue;
-            }
-
-            throwers.Add(i);
-            potions[i] = pots;
-        }
-
-        need.Sort((ia, ib) =>
-        {
-            var a = _superAiUnits[ia];
-            var b = _superAiUnits[ib];
-            if (a.IsPlayer != b.IsPlayer)
-            {
-                return a.IsPlayer ? -1 : 1;
-            }
-
-            var ra = a.MaxHp > 0 ? a.Hp / (float)a.MaxHp : 1f;
-            var rb = b.MaxHp > 0 ? b.Hp / (float)b.MaxHp : 1f;
-            return ra.CompareTo(rb);
-        });
-
-        var usedThrower = new bool[_superAiUnits.Count];
-
-        // 1) 能行动的人优先自己吃药
-        for (var n = 0; n < need.Count; n++)
-        {
-            var ti = need[n];
-            var t = _superAiUnits[ti];
-            if (!t.IsPlayer || t.Unable || usedThrower[ti])
-            {
-                continue;
-            }
-
-            if (!potions.ContainsKey(ti) || potions[ti].Count == 0)
-            {
-                continue;
-            }
-
-            ApplyPotionSuggest(ti, ti, potions[ti]);
-            usedThrower[ti] = true;
-        }
-
-        // 2) 其余需求（含不能动的人、等位宠物）由还能丢药的人补
-        for (var n = 0; n < need.Count; n++)
-        {
-            var ti = need[n];
-            var t = _superAiUnits[ti];
-            if (!string.IsNullOrEmpty(t.Suggest) && t.Suggest.IndexOf("血瓶", StringComparison.Ordinal) >= 0)
-            {
-                continue;
-            }
-
-            var thrower = -1;
-            for (var k = 0; k < throwers.Count; k++)
-            {
-                var fi = throwers[k];
-                if (usedThrower[fi])
-                {
-                    continue;
-                }
-
-                List<SuperAiPotion> pots;
-                if (!potions.TryGetValue(fi, out pots) || pots == null || pots.Count == 0)
-                {
-                    continue;
-                }
-
-                thrower = fi;
-                break;
-            }
-
-            if (thrower < 0)
-            {
-                if (!t.Unable)
-                {
-                    t.Suggest = t.IsPlayer
-                        ? "需血瓶（无人可丢）"
-                        : "等位血瓶（无人可丢）";
-                    _superAiUnits[ti] = t;
-                }
-
-                continue;
-            }
-
-            List<SuperAiPotion> bag;
-            potions.TryGetValue(thrower, out bag);
-            ApplyPotionSuggest(thrower, ti, bag);
-            usedThrower[thrower] = true;
-        }
-    }
-
-    private static bool SuperAiNeedsPotion(SuperAiUnitSnap u)
-    {
-        if (!u.Mine || u.MaxHp <= 0)
-        {
-            return false;
-        }
-
-        if ((u.Bc & 2L) != 0 || u.Hp <= 0)
-        {
-            return false;
-        }
-
-        var ratio = u.Hp / (float)u.MaxHp;
-        if (u.IsPlayer)
-        {
-            return ratio < SuperAiPlayerPotionHpRatio;
-        }
-
-        return ratio < SuperAiPetPotionHpRatio;
-    }
-
-    private static void ApplyPotionSuggest(int throwerIdx, int targetIdx, List<SuperAiPotion> bag)
-    {
-        if (bag == null || bag.Count == 0)
-        {
-            return;
-        }
-
-        var target = _superAiUnits[targetIdx];
-        var missing = Math.Max(1, target.MaxHp - target.Hp);
-        var rec = Math.Max(1, target.Rec);
-        var best = 0;
-        var bestScore = int.MaxValue;
-        for (var i = 0; i < bag.Count; i++)
-        {
-            var heal = bag[i].Power * rec;
-            var over = Math.Abs(heal - missing);
-            if (over < bestScore)
-            {
-                bestScore = over;
-                best = i;
-            }
-        }
-
-        var pot = bag[best];
-        var est = pot.Power * rec;
-        var thrower = _superAiUnits[throwerIdx];
-        var self = throwerIdx == targetIdx;
-        var line = (self ? "吃血瓶 " : "丢血瓶给" + (target.Name ?? "?") + " ")
-                   + pot.Name
-                   + " 估回" + est
-                   + "(×回复" + rec + ")";
-        thrower.Suggest = line;
-        _superAiUnits[throwerIdx] = thrower;
-        if (!self)
-        {
-            if (!target.Unable)
-            {
-                target.Suggest = "等待" + (thrower.Name ?? "?") + "丢血瓶";
-                _superAiUnits[targetIdx] = target;
-            }
-        }
-
-        pot.Count--;
-        if (pot.Count <= 0)
-        {
-            bag.RemoveAt(best);
-        }
-        else
-        {
-            bag[best] = pot;
-        }
-    }
+    // 旧 AssignSuperAiPotionSuggestions / ApplyPotionSuggest 已由 TryBuildSuperAiPotionCmd 通用优先级取代。
 
     private static List<SuperAiPotion> ScanSuperAiHpPotions(string uid)
     {
@@ -10810,6 +11738,30 @@ public static class SeqChapterTestUi
         return list;
     }
 
+    private static bool TryGetSuperAiHpPotionPowerByItemId(int itemId, out int power)
+    {
+        power = 0;
+        for (var i = 0; i < SuperAiHpPotionItemIds.Length; i++)
+        {
+            if (SuperAiHpPotionItemIds[i] == itemId)
+            {
+                power = SuperAiHpPotionPowers[i];
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool IsSuperAiHpPotionItemId(int itemId)
+    {
+        int p;
+        return TryGetSuperAiHpPotionPowerByItemId(itemId, out p);
+    }
+
+    /// <summary>
+    /// 优先按道具号 15611–15615 识别；回血量 = Power × 回复 / 100。
+    /// </summary>
     private static bool TryParseSuperAiHpPotion(object data, int bagIndex, out SuperAiPotion pot)
     {
         pot = new SuperAiPotion();
@@ -10818,37 +11770,47 @@ public static class SeqChapterTestUi
             return false;
         }
 
-        var name = Convert.ToString(GetMember(data, "Name") ?? "") ?? "";
-        var secret = Convert.ToString(GetMember(data, "Secretname") ?? "") ?? "";
-        var label = Convert.ToString(GetMember(data, "Label") ?? "") ?? "";
-        var raw = secret.Length > 0 ? secret : name;
-        if (raw.IndexOf(SuperAiPotionNamePrefix, StringComparison.Ordinal) < 0
-            && name.IndexOf(SuperAiPotionNamePrefix, StringComparison.Ordinal) < 0)
+        var itemId = Convert.ToInt32(GetMember(data, "Id") ?? GetProp(data, "Id") ?? 0);
+        int power;
+        if (!TryGetSuperAiHpPotionPowerByItemId(itemId, out power))
         {
-            return false;
+            // 兼容旧名匹配（无 Id 时）
+            var name = Convert.ToString(GetMember(data, "Name") ?? "") ?? "";
+            var secret = Convert.ToString(GetMember(data, "Secretname") ?? "") ?? "";
+            var label = Convert.ToString(GetMember(data, "Label") ?? "") ?? "";
+            var raw = secret.Length > 0 ? secret : name;
+            if (raw.IndexOf(SuperAiPotionNamePrefix, StringComparison.Ordinal) < 0
+                && name.IndexOf(SuperAiPotionNamePrefix, StringComparison.Ordinal) < 0)
+            {
+                return false;
+            }
+
+            power = ParseTrailingNumber(raw);
+            if (power <= 0)
+            {
+                power = ParseTrailingNumber(name);
+            }
+
+            if (power <= 0)
+            {
+                power = ParseTrailingNumber(label);
+            }
+
+            if (power <= 0)
+            {
+                return false;
+            }
         }
 
-        var power = ParseTrailingNumber(raw);
-        if (power <= 0)
+        var shown = Convert.ToString(GetMember(data, "Name") ?? "") ?? "";
+        if (string.IsNullOrEmpty(shown) || shown.IndexOf(SuperAiPotionNamePrefix, StringComparison.Ordinal) < 0)
         {
-            power = ParseTrailingNumber(name);
+            shown = SuperAiPotionNamePrefix + power;
         }
 
-        if (power <= 0)
-        {
-            power = ParseTrailingNumber(label);
-        }
-
-        if (power <= 0)
-        {
-            return false;
-        }
-
-        var shown = name.IndexOf(SuperAiPotionNamePrefix, StringComparison.Ordinal) >= 0
-            ? name
-            : SuperAiPotionNamePrefix + power;
         pot.Name = shown;
         pot.Power = power;
+        pot.ItemId = itemId;
         pot.Count = Math.Max(1, Convert.ToInt32(GetMember(data, "Pile") ?? 1));
         pot.BagIndex = bagIndex;
         pot.Type = Convert.ToInt32(GetMember(data, "Type") ?? 0);
@@ -10880,6 +11842,548 @@ public static class SeqChapterTestUi
         }
 
         return num;
+    }
+
+    private static int[] NewSuperAiPotionCountArray()
+    {
+        return new int[SuperAiHpPotionItemIds.Length];
+    }
+
+    private static int SuperAiHpPotionTierIndex(int itemId)
+    {
+        for (var i = 0; i < SuperAiHpPotionItemIds.Length; i++)
+        {
+            if (SuperAiHpPotionItemIds[i] == itemId)
+            {
+                return i;
+            }
+        }
+
+        return -1;
+    }
+
+    private static bool SuperAiPrepBankHasAny(string uid)
+    {
+        if (string.IsNullOrEmpty(uid))
+        {
+            return false;
+        }
+
+        List<int[]> rows;
+        if (_superAiPrepBankRows.TryGetValue(uid, out rows) && rows != null && rows.Count > 0)
+        {
+            return true;
+        }
+
+        int[] counts;
+        if (_superAiPrepBankCounts.TryGetValue(uid, out counts) && counts != null)
+        {
+            for (var i = 0; i < counts.Length; i++)
+            {
+                if (counts[i] > 0)
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private static void TryQueueSuperAiPotionBankPull(string uid)
+    {
+        if (!_superAiPrepReady || string.IsNullOrEmpty(uid) || !SuperAiPrepBankHasAny(uid))
+        {
+            return;
+        }
+
+        if (_superAiBankPullActive)
+        {
+            return;
+        }
+
+        // 战斗中也可取超银
+        StartSuperAiPotionBankPull(uid);
+    }
+
+    private static void StartSuperAiPotionBankPull(string uid)
+    {
+        _superAiBankPullActive = true;
+        _superAiBankPullUid = uid ?? "";
+        _superAiBankPullPhase = 1;
+        _superAiBankPullWaitMs = NowMs();
+        _superAiBankPullWhTabDone = false;
+        _superAiBankPullLastWhOpenMs = 0;
+        ClearAccountBankItemCache();
+        Tip("AI血瓶：从账号银行取生命力回复药…");
+        WriteLog("SuperAI potion bank-pull start uid=" + uid
+                 + " inBattle=" + Convert.ToBoolean(GetStaticMember("BattleDataHolder", "IsInBattle") ?? false));
+    }
+
+    private static void TickSuperAiPotionBankPull()
+    {
+        if (!_superAiBankPullActive)
+        {
+            return;
+        }
+
+        var uid = _superAiBankPullUid;
+        var now = NowMs();
+        if (string.IsNullOrEmpty(uid))
+        {
+            _superAiBankPullActive = false;
+            return;
+        }
+
+        // 背包已有则结束
+        if (ScanSuperAiHpPotions(uid).Count > 0)
+        {
+            Tip("AI血瓶：背包已有生命力回复药");
+            FinishSuperAiPotionBankPull(true);
+            return;
+        }
+
+        if (_superAiBankPullPhase == 1)
+        {
+            // 备战缓存已有仓格：战斗中直接取，不必先开 UI
+            int cachedIdx;
+            int cachedItem;
+            if (TryPickSuperAiBankPotionRow(uid, out cachedIdx, out cachedItem)
+                && TrySendAccountBankTakeNum(uid, cachedIdx, 1))
+            {
+                WriteLog("SuperAI potion bank-take(fast) idx=" + cachedIdx + " item=" + cachedItem);
+                _superAiBankPullPhase = 3;
+                _superAiBankPullWaitMs = now;
+                return;
+            }
+
+            ClearAccountBankItemCache();
+            TryOpenAccountItemWarehouseUi(uid);
+            TrySwitchChildWareHouseToAccountTab(uid);
+            _superAiBankPullPhase = 2;
+            _superAiBankPullWaitMs = now;
+            return;
+        }
+
+        if (_superAiBankPullPhase == 2)
+        {
+            var waited = now - _superAiBankPullWaitMs;
+            if (waited > 8000)
+            {
+                Tip("AI血瓶：账号银行回包超时");
+                FinishSuperAiPotionBankPull(false);
+                return;
+            }
+
+            if (waited > 400)
+            {
+                var child = FindExistingUiByType("ChildWareHousePanel", "FindChildPanelByType");
+                if (child == null)
+                {
+                    if (now - _superAiBankPullLastWhOpenMs >= 1500)
+                    {
+                        _superAiBankPullLastWhOpenMs = now;
+                        TryOpenAccountItemWarehouseUi(uid);
+                    }
+                }
+                else if (!_superAiBankPullWhTabDone)
+                {
+                    if (TrySwitchChildWareHouseToAccountTab(uid))
+                    {
+                        _superAiBankPullWhTabDone = true;
+                    }
+                }
+            }
+
+            IList update;
+            if (!TryGetAccountBankUpdateItems(out update) || update.Count == 0)
+            {
+                return;
+            }
+
+            // 刷新缓存行，取最小一瓶（15611→…→15615）
+            CacheSuperAiBankPotionsFromUpdate(uid, update);
+            int bankIndex;
+            int itemId;
+            if (!TryPickSuperAiBankPotionRow(uid, out bankIndex, out itemId))
+            {
+                Tip("AI血瓶：账号银行无生命力回复药");
+                FinishSuperAiPotionBankPull(false);
+                return;
+            }
+
+            if (!TrySendAccountBankTakeNum(uid, bankIndex, 1))
+            {
+                Tip("AI血瓶：取药发包失败");
+                FinishSuperAiPotionBankPull(false);
+                return;
+            }
+
+            WriteLog("SuperAI potion bank-take idx=" + bankIndex + " item=" + itemId);
+            _superAiBankPullPhase = 3;
+            _superAiBankPullWaitMs = now;
+            return;
+        }
+
+        if (_superAiBankPullPhase == 3)
+        {
+            if (now - _superAiBankPullWaitMs < 600)
+            {
+                return;
+            }
+
+            TrySendAccountBankClose(uid);
+            if (ScanSuperAiHpPotions(uid).Count > 0)
+            {
+                Tip("AI血瓶：已从账号银行取出");
+                DecrementSuperAiPrepBankCache(uid);
+                FinishSuperAiPotionBankPull(true);
+            }
+            else if (now - _superAiBankPullWaitMs > 3000)
+            {
+                Tip("AI血瓶：取药后背包仍空");
+                FinishSuperAiPotionBankPull(false);
+            }
+        }
+    }
+
+    private static void FinishSuperAiPotionBankPull(bool ok)
+    {
+        _superAiBankPullActive = false;
+        _superAiBankPullUid = "";
+        _superAiBankPullPhase = 0;
+        WriteLog("SuperAI potion bank-pull end ok=" + ok);
+    }
+
+    private static bool TryPickSuperAiBankPotionRow(string uid, out int bankIndex, out int itemId)
+    {
+        bankIndex = -1;
+        itemId = 0;
+        List<int[]> rows;
+        if (!_superAiPrepBankRows.TryGetValue(uid, out rows) || rows == null)
+        {
+            return false;
+        }
+
+        // 优先小瓶
+        for (var t = 0; t < SuperAiHpPotionItemIds.Length; t++)
+        {
+            var want = SuperAiHpPotionItemIds[t];
+            for (var i = 0; i < rows.Count; i++)
+            {
+                var row = rows[i];
+                if (row == null || row.Length < 3 || row[0] != want || row[2] <= 0)
+                {
+                    continue;
+                }
+
+                itemId = row[0];
+                bankIndex = row[1];
+                return bankIndex >= 0;
+            }
+        }
+
+        return false;
+    }
+
+    private static void DecrementSuperAiPrepBankCache(string uid)
+    {
+        List<int[]> rows;
+        if (_superAiPrepBankRows.TryGetValue(uid, out rows) && rows != null)
+        {
+            for (var t = 0; t < SuperAiHpPotionItemIds.Length; t++)
+            {
+                var want = SuperAiHpPotionItemIds[t];
+                for (var i = 0; i < rows.Count; i++)
+                {
+                    var row = rows[i];
+                    if (row == null || row.Length < 3 || row[0] != want || row[2] <= 0)
+                    {
+                        continue;
+                    }
+
+                    row[2]--;
+                    int[] counts;
+                    if (_superAiPrepBankCounts.TryGetValue(uid, out counts) && counts != null
+                        && t < counts.Length && counts[t] > 0)
+                    {
+                        counts[t]--;
+                    }
+
+                    return;
+                }
+            }
+        }
+    }
+
+    private static void CacheSuperAiBankPotionsFromUpdate(string uid, IList update)
+    {
+        var counts = NewSuperAiPotionCountArray();
+        var rows = new List<int[]>();
+        if (update != null)
+        {
+            for (var i = 0; i < update.Count; i++)
+            {
+                var row = update[i];
+                if (row == null)
+                {
+                    continue;
+                }
+
+                var itemId = Convert.ToInt32(GetMember(row, "Itemid") ?? GetProp(row, "Itemid") ?? 0);
+                var tier = SuperAiHpPotionTierIndex(itemId);
+                if (tier < 0)
+                {
+                    continue;
+                }
+
+                var bankIndex = Convert.ToInt32(GetMember(row, "Index") ?? GetProp(row, "Index") ?? -1);
+                var pile = Convert.ToInt32(GetMember(row, "Pile") ?? GetProp(row, "Pile") ?? 0);
+                if (pile <= 0 || bankIndex < 0)
+                {
+                    continue;
+                }
+
+                counts[tier] += pile;
+                rows.Add(new[] { itemId, bankIndex, pile });
+            }
+        }
+
+        _superAiPrepBankCounts[uid] = counts;
+        _superAiPrepBankRows[uid] = rows;
+    }
+
+    private static int[] CountSuperAiBagPotionsById(string uid)
+    {
+        var counts = NewSuperAiPotionCountArray();
+        try
+        {
+            var getItems = FindType("PlayerDataHolder")?.GetMethod(
+                "GetItemDatasFromUid",
+                BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic);
+            var items = getItems?.Invoke(null, new object[] { uid }) as IList;
+            if (items == null)
+            {
+                return counts;
+            }
+
+            for (var i = 8; i < items.Count && i <= 67; i++)
+            {
+                var it = items[i];
+                if (it == null || Convert.ToInt32(GetMember(it, "useFlag") ?? 0) != 1)
+                {
+                    continue;
+                }
+
+                var data = GetMember(it, "data");
+                if (data == null)
+                {
+                    continue;
+                }
+
+                var itemId = Convert.ToInt32(GetMember(data, "Id") ?? GetProp(data, "Id") ?? 0);
+                var tier = SuperAiHpPotionTierIndex(itemId);
+                if (tier < 0)
+                {
+                    continue;
+                }
+
+                counts[tier] += Math.Max(1, Convert.ToInt32(GetMember(data, "Pile") ?? 1));
+            }
+        }
+        catch (Exception ex)
+        {
+            WriteLog("CountSuperAiBagPotionsById EX: " + RootMessage(ex));
+        }
+
+        return counts;
+    }
+
+    private static void StartSuperAiPrep()
+    {
+        if (_superAiPrepActive)
+        {
+            Tip("备战准备进行中…");
+            return;
+        }
+
+        if (Convert.ToBoolean(GetStaticMember("BattleDataHolder", "IsInBattle") ?? false))
+        {
+            Tip("备战准备：请先退出战斗");
+            return;
+        }
+
+        _superAiPrepUids.Clear();
+        _superAiPrepBagCounts.Clear();
+        _superAiPrepBankCounts.Clear();
+        _superAiPrepBankRows.Clear();
+        _superAiPrepReady = false;
+        var uids = CollectTeamOrMultiUids();
+        if (uids == null || uids.Count == 0)
+        {
+            var main = GetMainPlayerUidSafe();
+            if (!string.IsNullOrEmpty(main))
+            {
+                uids = new List<string> { main };
+            }
+        }
+
+        if (uids == null || uids.Count == 0)
+        {
+            Tip("备战准备：无角色");
+            return;
+        }
+
+        for (var i = 0; i < uids.Count; i++)
+        {
+            if (!string.IsNullOrEmpty(uids[i]))
+            {
+                _superAiPrepUids.Add(uids[i]);
+            }
+        }
+
+        _superAiPrepActive = true;
+        _superAiPrepPhase = 1;
+        _superAiPrepUidIndex = 0;
+        _superAiPrepWaitMs = NowMs();
+        _superAiPrepNote = "扫描背包…";
+        Tip("备战准备：开始扫描生命力回复药库存");
+        WriteLog("SuperAI prep start n=" + _superAiPrepUids.Count);
+        if (_tab == TabSuperAi)
+        {
+            try { SetText(_superAiStatusText, FormatSuperAiStatus(), 13); } catch { }
+        }
+    }
+
+    private static void TickSuperAiPrep()
+    {
+        if (!_superAiPrepActive)
+        {
+            return;
+        }
+
+        if (Convert.ToBoolean(GetStaticMember("BattleDataHolder", "IsInBattle") ?? false))
+        {
+            _superAiPrepNote = "战斗中，备战暂停（请退战）";
+            return;
+        }
+
+        var now = NowMs();
+        if (_superAiPrepUidIndex < 0 || _superAiPrepUidIndex >= _superAiPrepUids.Count)
+        {
+            FinishSuperAiPrep();
+            return;
+        }
+
+        var uid = _superAiPrepUids[_superAiPrepUidIndex];
+        if (_superAiPrepPhase == 1)
+        {
+            _superAiPrepBagCounts[uid] = CountSuperAiBagPotionsById(uid);
+            ClearAccountBankItemCache();
+            TryOpenAccountItemWarehouseUi(uid);
+            TrySwitchChildWareHouseToAccountTab(uid);
+            _superAiPrepPhase = 2;
+            _superAiPrepWaitMs = now;
+            _superAiPrepNote = "扫银行 " + FormatBaptismPlayerShort(uid) + "…";
+            return;
+        }
+
+        if (_superAiPrepPhase == 2)
+        {
+            var waited = now - _superAiPrepWaitMs;
+            if (waited > 8000)
+            {
+                _superAiPrepBankCounts[uid] = NewSuperAiPotionCountArray();
+                _superAiPrepBankRows[uid] = new List<int[]>();
+                WriteLog("SuperAI prep bank timeout uid=" + uid);
+                _superAiPrepUidIndex++;
+                _superAiPrepPhase = 1;
+                _superAiPrepWaitMs = now;
+                return;
+            }
+
+            if (waited > 400)
+            {
+                var child = FindExistingUiByType("ChildWareHousePanel", "FindChildPanelByType");
+                if (child != null)
+                {
+                    TrySwitchChildWareHouseToAccountTab(uid);
+                }
+                else if (waited > 1200 && waited < 1400)
+                {
+                    TryOpenAccountItemWarehouseUi(uid);
+                }
+            }
+
+            IList update;
+            if (!TryGetAccountBankUpdateItems(out update) || update.Count == 0)
+            {
+                return;
+            }
+
+            CacheSuperAiBankPotionsFromUpdate(uid, update);
+            TrySendAccountBankClose(uid);
+            WriteLog("SuperAI prep uid=" + uid
+                     + " bag=" + FormatSuperAiPotionCounts(_superAiPrepBagCounts[uid])
+                     + " bank=" + FormatSuperAiPotionCounts(_superAiPrepBankCounts[uid]));
+            _superAiPrepUidIndex++;
+            _superAiPrepPhase = 1;
+            _superAiPrepWaitMs = now;
+            if (_superAiPrepUidIndex >= _superAiPrepUids.Count)
+            {
+                FinishSuperAiPrep();
+            }
+        }
+    }
+
+    private static string FormatSuperAiPotionCounts(int[] counts)
+    {
+        if (counts == null)
+        {
+            return "-";
+        }
+
+        var sb = new StringBuilder();
+        for (var i = 0; i < SuperAiHpPotionPowers.Length && i < counts.Length; i++)
+        {
+            if (i > 0)
+            {
+                sb.Append(' ');
+            }
+
+            sb.Append(SuperAiHpPotionPowers[i]).Append('×').Append(counts[i]);
+        }
+
+        return sb.ToString();
+    }
+
+    private static void FinishSuperAiPrep()
+    {
+        _superAiPrepActive = false;
+        _superAiPrepPhase = 0;
+        _superAiPrepReady = true;
+        var sb = new StringBuilder();
+        sb.AppendLine("备战准备完成（回血=药力×回复/100）");
+        for (var i = 0; i < _superAiPrepUids.Count; i++)
+        {
+            var uid = _superAiPrepUids[i];
+            int[] bag;
+            int[] bank;
+            _superAiPrepBagCounts.TryGetValue(uid, out bag);
+            _superAiPrepBankCounts.TryGetValue(uid, out bank);
+            sb.Append(FormatBaptismPlayerShort(uid))
+              .Append(" 包[").Append(FormatSuperAiPotionCounts(bag)).Append(']')
+              .Append(" 银[").Append(FormatSuperAiPotionCounts(bank)).Append(']')
+              .AppendLine();
+        }
+
+        _superAiPrepNote = sb.ToString().TrimEnd();
+        Tip("备战准备已完成");
+        WriteLog("SuperAI prep done\n" + _superAiPrepNote);
+        if (_tab == TabSuperAi && _superAiStatusText != null && !IsUnityNull(_superAiStatusText))
+        {
+            try { SetText(_superAiStatusText, FormatSuperAiStatus(), 13); } catch { }
+        }
     }
 
     /// <summary>模拟决策占位：不发包、不改 Auto 配置。</summary>
@@ -14539,6 +16043,7 @@ public static class SeqChapterTestUi
             hintText,
             "队列护航：可塞未接；完成一项后等 5 秒再下一项。\n"
             + "手动暂停不清铃；自动暂停约每2秒响铃，点「我知道了」或停止才停。静止5秒尝试恢复，连挪5次后改为直接续任务再观察5秒；本步骤连续20次失败自动暂停。\n"
+            + "洗礼预备：合击→治疗→重置#99→护航1/2/4→再治疗→用#651022→#99；战败暂停；60305(173,28)手动Boss。\n"
             + "战后若队伍解散或不足5人：自动暂停，组好后点「继续护航」。",
             11);
 
@@ -14603,7 +16108,30 @@ public static class SeqChapterTestUi
         }
 
         y -= 50f;
-        // 中元循环已永久删除。
+        // 原中元循环位置：洗礼预备（重置洗礼5 → 入队1/2/4；战败暂停；圣魔龙手动打）
+        var baptismBtn = CreateUiChild(_bodyRoot, "BaptismPrepBtn", rtType);
+        SetAnchoredTop(RequireRect(baptismBtn, "bpb"), 0f, y, 420f, 40f);
+        var baptismImg = AddComp(baptismBtn, "UnityEngine.UI.Image");
+        SetColor(
+            baptismImg,
+            _baptismPrepActive ? 0.48f : 0.32f,
+            _baptismPrepActive ? 0.22f : 0.28f,
+            _baptismPrepActive ? 0.42f : 0.48f,
+            1f);
+        var baptismLab = CreateUiChild(baptismBtn, "L", rtType);
+        StretchFull(RequireRect(baptismLab, "bpl"));
+        SetText(
+            AddText(baptismLab),
+            _baptismPrepActive
+                ? (_baptismPrepPhase == BaptismPhaseFlora
+                    ? "洗礼预备（治疗中…点此停止）"
+                    : (_baptismPrepPhase == BaptismPhaseResetWait
+                        ? "洗礼预备（重置中…点此停止）"
+                        : "洗礼预备（停止）"))
+                : "洗礼预备（合击→治疗→1/2/4/5）",
+            14);
+        BindButton(baptismBtn, baptismImg, ToggleBaptismPrep);
+        y -= 48f;
 
         if (_escortAlertRinging)
         {
@@ -15324,6 +16852,617 @@ public static class SeqChapterTestUi
                 WriteLog("dragon reset EX uid=" + uid + " " + RootMessage(ex));
             }
         }
+    }
+
+    /// <summary>护航页：洗礼预备开关。开=重置洗礼5→入队1/2/4；战败暂停；圣魔龙手动打。</summary>
+    private static void ToggleBaptismPrep()
+    {
+        if (_baptismPrepActive)
+        {
+            StopBaptismPrep("已手动停止");
+            return;
+        }
+
+        StartBaptismPrep();
+    }
+
+    private static void StopBaptismPrep(string reason)
+    {
+        if (!_baptismPrepActive && !_escortActive)
+        {
+            Tip("洗礼预备：未在运行");
+            return;
+        }
+
+        _baptismPrepActive = false;
+        _baptismPrepPhase = 0;
+        _baptismSawForceQuit = false;
+        ClearBaptism5BridgeFlags();
+        WriteLog("baptism prep stop reason=" + reason);
+        if (_floraHealActive && _floraHealBaptismStage != FloraBaptismNone)
+        {
+            _floraHealBaptismStage = FloraBaptismNone;
+            StopFloraHeal("洗礼预备已停止", false);
+        }
+        else
+        {
+            _floraHealBaptismStage = FloraBaptismNone;
+        }
+
+        if (_escortActive || _escortPicking || _escortQueue.Count > 0)
+        {
+            CancelEscort(true, "洗礼预备已停止");
+        }
+        else
+        {
+            Tip("洗礼预备：已关闭");
+        }
+
+        TryRebuildEscortTab();
+    }
+
+    private static void ClearBaptism5BridgeFlags()
+    {
+        _baptismNeedItemBefore5 = false;
+        _baptismNeedFloraBefore5 = false;
+        _baptism5ItemUsePending = false;
+        _baptism5ItemUseAtMs = 0;
+        _baptism5NavAborted = false;
+        _baptism5BossPauseDone = false;
+        _baptism5LastNavNudgeMs = 0;
+    }
+
+    private static void StartBaptismPrep()
+    {
+        try
+        {
+            if (!CheckBaptismUnbindGoldOrTip())
+            {
+                return;
+            }
+
+            if (_dragonLoopActive || _midAutumnLoopActive || _escortActive || _escortPicking)
+            {
+                CancelEscort(true, "已切换到洗礼预备");
+            }
+
+            if (_floraHealActive)
+            {
+                _floraHealBaptismStage = FloraBaptismNone;
+                StopFloraHeal("已切换到洗礼预备", false);
+            }
+
+            _baptismPrepActive = true;
+            _baptismPrepPhase = BaptismPhaseFlora;
+            _baptismPrepPhaseAtMs = NowMs();
+            _baptismSawForceQuit = false;
+            ClearBaptism5BridgeFlags();
+            EnsureCaptainAttackModeCombo();
+            WriteLog("baptism prep start flora then reset #99 queue 84/85/87/99");
+            Tip("洗礼预备：合击已检查，开始法兰治疗…");
+            StartFloraHealForBaptism(FloraBaptismPrepStart);
+            TryRebuildEscortTab();
+        }
+        catch (Exception ex)
+        {
+            WriteLog("StartBaptismPrep EX: " + RootMessage(ex));
+            Tip("洗礼预备：启动失败");
+            _baptismPrepActive = false;
+            _baptismPrepPhase = 0;
+            _floraHealBaptismStage = FloraBaptismNone;
+            ClearBaptism5BridgeFlags();
+            TryRebuildEscortTab();
+        }
+    }
+
+    /// <summary>
+    /// 开局检查非绑定魔币（unBindGold）：队长 &gt;120000，队员 &gt;20000。
+    /// 不足则 Tip 并返回 false（不启动）。
+    /// </summary>
+    private static bool CheckBaptismUnbindGoldOrTip()
+    {
+        var cap = GetCaptainUid();
+        if (string.IsNullOrEmpty(cap))
+        {
+            Tip("洗礼预备：无队长，无法检查魔币");
+            WriteLog("baptism gold check: no captain");
+            return false;
+        }
+
+        var fails = new List<string>();
+        var capGold = GetPlayerUnbindGold(cap);
+        if (capGold <= BaptismCaptainUnbindGoldMin)
+        {
+            fails.Add("队长" + FormatBaptismPlayerShort(cap) + "非绑定魔币"
+                      + capGold + "（需>" + BaptismCaptainUnbindGoldMin + "）");
+        }
+
+        var uids = CollectTeamOrMultiUids();
+        foreach (var uid in uids)
+        {
+            if (string.IsNullOrEmpty(uid) || uid == cap)
+            {
+                continue;
+            }
+
+            var g = GetPlayerUnbindGold(uid);
+            if (g <= BaptismMemberUnbindGoldMin)
+            {
+                fails.Add("队员" + FormatBaptismPlayerShort(uid) + "非绑定魔币"
+                          + g + "（需>" + BaptismMemberUnbindGoldMin + "）");
+            }
+        }
+
+        if (fails.Count == 0)
+        {
+            WriteLog("baptism gold check ok cap=" + capGold + " members=" + (uids.Count - 1));
+            return true;
+        }
+
+        var msg = "洗礼预备：魔币不足 — " + string.Join("；", fails);
+        Tip(msg);
+        WriteLog("baptism gold check fail " + msg);
+        return false;
+    }
+
+    private static long GetPlayerUnbindGold(string uid)
+    {
+        try
+        {
+            var player = GetPlayer(uid);
+            if (player == null)
+            {
+                return 0;
+            }
+
+            return Convert.ToInt64(GetMember(player, "unBindGold") ?? 0);
+        }
+        catch
+        {
+            return 0;
+        }
+    }
+
+    private static string FormatBaptismPlayerShort(string uid)
+    {
+        try
+        {
+            var player = GetPlayer(uid);
+            var name = Convert.ToString(GetMember(player, "Name") ?? GetMember(player, "name") ?? "") ?? "";
+            if (!string.IsNullOrEmpty(name))
+            {
+                return name;
+            }
+        }
+        catch
+        {
+            // ignore
+        }
+
+        if (string.IsNullOrEmpty(uid) || uid.Length <= 4)
+        {
+            return uid ?? "";
+        }
+
+        return uid.Substring(uid.Length - 4);
+    }
+
+    /// <summary>洗礼预备：走脚本页同款法兰治疗（不丢头盔）。</summary>
+    private static void StartFloraHealForBaptism(int stage)
+    {
+        _floraHealBaptismStage = stage;
+        StartFloraHeal(false);
+    }
+
+    /// <summary>法兰治疗成功后：重置洗礼5，进入等待再入队。</summary>
+    private static void BeginBaptismResetAfterFlora()
+    {
+        if (!_baptismPrepActive)
+        {
+            return;
+        }
+
+        Tip("洗礼预备：治疗完成，重置洗礼5…");
+        ResetBaptism5ForAll();
+        _baptismPrepPhase = BaptismPhaseResetWait;
+        _baptismPrepPhaseAtMs = NowMs();
+        WriteLog("baptism prep after flora -> reset wait");
+        TryRebuildEscortTab();
+    }
+
+    /// <summary>洗礼4后治疗完成：检查/使用#651022，再开洗礼5。</summary>
+    private static void BeginBaptism5AfterFlora()
+    {
+        if (!_baptismPrepActive)
+        {
+            return;
+        }
+
+        Tip("洗礼预备：治疗完成，检查洗礼5道具…");
+        TryStartBaptism5WithItem("after-flora");
+        TryRebuildEscortTab();
+    }
+
+    /// <summary>队长背包有#651022则使用并短等后开洗礼5；否则暂停。</summary>
+    private static bool TryStartBaptism5WithItem(string reason)
+    {
+        if (!_baptismPrepActive || !_escortActive)
+        {
+            return false;
+        }
+
+        if (_escortQueueIndex < 0 || _escortQueueIndex >= _escortQueue.Count
+            || _escortQueue[_escortQueueIndex].Id != Baptism5MissionId)
+        {
+            WriteLog("baptism5 item: queue not on #99 reason=" + reason);
+            return false;
+        }
+
+        var uid = GetCaptainUid();
+        if (string.IsNullOrEmpty(uid))
+        {
+            PauseEscort("洗礼5：无队长，无法检查道具#" + Baptism5StartItemId, true);
+            _baptismNeedItemBefore5 = true;
+            return false;
+        }
+
+        var bag = CountBagItemById(uid, Baptism5StartItemId);
+        if (bag <= 0)
+        {
+            _baptismNeedItemBefore5 = true;
+            WriteLog("baptism5 item missing uid=" + uid + " id=" + Baptism5StartItemId
+                     + " reason=" + reason);
+            PauseEscort("洗礼5：队长背包无道具#" + Baptism5StartItemId + "，备好后点继续", true);
+            return false;
+        }
+
+        if (!TryUseBagItemById(uid, Baptism5StartItemId))
+        {
+            _baptismNeedItemBefore5 = true;
+            WriteLog("baptism5 item use fail uid=" + uid + " id=" + Baptism5StartItemId);
+            PauseEscort("洗礼5：使用道具#" + Baptism5StartItemId + "失败，处理后点继续", true);
+            return false;
+        }
+
+        _baptismNeedItemBefore5 = false;
+        _baptism5ItemUsePending = true;
+        _baptism5ItemUseAtMs = NowMs();
+        Tip("洗礼预备：已使用道具#" + Baptism5StartItemId + "，即将开始洗礼5…");
+        WriteLog("baptism5 item used reason=" + reason + " bagWas=" + bag);
+        return true;
+    }
+
+    /// <summary>按道具 Id 使用队长/指定角色背包中的一件（SendUseItem）。</summary>
+    private static bool TryUseBagItemById(string uid, int itemId)
+    {
+        if (string.IsNullOrEmpty(uid) || itemId <= 0)
+        {
+            return false;
+        }
+
+        try
+        {
+            var items = FindType("PlayerDataHolder")?.GetMethod(
+                "GetItemDatasFromUid", BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic)
+                ?.Invoke(null, new object[] { uid }) as System.Collections.IList;
+            if (items == null)
+            {
+                return false;
+            }
+
+            var itemMgr = GetManagerInstance("ItemManager");
+            if (itemMgr == null)
+            {
+                return false;
+            }
+
+            MethodInfo use = null;
+            foreach (var m in itemMgr.GetType().GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+            {
+                if (m.Name != "SendUseItem")
+                {
+                    continue;
+                }
+
+                var ps = m.GetParameters();
+                if (ps.Length >= 4 && ps[0].ParameterType == typeof(int) && ps[3].ParameterType == typeof(string))
+                {
+                    use = m;
+                    break;
+                }
+            }
+
+            if (use == null)
+            {
+                return false;
+            }
+
+            for (var i = 0; i < items.Count; i++)
+            {
+                var item = items[i];
+                if (item == null)
+                {
+                    continue;
+                }
+
+                var useFlag = Convert.ToInt32(GetMember(item, "useFlag") ?? 0);
+                if (useFlag != 1)
+                {
+                    continue;
+                }
+
+                var data = GetMember(item, "data");
+                var id = Convert.ToInt32(GetMember(data, "Id") ?? GetProp(data, "Id") ?? 0);
+                if (id != itemId)
+                {
+                    continue;
+                }
+
+                var x = 0;
+                var y = 0;
+                TryGetPlayerXY(out x, out y);
+                var ps = use.GetParameters();
+                if (ps.Length >= 7)
+                {
+                    use.Invoke(itemMgr, new object[] { x, y, i, uid, 0, -1, 1 });
+                }
+                else if (ps.Length >= 4)
+                {
+                    use.Invoke(itemMgr, new object[] { x, y, i, uid });
+                }
+
+                var name = Convert.ToString(GetMember(data, "Name") ?? "") ?? "";
+                WriteLog("use bag item-by-id uid=" + uid + " id=" + itemId + " idx=" + i + " name=" + name);
+                return true;
+            }
+
+            return false;
+        }
+        catch (Exception ex)
+        {
+            WriteLog("TryUseBagItemById EX: " + RootMessage(ex));
+            return false;
+        }
+    }
+
+    /// <summary>洗礼5：进 60305 掐任务导航，走到 (173,28) 后暂停等手动 Boss。</summary>
+    private static bool TickBaptism5BossApproach()
+    {
+        if (!_baptismPrepActive || _escortMissionId != Baptism5MissionId || _escortPaused)
+        {
+            return false;
+        }
+
+        int floor;
+        string floorName;
+        int mapRes;
+        if (!TryGetCurrentMapInfo(out floor, out floorName, out mapRes) || floor != Baptism5BossFloor)
+        {
+            return false;
+        }
+
+        if (!_baptism5NavAborted)
+        {
+            _baptism5NavAborted = true;
+            AbortEscortTaskPathFully("baptism5-60305");
+            ClearEscortStuckPending();
+            StopEscortEncounterWait("baptism5-60305", false);
+            string how;
+            TryNavigateTo(Baptism5BossFloor, Baptism5BossX, Baptism5BossY, out how);
+            _baptism5LastNavNudgeMs = NowMs();
+            Tip("洗礼5：已进Boss图，停止任务导航，前往 (" + Baptism5BossX + "," + Baptism5BossY + ")");
+            WriteLog("baptism5 abort task-nav floor=" + floor + " nav=" + how);
+            return true;
+        }
+
+        int px;
+        int py;
+        if (!TryGetPlayerXY(out px, out py))
+        {
+            return true;
+        }
+
+        var dist = Math.Abs(px - Baptism5BossX) + Math.Abs(py - Baptism5BossY);
+        if (dist <= Baptism5BossArriveNear)
+        {
+            if (!_baptism5BossPauseDone)
+            {
+                _baptism5BossPauseDone = true;
+                AbortEscortTaskPathFully("baptism5-boss-arrive");
+                ClearEscortStuckPending();
+                WriteLog("baptism5 boss pause at " + px + "," + py);
+                PauseEscort("洗礼5：已到Boss点(" + Baptism5BossX + "," + Baptism5BossY
+                            + ")，请手动打完后点继续", true);
+            }
+
+            return true;
+        }
+
+        var now = NowMs();
+        if (now - _baptism5LastNavNudgeMs >= Baptism5NavNudgeMs)
+        {
+            string how;
+            TryNavigateTo(Baptism5BossFloor, Baptism5BossX, Baptism5BossY, out how);
+            _baptism5LastNavNudgeMs = now;
+            WriteLog("baptism5 nudge boss xy dist=" + dist + " how=" + how);
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// 队长攻击方式改为合击（清 PROTO_CHAR_FS_BATTLERANDOM=0x4000）。
+    /// 已是合击则不发包。协议：RoleManager.SendConfig(flg, uid)。
+    /// </summary>
+    private static void EnsureCaptainAttackModeCombo()
+    {
+        const int BattleRandomFlag = 0x4000; // PROTO_CHAR_FS_BATTLERANDOM
+        try
+        {
+            var uid = GetCaptainUid();
+            if (string.IsNullOrEmpty(uid))
+            {
+                WriteLog("baptism combo: 无队长 uid");
+                return;
+            }
+
+            var player = GetPlayer(uid);
+            if (player == null)
+            {
+                WriteLog("baptism combo: 找不到队长玩家 uid=" + uid);
+                return;
+            }
+
+            var etcObj = GetMember(player, "etcFlag");
+            var flg = Convert.ToInt32(etcObj ?? 0);
+            if ((flg & BattleRandomFlag) == 0)
+            {
+                WriteLog("baptism combo: 队长已是合击 flg=" + flg);
+                return;
+            }
+
+            var newFlg = flg & ~BattleRandomFlag;
+            var roleMgr = GetManagerInstance("RoleManager");
+            var send = roleMgr?.GetType().GetMethod(
+                "SendConfig",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+                null,
+                new[] { typeof(int), typeof(string) },
+                null);
+            if (roleMgr == null || send == null)
+            {
+                WriteLog("baptism combo: SendConfig 反射失败");
+                return;
+            }
+
+            send.Invoke(roleMgr, new object[] { newFlg, uid });
+            try
+            {
+                // 本地先改，避免等 Config 回包前仍读到随机
+                var etcType = etcObj?.GetType();
+                if (etcType != null && etcType.IsEnum)
+                {
+                    SetMember(player, "etcFlag", Enum.ToObject(etcType, newFlg));
+                }
+                else
+                {
+                    SetMember(player, "etcFlag", newFlg);
+                }
+            }
+            catch
+            {
+                // ignore local mirror
+            }
+
+            WriteLog("baptism combo: 队长攻击方式 随机→合击 flg " + flg + "->" + newFlg);
+            Tip("洗礼预备：队长攻击方式已改为合击");
+        }
+        catch (Exception ex)
+        {
+            WriteLog("EnsureCaptainAttackModeCombo EX: " + RootMessage(ex));
+        }
+    }
+
+    /// <summary>对所有队员发送重置洗礼5（#99，resetId 有效才发）。</summary>
+    private static void ResetBaptism5ForAll()
+    {
+        var uids = CollectTeamOrMultiUids();
+        if (uids.Count == 0)
+        {
+            var cap = GetCaptainUid();
+            if (!string.IsNullOrEmpty(cap))
+            {
+                uids.Add(cap);
+            }
+        }
+
+        var resetType = FindType("Proto_CS_ResetTask");
+        var lss = FindType("LSSPROTO");
+        var opcodeField = lss?.GetField("LSSPROTO_RESET_TASK_FUNC", BindingFlags.Public | BindingFlags.Static);
+        var net = GetManagerInstance("NetManager");
+        var send = net?.GetType().GetMethod("SendMessage", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        if (resetType == null || opcodeField == null || net == null || send == null)
+        {
+            WriteLog("baptism reset: 反射缺失 resetType=" + (resetType != null)
+                     + " opcode=" + (opcodeField != null) + " net=" + (net != null) + " send=" + (send != null));
+            return;
+        }
+
+        foreach (var uid in uids)
+        {
+            var mission = GetMissionDataById(Baptism5MissionId);
+            var resetId = mission != null ? Convert.ToInt32(GetMember(mission, "resetId") ?? -1) : -1;
+            if (resetId < 0)
+            {
+                WriteLog("baptism reset: uid=" + uid + " resetId 无效，跳过");
+                continue;
+            }
+
+            try
+            {
+                var msg = Activator.CreateInstance(resetType);
+                SetMember(msg, "Type", "重置任务");
+                SetMember(msg, "Id", resetId.ToString());
+                SetMember(msg, "KUid", uid);
+                send.Invoke(net, new object[] { opcodeField.GetValue(null), msg });
+                WriteLog("baptism reset: uid=" + uid + " mission=99 resetId=" + resetId);
+            }
+            catch (Exception ex)
+            {
+                WriteLog("baptism reset EX uid=" + uid + " " + RootMessage(ex));
+            }
+        }
+    }
+
+    /// <summary>洗礼预备 phase2：等重置回包后入队 1/2/4 并开护航。</summary>
+    private static void TickBaptismPrepPrepare()
+    {
+        if (!_baptismPrepActive || _baptismPrepPhase != BaptismPhaseResetWait)
+        {
+            return;
+        }
+
+        var now = NowMs();
+        if (now - _baptismPrepPhaseAtMs < BaptismResetDelayMs)
+        {
+            return;
+        }
+
+        _escortQueue.Clear();
+        foreach (var id in BaptismPrepMissionIds)
+        {
+            var mission = GetMissionDataById(id);
+            var title = mission != null
+                ? (Convert.ToString(GetMember(mission, "title") ?? "") ?? "")
+                : "";
+            _escortQueue.Add(new EscortCandidate
+            {
+                Id = id,
+                Title = string.IsNullOrEmpty(title) ? ("#" + id) : title,
+                Status = "排队"
+            });
+        }
+
+        _baptismPrepPhase = BaptismPhaseEscort;
+        _escortPicking = false;
+        _escortActive = true;
+        _escortPaused = false;
+        _escortPauseReason = "";
+        _escortLastDiag = "";
+        StopEscortAlertRing();
+        _escortQueueIndex = 0;
+        _escortBetweenTasksWaitMs = 0;
+        _escortAwaitingReadyMs = 0;
+        _escortRecoverAttempts = 0;
+        ResetEscortStuckState();
+        _escortFinishWaitMs = 0;
+        _escortLastStepNum = -1;
+        _lastActivityMs = now;
+        _prevRunTaskId = GetRunTaskId();
+        WriteLog("baptism prep run queue=" + _escortQueue.Count);
+        Tip("洗礼预备：已入队洗礼1/2/4/5，开始护航（战败将暂停）");
+        BeginEscortAtIndex(0, "baptism-start");
+        TryRebuildEscortTab();
     }
 
     /// <summary>丢弃某个队员背包中含指定关键字的所有道具。返回丢弃件数。</summary>
@@ -22481,7 +24620,27 @@ public static class SeqChapterTestUi
     private static string FormatEscortStatus()
     {
         string state;
-        if (_dragonLoopActive && _dragonPhase == 1)
+        if (_baptismPrepActive && _baptismPrepPhase == BaptismPhaseFlora)
+        {
+            state = "洗礼预备：法兰治疗中…（" + FloraHealPhaseName(_floraHealPhase) + "）";
+        }
+        else if (_baptismPrepActive && _baptismPrepPhase == BaptismPhaseResetWait)
+        {
+            state = "洗礼预备：重置洗礼5中…（随后入队1/2/4/5）";
+        }
+        else if (_baptismPrepActive && _floraHealBaptismStage == FloraBaptismBefore5 && _floraHealActive)
+        {
+            state = "洗礼预备：洗礼4后法兰治疗…（" + FloraHealPhaseName(_floraHealPhase) + "）";
+        }
+        else if (_baptismPrepActive && _baptism5ItemUsePending)
+        {
+            state = "洗礼预备：已用道具#" + Baptism5StartItemId + "，即将开洗礼5…";
+        }
+        else if (_baptismPrepActive && _baptismNeedItemBefore5)
+        {
+            state = "洗礼预备：等待队长道具#" + Baptism5StartItemId;
+        }
+        else if (_dragonLoopActive && _dragonPhase == 1)
         {
             state = "龙族循环：重置龙族纷争4中…（等待服务器）";
         }
@@ -22594,10 +24753,29 @@ public static class SeqChapterTestUi
             {
                 idleLine = "\n静止计时: 战斗中";
             }
+            else if (_floraHealActive)
+            {
+                idleLine = "\n静止计时: 治疗中不计";
+            }
+            else if (_escortStuckAbortResumePending || _stuckResumePending)
+            {
+                idleLine = "\n静止计时: 恢复中…";
+            }
+            else if (IsEscortExclusiveWaitSkippingStuck())
+            {
+                idleLine = "\n静止计时: 等待中不计";
+            }
             else if (_lastActivityMs > 0)
             {
                 idleSec = (int)((NowMs() - _lastActivityMs) / 1000);
-                idleLine = "\n静止计时: " + idleSec + "s / 5s";
+                if (idleSec > 5)
+                {
+                    idleLine = "\n静止计时: " + idleSec + "s / 5s ⚠逾期（每秒重检）";
+                }
+                else
+                {
+                    idleLine = "\n静止计时: " + idleSec + "s / 5s（位移或点对话才重置）";
+                }
             }
         }
 
@@ -22610,6 +24788,7 @@ public static class SeqChapterTestUi
                + "\n" + GetEscortSpecialNote()
                + (_dragonLoopActive ? "\n龙族循环: 已循环 " + _dragonLoopCount + " 轮" : "")
                + (_midAutumnLoopActive ? "\n七夕循环: 已完成 " + _midAutumnLoopCount + " 轮（存券后计）" : "")
+               + (_baptismPrepActive ? "\n洗礼预备: 运行中（战败暂停；#99前治疗+道具；60305手动Boss）" : "")
                + (_escortStuckAbortResumePending ? "\n卡位：清路径后点任务…" : "")
                + (_stuckResumePending ? "\n卡楼梯：挪格后点任务…" : "");
     }
@@ -22633,6 +24812,16 @@ public static class SeqChapterTestUi
                 return "特殊处理: 七夕#119 "
                        + (_midAutumnGoralEdition ? "哥拉尔版(回登入点、不用赤凤之翼)" : "阿凯版(回登入点+赤凤之翼)")
                        + "；步骤6哈巴鲁洞穴；步骤7洞窟传送；步骤5布朗山；仅15000先取消回程再走15001；存兑换券计一轮后法兰治疗再下一轮";
+            }
+
+            if (id == Baptism4MissionId)
+            {
+                return "特殊处理: 洗礼4 圣/魔龙自动打（战败暂停）";
+            }
+
+            if (id == Baptism5MissionId)
+            {
+                return "特殊处理: 洗礼5 进60305掐任务导航→(173,28)暂停手动Boss";
             }
 
             return "特殊处理: 无 #" + id;
@@ -22804,7 +24993,6 @@ public static class SeqChapterTestUi
             _escortRecoverAttempts = 0;
             ResetEscortStuckState();
             _escortLastFloor = int.MinValue;
-            _escortMapChangeAtMs = 0;
             _dialogueAutoClicks = 0;
             _prevRunTaskId = GetRunTaskId();
             WriteLog("escort queue start count=" + _escortQueue.Count + " idx=" + startIdx);
@@ -23051,6 +25239,73 @@ public static class SeqChapterTestUi
         WriteLog("escort resume id=" + _escortMissionId + " idx=" + _escortQueueIndex
                  + " recover=" + _escortRecoverAttempts + " teamNum=" + teamNow);
         Tip("任务护航：已继续");
+
+        if (_baptismNeedFloraBefore5)
+        {
+            _baptismNeedFloraBefore5 = false;
+            Tip("洗礼预备：重试法兰治疗…");
+            AbortEscortTaskPathFully("baptism-before5-flora-retry");
+            StartFloraHealForBaptism(FloraBaptismBefore5);
+            if (_visible && _tab == TabEscort)
+            {
+                try
+                {
+                    RebuildEscortTab();
+                }
+                catch
+                {
+                    // ignore
+                }
+            }
+
+            return;
+        }
+
+        if (_baptismNeedItemBefore5)
+        {
+            if (!TryStartBaptism5WithItem("resume"))
+            {
+                return;
+            }
+
+            // 已发包用道具，等 Tick 短延时后再 BeginEscortAtIndex
+            if (_visible && _tab == TabEscort)
+            {
+                try
+                {
+                    RebuildEscortTab();
+                }
+                catch
+                {
+                    // ignore
+                }
+            }
+
+            return;
+        }
+
+        if (_baptismPrepActive && _escortMissionId == Baptism5MissionId
+            && _baptism5NavAborted && !_baptism5BossPauseDone)
+        {
+            string how;
+            TryNavigateTo(Baptism5BossFloor, Baptism5BossX, Baptism5BossY, out how);
+            _baptism5LastNavNudgeMs = NowMs();
+            WriteLog("baptism5 resume nudge boss how=" + how);
+            if (_visible && _tab == TabEscort)
+            {
+                try
+                {
+                    RebuildEscortTab();
+                }
+                catch
+                {
+                    // ignore
+                }
+            }
+
+            return;
+        }
+
         if (_escortMissionId > 0)
         {
             if (!ClickEscortTaskNav("resume"))
@@ -23152,6 +25407,13 @@ public static class SeqChapterTestUi
             {
                 // ignore，走普通点任务
             }
+        }
+
+        if (_escortMissionId == Baptism5MissionId)
+        {
+            _baptism5NavAborted = false;
+            _baptism5BossPauseDone = false;
+            _baptism5LastNavNudgeMs = 0;
         }
 
         if (!ClickEscortTaskNav(reason))
@@ -23305,6 +25567,33 @@ public static class SeqChapterTestUi
             return;
         }
 
+        // 洗礼4 → 洗礼5：先法兰治疗，再检查/使用#651022，不开 5 秒直进
+        if (_baptismPrepActive
+            && doneId == Baptism4MissionId
+            && _escortQueue[next].Id == Baptism5MissionId)
+        {
+            _escortQueueIndex = next;
+            _escortBetweenTasksWaitMs = 0;
+            ClearBaptism5BridgeFlags();
+            Tip("洗礼预备：洗礼4完成，法兰治疗后再开洗礼5…");
+            WriteLog("baptism prep after #87 -> flora before #99");
+            AbortEscortTaskPathFully("baptism-before5-flora");
+            StartFloraHealForBaptism(FloraBaptismBefore5);
+            if (_visible && _tab == TabEscort)
+            {
+                try
+                {
+                    RebuildEscortTab();
+                }
+                catch
+                {
+                    // ignore
+                }
+            }
+
+            return;
+        }
+
         _escortQueueIndex = next;
         _escortBetweenTasksWaitMs = NowMs();
         Tip("任务护航：#" + doneId + " 完成，5 秒后下一任务 ("
@@ -23406,6 +25695,16 @@ public static class SeqChapterTestUi
 
         var was = _escortActive || _escortPicking;
         var wasActive = _escortActive;
+        if (_baptismPrepActive)
+        {
+            WriteLog("baptism prep queue finish");
+            _baptismPrepActive = false;
+            _baptismPrepPhase = 0;
+            _baptismSawForceQuit = false;
+            ClearBaptism5BridgeFlags();
+            TryRebuildEscortTab();
+        }
+
         _escortPicking = false;
         _escortActive = false;
         _escortPaused = false;
@@ -23471,6 +25770,15 @@ public static class SeqChapterTestUi
         {
             WriteLog("mid-autumn loop stop via cancel count=" + _midAutumnLoopCount);
             _midAutumnLoopActive = false;
+        }
+
+        if (_baptismPrepActive)
+        {
+            WriteLog("baptism prep stop via cancel");
+            _baptismPrepActive = false;
+            _baptismPrepPhase = 0;
+            _baptismSawForceQuit = false;
+            ClearBaptism5BridgeFlags();
         }
 
         // 用记忆等待标志无条件清理（普通护航龙3/4 也可能置位）
@@ -23919,7 +26227,7 @@ public static class SeqChapterTestUi
         }
 
         if (IsEscapeDown() && (_escortPicking || _escortActive || _escortPaused
-            || _dragonLoopActive || _midAutumnLoopActive))
+            || _dragonLoopActive || _midAutumnLoopActive || _baptismPrepActive))
         {
             if (_dragonLoopActive)
             {
@@ -23930,6 +26238,12 @@ public static class SeqChapterTestUi
             if (_midAutumnLoopActive)
             {
                 StopMidAutumnLoop();
+                return;
+            }
+
+            if (_baptismPrepActive)
+            {
+                StopBaptismPrep("已按 ESC 停止");
                 return;
             }
 
@@ -23956,6 +26270,12 @@ public static class SeqChapterTestUi
         if (_dragonLoopActive && (_dragonPhase == 1 || _dragonPhase == 2 || _dragonPhase == 4))
         {
             TickDragonLoopPrepare();
+            return;
+        }
+
+        if (_baptismPrepActive && _baptismPrepPhase == BaptismPhaseResetWait)
+        {
+            TickBaptismPrepPrepare();
             return;
         }
 
@@ -24006,12 +26326,60 @@ public static class SeqChapterTestUi
         }
 
         var now = NowMs();
+        var inBattleEarly = false;
+        try
+        {
+            inBattleEarly = Convert.ToBoolean(GetStaticMember("BattleDataHolder", "IsInBattle") ?? false);
+        }
+        catch
+        {
+            // ignore
+        }
+
+        // 位移必须最先刷新：早退路径再多，手动走动也能重置静止计时。
+        RefreshEscortIdleFromMove(now, inBattleEarly);
+        // 静止已>5s：每秒再检；不依赖本拍是否走到末尾恢复逻辑。
+        TickEscortStuckOverdueWatchdog(now, inBattleEarly);
+
+        if (_baptismPrepActive && _baptism5ItemUsePending)
+        {
+            if (now - _baptism5ItemUseAtMs < Baptism5ItemUseDelayMs)
+            {
+                return;
+            }
+
+            _baptism5ItemUsePending = false;
+            BeginEscortAtIndex(_escortQueueIndex, "baptism5-after-item");
+            if (_visible && _tab == TabEscort)
+            {
+                try
+                {
+                    RebuildEscortTab();
+                }
+                catch
+                {
+                    // ignore
+                }
+            }
+
+            return;
+        }
+
+        // 洗礼5 Boss 图：掐任务导航并走到固定点，到点后暂停（本拍不再自动点任务）
+        if (TickBaptism5BossApproach())
+        {
+            return;
+        }
+
         var skipMoonRabbitLastDialogue = TempMidAutumnEscort119 && _midAutumnLoopActive
             && _escortMissionId == MoonRabbitMissionId
             && (_escort119TicketBankPending || GetEscortMissionStepNum() == MoonRabbitLastStep);
         if (!skipMoonRabbitLastDialogue)
         {
-            TryAutoPickDialogue();
+            if (TryAutoPickDialogue())
+            {
+                _lastActivityMs = now;
+            }
         }
 
         // 龙3/4 使用记忆后等待服务器处理，再点任务
@@ -24094,6 +26462,13 @@ public static class SeqChapterTestUi
         if (_escortStuckAbortResumePending)
         {
             TickEscortStuckAbortResume(now);
+            return;
+        }
+
+        // 挪格后再点任务：提前处理，避免后面特例 early-return 卡住 pending
+        if (_stuckResumePending)
+        {
+            TickEscortStuckPending(now);
             return;
         }
 
@@ -24302,12 +26677,8 @@ public static class SeqChapterTestUi
 
         _escortFinishWaitMs = 0;
 
-        // 战斗中不刷新静止基线（战后 idle 重置已在 TickEscortBattleExitTeamGuard）
-        if (dialogueOpen)
-        {
-            _lastActivityMs = now;
-        }
-
+        // 严格静止基线：非战斗下仅「坐标变化」或「实际点了对话」刷新。
+        // 对话窗开着但没点到、官方寻路标志假忙、切图事件本身，都不刷新。
         if (!inBattle && TryGetPlayerXY(out var x, out var y))
         {
             if (x != _lastPosX || y != _lastPosY)
@@ -24320,7 +26691,8 @@ public static class SeqChapterTestUi
             }
         }
 
-        // 切图：只刷新静止计时。续航由官方完成；119 在 15000(22,33) 续不上走特例。
+        // 正常切图：不 abort、不 settle、不刷新静止基线（落地后靠位移或对话刷新）。
+        // 只清掉我们自己的卡位 pending，避免切图后还在 abort。
         if (TryGetCurrentMapInfo(out var curFloor, out _, out _))
         {
             if (_escortLastFloor == int.MinValue)
@@ -24330,22 +26702,14 @@ public static class SeqChapterTestUi
             else if (curFloor != _escortLastFloor)
             {
                 WriteLog("escort floor change " + _escortLastFloor + "->" + curFloor
-                         + " id=" + _escortMissionId);
+                         + " id=" + _escortMissionId + " (no wait/interrupt)");
                 _escortLastFloor = curFloor;
-                _escortMapChangeAtMs = now;
-                _lastActivityMs = now;
                 ClearEscortStuckPending();
             }
         }
 
         // 中秋 #119 仅此一处导航特例：15000(22,33)
         if (TryTickMoonRabbitWarpUnstick(now))
-        {
-            return;
-        }
-
-        // 切图后短 settle：等官方 EndLoadMap 自己续上，不要代调 TryResumeTaskPathAfterMapLoad
-        if (_escortMapChangeAtMs > 0 && now - _escortMapChangeAtMs < EscortMapChangeSettleMs)
         {
             return;
         }
@@ -24454,31 +26818,8 @@ public static class SeqChapterTestUi
             }
         }
 
-        if (_stuckResumePending)
-        {
-            TickEscortStuckPending(now);
-            return;
-        }
-
-        if (KeepOfficialPathAfterMap("escort-keep"))
-        {
-            _lastActivityMs = now;
-            _escortLastDiag = "官方恢复路径";
-            return;
-        }
-
-        if (now - _lastActivityMs >= StuckIdleMs)
-        {
-            // 15000 上卡楼梯会 RunTask(400) 绕回芙蕾雅；中秋该图只走特例/手点
-            if (TempMidAutumnEscort119 && _escortMissionId == MoonRabbitMissionId
-                && TryGetCurrentMapInfo(out var stuckFloor, out _, out _)
-                && stuckFloor == MoonRabbitWarpStuckFloor)
-            {
-                return;
-            }
-
-            BeginEscortStuckRecovery(now);
-        }
+        // 正常路径末尾再检一次静止（与逾期看门狗互补；硬过图才 defer）。
+        TryRunEscortStuckIdleCheck(now, inBattle, "tick-end");
     }
 
     private static void ResetEscortStuckState()
@@ -24491,6 +26832,188 @@ public static class SeqChapterTestUi
         _stuckResumePending = false;
         _escortStuckAbortResumePending = false;
         _escortStuckAbortResumeAtMs = 0;
+        _escortStuckOverdueLastCheckMs = 0;
+    }
+
+    /// <summary>
+    /// 真正挡卡位恢复的过图态：MapLoading / WaitTransport / curMapLoadedAction。
+    /// 不含 WalkSystem.isPaused（清路径后常为 paused，旧逻辑会永远不恢复）。
+    /// </summary>
+    private static bool IsEscortHardMapTransit()
+    {
+        if (IsMapLoading())
+        {
+            return true;
+        }
+
+        try
+        {
+            var walk = GetWalkSystem();
+            if (walk == null)
+            {
+                return false;
+            }
+
+            if (GetMember(walk, "curMapLoadedAction") != null)
+            {
+                return true;
+            }
+
+            var cur = GetMember(walk, "curRequest");
+            var wait = GetMember(walk, "waitRequest");
+            return WalkRequestIsWaitTransport(cur) || WalkRequestIsWaitTransport(wait);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>治疗/任务间隔/特例等待中：不计静止卡位。</summary>
+    private static bool IsEscortExclusiveWaitSkippingStuck()
+    {
+        if (_floraHealActive || _escortBetweenTasksWaitMs > 0 || _baptism5ItemUsePending)
+        {
+            return true;
+        }
+
+        if (_baptismPrepActive && _escortMissionId == Baptism5MissionId
+            && _baptism5NavAborted && !_baptism5BossPauseDone)
+        {
+            return true;
+        }
+
+        if (_dragonUseMemoryPending)
+        {
+            return true;
+        }
+
+        if (TempMidAutumnEscort119
+            && (_escortLoginGatePending || _escort119OfficialResumePending || _escortUseItemPending
+                || _escortHangupTeleportPending || _escort119TicketBankPending))
+        {
+            return true;
+        }
+
+        if (_escortWaitItem)
+        {
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>非战斗下仅坐标变化刷新静止基线（手动走动也算）。</summary>
+    private static void RefreshEscortIdleFromMove(long now, bool inBattle)
+    {
+        if (inBattle || _lastActivityMs <= 0)
+        {
+            return;
+        }
+
+        if (!TryGetPlayerXY(out var x, out var y))
+        {
+            return;
+        }
+
+        if (_lastPosX == int.MinValue)
+        {
+            _lastPosX = x;
+            _lastPosY = y;
+            return;
+        }
+
+        if (x != _lastPosX || y != _lastPosY)
+        {
+            _lastPosX = x;
+            _lastPosY = y;
+            _lastActivityMs = now;
+            _escortStuckOverdueLastCheckMs = 0;
+        }
+    }
+
+    /// <summary>静止已&gt;5s：每秒再确认仍逾期并尝试恢复（不依赖本拍是否走到末尾）。</summary>
+    private static void TickEscortStuckOverdueWatchdog(long now, bool inBattle)
+    {
+        if (!_escortActive || _escortPaused || inBattle || _lastActivityMs <= 0)
+        {
+            return;
+        }
+
+        if (_escortStuckAbortResumePending || _stuckResumePending)
+        {
+            return;
+        }
+
+        if (IsEscortExclusiveWaitSkippingStuck())
+        {
+            return;
+        }
+
+        var idle = now - _lastActivityMs;
+        if (idle < StuckIdleMs)
+        {
+            _escortStuckOverdueLastCheckMs = 0;
+            return;
+        }
+
+        if (_escortStuckOverdueLastCheckMs > 0
+            && now - _escortStuckOverdueLastCheckMs < EscortStuckOverdueCheckMs)
+        {
+            return;
+        }
+
+        _escortStuckOverdueLastCheckMs = now;
+        WriteLog("escort stuck overdue check idleMs=" + idle
+                 + " missionId=" + _escortMissionId
+                 + " hardTransit=" + IsEscortHardMapTransit());
+        TryRunEscortStuckIdleCheck(now, inBattle, "overdue");
+    }
+
+    private static void TryRunEscortStuckIdleCheck(long now, bool inBattle, string reason)
+    {
+        if (!_escortActive || _escortPaused || inBattle || _lastActivityMs <= 0)
+        {
+            return;
+        }
+
+        if (_escortStuckAbortResumePending || _stuckResumePending)
+        {
+            return;
+        }
+
+        if (IsEscortExclusiveWaitSkippingStuck())
+        {
+            return;
+        }
+
+        var idle = now - _lastActivityMs;
+        if (idle < StuckIdleMs)
+        {
+            return;
+        }
+
+        if (TempMidAutumnEscort119 && _escortMissionId == MoonRabbitMissionId
+            && TryGetCurrentMapInfo(out var stuckFloor, out _, out _)
+            && stuckFloor == MoonRabbitWarpStuckFloor)
+        {
+            return;
+        }
+
+        var hardTransit = IsEscortHardMapTransit();
+        if (hardTransit && idle < StuckIdleMs + EscortStuckOverdueForceMs)
+        {
+            _escortLastDiag = "地图过图中";
+            return;
+        }
+
+        if (hardTransit)
+        {
+            WriteLog("escort stuck force despite hardTransit reason=" + reason
+                     + " idleMs=" + idle);
+        }
+
+        BeginEscortStuckRecovery(now);
     }
 
     /// <summary>
@@ -24499,14 +27022,16 @@ public static class SeqChapterTestUi
     /// </summary>
     private static void BeginEscortStuckRecovery(long now)
     {
-        if (KeepOfficialPathAfterMap("escort-stuck"))
+        // 仅硬过图推迟；WalkSystem.isPaused / 官方寻路假忙不挡（否则清路径后永不恢复）。
+        var idle = _lastActivityMs > 0 ? now - _lastActivityMs : StuckIdleMs;
+        if (IsEscortHardMapTransit() && idle < StuckIdleMs + EscortStuckOverdueForceMs)
         {
-            _lastActivityMs = now;
-            _escortLastDiag = "官方恢复路径";
+            _escortLastDiag = "地图过图中";
             return;
         }
 
         _escortRecoverAttempts++;
+        _escortStuckOverdueLastCheckMs = now;
         WriteLog("escort stuck idle missionId=" + _escortMissionId
                  + " stepRecover=" + _escortRecoverAttempts + "/" + EscortMaxRecoverFails);
         if (_escortRecoverAttempts >= EscortMaxRecoverFails)
@@ -24898,23 +27423,51 @@ public static class SeqChapterTestUi
     }
 
     /// <summary>
-    /// 护航战斗边沿：出战刷新静止计时；队伍解散或不足 5 人则暂停（普通护航 / 七夕 / 龙城共用）。
+    /// 护航战斗边沿：出战刷新静止计时；洗礼预备见 forceQuit 则暂停；队伍解散或不足 5 人则暂停。
     /// </summary>
     private static void TickEscortBattleExitTeamGuard()
     {
         var inBattle = Convert.ToBoolean(GetStaticMember("BattleDataHolder", "IsInBattle") ?? false);
+        if (inBattle && _baptismPrepActive && IsForceQuitBattleNow())
+        {
+            _baptismSawForceQuit = true;
+        }
+
         if (_escortPrevInBattle && !inBattle)
         {
             _lastActivityMs = NowMs();
             WriteLog("escort battle exit idle reset id=" + _escortMissionId
-                     + " dragon=" + _dragonLoopActive + " qixi=" + _midAutumnLoopActive);
+                     + " dragon=" + _dragonLoopActive + " qixi=" + _midAutumnLoopActive
+                     + " baptism=" + _baptismPrepActive + " forceQuitSaw=" + _baptismSawForceQuit);
             if (!_escortPaused)
             {
-                TryPauseEscortIfTeamBrokenAfterBattle();
+                if (_baptismPrepActive && _baptismSawForceQuit)
+                {
+                    _baptismSawForceQuit = false;
+                    PauseEscort("洗礼预备：战斗失败已暂停，请手动处理后点继续", true);
+                }
+                else
+                {
+                    TryPauseEscortIfTeamBrokenAfterBattle();
+                }
             }
+
+            _baptismSawForceQuit = false;
         }
 
         _escortPrevInBattle = inBattle;
+    }
+
+    private static bool IsForceQuitBattleNow()
+    {
+        try
+        {
+            return Convert.ToBoolean(GetStaticMember("BattleDataHolder", "forceQuitBattle") ?? false);
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     /// <summary>战后：队伍解散或不足 EscortTeamMinMembers 则暂停护航，等手动继续。</summary>
@@ -28200,8 +30753,42 @@ public static class SeqChapterTestUi
             // ignore
         }
 
-        WriteLog("flora-heal stop ok=" + success + " resume=" + resume + " " + reason);
+        WriteLog("flora-heal stop ok=" + success + " resume=" + resume
+                 + " baptismStage=" + _floraHealBaptismStage + " " + reason);
         Tip("法兰治疗：" + reason);
+
+        if (_floraHealBaptismStage != FloraBaptismNone)
+        {
+            var stage = _floraHealBaptismStage;
+            _floraHealBaptismStage = FloraBaptismNone;
+            if (_baptismPrepActive)
+            {
+                if (success)
+                {
+                    if (stage == FloraBaptismPrepStart)
+                    {
+                        BeginBaptismResetAfterFlora();
+                    }
+                    else if (stage == FloraBaptismBefore5)
+                    {
+                        BeginBaptism5AfterFlora();
+                    }
+                }
+                else if (stage == FloraBaptismPrepStart)
+                {
+                    StopBaptismPrep("法兰治疗失败");
+                }
+                else
+                {
+                    _baptismNeedFloraBefore5 = true;
+                    PauseEscort("法兰治疗失败，洗礼5未开始（点继续将重试治疗）", true);
+                }
+            }
+
+            RefreshScriptTabIfVisible();
+            TryRebuildEscortTab();
+            return;
+        }
 
         if (!resume || !_midAutumnLoopActive || !_escortActive || _escortPaused)
         {
@@ -30468,37 +33055,18 @@ public static class SeqChapterTestUi
 
     /// <summary>
     /// 过图后官方 EndLoadMap 会自己 TryResumeTaskPathAfterMapLoad / resumeMove。
-    /// 这里只判断官方是否还在恢复，不要代调，避免过图抢跑。
+    /// 加载中 / 等切图续航 / 官方任务寻路进行中：护航一律不打断（不 abort、不 RunTask）。
     /// </summary>
     private static bool KeepOfficialPathAfterMap(string reason)
     {
-        if (IsMapLoading() || IsWalkWaitingMap())
+        if (IsOfficialTaskPathBusy())
         {
             return true;
         }
 
-        try
+        if (IsWalkWaitingMap())
         {
-            var tm = GetManagerInstance("TaskManager");
-            if (tm != null)
-            {
-                var resume = Convert.ToBoolean(
-                    GetMember(tm, "m_TaskPathResumePending")
-                    ?? GetProp(tm, "m_TaskPathResumePending")
-                    ?? false);
-                var waitNpc = Convert.ToBoolean(
-                    GetMember(tm, "m_TaskPathWaitingNpcMapChange")
-                    ?? GetProp(tm, "m_TaskPathWaitingNpcMapChange")
-                    ?? false);
-                if (resume || waitNpc)
-                {
-                    return true;
-                }
-            }
-        }
-        catch
-        {
-            // ignore
+            return true;
         }
 
         return false;
@@ -30951,12 +33519,13 @@ public static class SeqChapterTestUi
     /// 优先「发送/确定」类按钮（NPC 输入框：自动任务已填好内容后点发送）；
     /// 跳过取消/删除。LINEINPUT 窗口附带输入框文本作为 data。
     /// </summary>
-    private static void TryAutoPickDialogue()
+    /// <returns>本拍是否实际点了对话按钮（用于严格静止计时）。</returns>
+    private static bool TryAutoPickDialogue()
     {
         var now = NowMs();
         if (now - _lastDialogueClickMs < DialogueClickIntervalMs)
         {
-            return;
+            return false;
         }
 
         try
@@ -30966,7 +33535,7 @@ public static class SeqChapterTestUi
                 _lastDialogueClickMs = now;
                 _dialogueAutoClicks++;
                 WriteLog("autoDialogue NPCChatPanel send");
-                return;
+                return true;
             }
 
             // 输入框+取消/发送（ChangeName / WindowsMessage LINEINPUT）
@@ -30976,31 +33545,31 @@ public static class SeqChapterTestUi
                 _lastDialogueClickMs = now;
                 _dialogueAutoClicks++;
                 WriteLog("autoDialogue input-dialog send");
-                return;
+                return true;
             }
 
             if (!IsDialoguePanelOpen())
             {
-                return;
+                return false;
             }
 
             var npcMgr = GetManagerInstance("NpcManager");
             if (npcMgr == null)
             {
-                return;
+                return false;
             }
 
             var wmdb = GetMember(npcMgr, "wmdb");
             if (wmdb == null)
             {
-                return;
+                return false;
             }
 
             var seqno = Convert.ToInt32(GetMember(wmdb, "seqno") ?? 0);
             // 同一窗未刷新前不连点
             if (seqno == _lastDialogueSeqno && now - _lastDialogueClickMs < DialogueClickIntervalMs * 2)
             {
-                return;
+                return false;
             }
 
             var windowTypeObj = GetMember(wmdb, "windowType");
@@ -31017,13 +33586,13 @@ public static class SeqChapterTestUi
                 _lastDialogueSeqno = seqno;
                 _dialogueAutoClicks++;
                 WriteLog("autoDialogue LINEINPUT UI send seq=" + seqno);
-                return;
+                return true;
             }
 
             var buttonData = GetMember(wmdb, "buttonData") as Array;
             if (buttonData == null || buttonData.Length == 0)
             {
-                return;
+                return false;
             }
 
             int pickValue;
@@ -31032,7 +33601,7 @@ public static class SeqChapterTestUi
 
             if (pickValue < 0)
             {
-                return;
+                return false;
             }
 
             int select;
@@ -31083,7 +33652,7 @@ public static class SeqChapterTestUi
             if (send8 == null)
             {
                 WriteLog("SendWindows missing");
-                return;
+                return false;
             }
 
             var psAll = send8.GetParameters();
@@ -31115,10 +33684,12 @@ public static class SeqChapterTestUi
             WriteLog("autoDialogue seq=" + seqno + " opt=" + pickName + " v=" + pickValue
                      + " wt=" + windowType + " lineInput=" + isLineInput
                      + " dataLen=" + (data == null ? 0 : data.Length));
+            return true;
         }
         catch (Exception ex)
         {
             WriteLog("TryAutoPickDialogue EX: " + RootMessage(ex));
+            return false;
         }
     }
 

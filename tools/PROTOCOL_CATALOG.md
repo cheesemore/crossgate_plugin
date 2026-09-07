@@ -775,6 +775,8 @@ Manager<NetManager>.Instance.SendMessage(LSSPROTO opcode, IMessage proto);
 - `开启魔池`
 - `获取血池道具`
 - `获取魔池道具`
+- `使用血池道具`
+- `使用魔池道具`
 - `血池阈值`
 - `血魔池状态`
 - `血魔池设置`
@@ -2514,6 +2516,8 @@ Manager<NetManager>.Instance.SendMessage(LSSPROTO opcode, IMessage proto);
 - `获取观战弹幕框`
 - `获取配置`
 - `获取魔池道具`
+- `使用血池道具`
+- `使用魔池道具`
 - `血池阈值`
 - `血魔池状态`
 - `血魔池记录`

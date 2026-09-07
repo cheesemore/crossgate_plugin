@@ -41,9 +41,7 @@ DEFAULT_GIFT_CODES = [
     "VIP777",
     "VIP888",
     "VIP999",
-    "mlbb0813",
-    "mlbb0814",
-    "mlbb0818",
+    "mlbb0904",
 ]
 
 
@@ -751,6 +749,28 @@ def apply_auto_catch_sell_external(
     return True, "抓宠卖银币·DLL版：已部署 DLL + 战斗分发钩 + 百科开关"
 
 
+def apply_auto_catch_wild_external(
+    hotfix: Path, source: Path, *, panel: bool = False
+) -> tuple[bool, str]:
+    """抓野生宠·DLL版；panel=True 时不占百科/Pause。"""
+    args = [
+        "auto-catch-wild-external-patch",
+        "--hotfix",
+        str(source),
+        "--output",
+        str(hotfix),
+    ]
+    if panel:
+        args.append("--panel")
+    proc = run_patcher_capture(args)
+    out = (proc.stdout or "") + (proc.stderr or "")
+    if proc.returncode != 0:
+        return False, out.strip() or "抓野生宠·DLL版补丁失败"
+    if panel:
+        return True, "抓野生宠·DLL版：已部署 DLL + 战斗分发钩（面板模式）"
+    return True, "抓野生宠·DLL版：已部署 DLL + 战斗分发钩 + 百科开关"
+
+
 def apply_count_farm_external(hotfix: Path, source: Path) -> tuple[bool, str]:
     """计数挂机·DLL版：编译部署 SeqChapterCountFarm.dll.bytes（面板战斗页互斥切换）。"""
     proc = run_patcher_capture(
@@ -943,6 +963,7 @@ def _apply_gameplay_patches(
     auto_catch_external: bool,
     auto_catch_nopet_external: bool = False,
     auto_catch_sell_external: bool = False,
+    auto_catch_wild_external: bool = False,
     count_farm: bool = False,
     area_extract: bool = False,
     auto_point: bool = False,
@@ -1098,16 +1119,9 @@ def _apply_gameplay_patches(
         _emit_combo(messages, on_log, msg)
         work = hotfix
 
-    if skill_effect_speed:
-        if skill_effect_scale not in SKILL_EFFECT_SCALES:
-            raise ValueError("skill_effect_scale 须为 1.5、2、3 或 5")
-        _emit_combo(messages, on_log, "正在打：技能特效加速…")
-        ok, msg = apply_skill_effect_speed(hotfix, work, skill_effect_scale)
-        if not ok:
-            raise RuntimeError(msg)
-        _emit_combo(messages, on_log, msg)
-        work = hotfix
-
+    # 技能特效加速（+49B 追加）不能紧跟精简桥接：桥接 Cecil 轻量写出紧凑 PE 后
+    # .text raw_slack≈12B，立刻追加会报「节区重排后文件尾不匹配」。
+    # 放到后面所有 Cecil 整包重写（抓宠/烧卡/百科面板/日常/形象钩）之后再打。
     if combat_accel:
         _emit_combo(messages, on_log, "正在打：战斗加速方案2…")
         ok, msg = apply_combat_accel(hotfix, work)
@@ -1164,6 +1178,17 @@ def _apply_gameplay_patches(
             "正在打：抓宠卖银币·DLL版" + ("（面板模式）…" if panel_mode else "…"),
         )
         ok, msg = apply_auto_catch_sell_external(hotfix, work, panel=panel_mode)
+        if not ok:
+            raise RuntimeError(msg)
+        _emit_combo(messages, on_log, msg)
+        work = hotfix
+    if auto_catch_wild_external:
+        _emit_combo(
+            messages,
+            on_log,
+            "正在打：抓野生宠·DLL版" + ("（面板模式）…" if panel_mode else "…"),
+        )
+        ok, msg = apply_auto_catch_wild_external(hotfix, work, panel=panel_mode)
         if not ok:
             raise RuntimeError(msg)
         _emit_combo(messages, on_log, msg)
@@ -1304,6 +1329,17 @@ def _apply_gameplay_patches(
     if pet_equip_unlock:
         raise RuntimeError("宠物四装备孔补丁已停用（会导致宠物界面崩溃）")
 
+    # 必须在桥接 + 抓宠/面板等 Cecil 重写之后：重写会把 .text slack 从 ~12B 拉回到足够 +49B。
+    if skill_effect_speed:
+        if skill_effect_scale not in SKILL_EFFECT_SCALES:
+            raise ValueError("skill_effect_scale 须为 1.5、2、3 或 5")
+        _emit_combo(messages, on_log, "正在打：技能特效加速…")
+        ok, msg = apply_skill_effect_speed(hotfix, work, skill_effect_scale)
+        if not ok:
+            raise RuntimeError(msg)
+        _emit_combo(messages, on_log, msg)
+        work = hotfix
+
     verify_hotfix(hotfix)
     return messages, work
 
@@ -1321,6 +1357,7 @@ def apply_combo(
     auto_catch_external: bool = False,
     auto_catch_nopet_external: bool = False,
     auto_catch_sell_external: bool = False,
+    auto_catch_wild_external: bool = False,
     lv1_auto_external: bool = False,
     auto_sell_external: bool = False,
     count_farm: bool = False,
@@ -1396,7 +1433,7 @@ def apply_combo(
     wiki_users = [
         (
             "自动抓宠·DLL",
-            (auto_catch_external or auto_catch_nopet_external or auto_catch_sell_external)
+            (auto_catch_external or auto_catch_nopet_external or auto_catch_sell_external or auto_catch_wild_external)
             and not panel_mode,
         ),
         ("遇1级自动·DLL", lv1_auto_external and not panel_mode),
@@ -1446,6 +1483,7 @@ def apply_combo(
         ("自动抓宠·DLL", auto_catch_external and not panel_mode),
         ("自动抓宠·无宠人防御", auto_catch_nopet_external and not panel_mode),
         ("抓宠卖银币·DLL", auto_catch_sell_external and not panel_mode),
+        ("抓野生宠·DLL", auto_catch_wild_external and not panel_mode),
         ("遇1级自动·DLL", lv1_auto_external and not panel_mode),
         ("盗贼辅助·DLL", auto_sell_external),
         ("插件 Host", plugin_host),
@@ -1498,6 +1536,7 @@ def apply_combo(
         or auto_catch_external
         or auto_catch_nopet_external
         or auto_catch_sell_external
+        or auto_catch_wild_external
         or count_farm
         or area_extract
         or auto_point
@@ -1538,6 +1577,7 @@ def apply_combo(
         auto_catch_external=auto_catch_external,
         auto_catch_nopet_external=auto_catch_nopet_external,
         auto_catch_sell_external=auto_catch_sell_external,
+        auto_catch_wild_external=auto_catch_wild_external,
         count_farm=count_farm,
         area_extract=area_extract,
         auto_point=auto_point,
@@ -1620,6 +1660,7 @@ def apply_combo(
         "auto_catch_external": auto_catch_external,
         "auto_catch_nopet_external": auto_catch_nopet_external,
         "auto_catch_sell_external": auto_catch_sell_external,
+        "auto_catch_wild_external": auto_catch_wild_external,
         "count_farm": count_farm,
         "area_extract": area_extract,
         "auto_point": auto_point,

@@ -90,6 +90,12 @@ internal static class Program
             return TestUiExternalIlPatcher.Run(args.Skip(1).ToArray());
         }
 
+        if (args.Length > 0 && (args[0] == "focus-fire-autoselect-patch"
+                                || args[0] == "ai-target-autoselect-patch"))
+        {
+            return FocusFireAutoSelectIlPatcher.Run(args.Skip(1).ToArray());
+        }
+
         if (args.Length > 0 && args[0] == "battle-nine-action-patch")
         {
             return BattleNineActionIlPatcher.Run(args.Skip(1).ToArray());
@@ -108,6 +114,11 @@ internal static class Program
         if (args.Length > 0 && args[0] == "auto-catch-sell-external-patch")
         {
             return AutoCatchSellExternalIlPatcher.Run(args.Skip(1).ToArray());
+        }
+
+        if (args.Length > 0 && args[0] == "auto-catch-wild-external-patch")
+        {
+            return AutoCatchWildExternalIlPatcher.Run(args.Skip(1).ToArray());
         }
 
         if (args.Length > 0 && args[0] == "auto-catch-nopet-external-patch")

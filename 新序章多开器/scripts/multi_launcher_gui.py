@@ -10,6 +10,7 @@ workflow_step1（登录→进游戏→拉起离线多控→一键召唤）。全
 from __future__ import annotations
 
 import argparse
+import subprocess
 import sys
 import threading
 import time
@@ -22,12 +23,105 @@ sys.path.insert(0, str(SHARED))
 
 from assistant_common import ipc  # noqa: E402
 from assistant_common.accounts import AccountProfile, delete_account, load_accounts, upsert_account  # noqa: E402
-from assistant_common.config import get_game_root, load_settings, set_game_root  # noqa: E402
+from assistant_common.config import get_game_root, load_settings, save_settings, set_game_root  # noqa: E402
 from assistant_common.game import GameInstance, launch_game  # noqa: E402
 from assistant_common.patch_bridge import is_mini_bridge_ready  # noqa: E402
 from assistant_common.single_instance import ensure_single_instance  # noqa: E402
 
 APP_TITLE = "新序章多开器"
+
+# 自动分窗：每列最多 10 个，阶梯 80px；第 11 个起右移 1200px。一次最多 20 个。
+TILE_STEP_PX = 80
+TILE_COL_OFFSET_PX = 1200
+TILE_PER_COL = 10
+TILE_MAX_WINDOWS = 20
+TILE_WAIT_HWND_SEC = 45
+
+
+def _tile_xy(index: int) -> tuple[int, int]:
+    """index 从 0 起：第 1 个 (0,0)，第 2 个 (80,80)…；第 11 个 (1200,0)。"""
+    col = index // TILE_PER_COL
+    row = index % TILE_PER_COL
+    return col * TILE_COL_OFFSET_PX + row * TILE_STEP_PX, row * TILE_STEP_PX
+
+
+def _find_hwnd_for_pid(pid: int) -> int | None:
+    if sys.platform != "win32" or pid <= 0:
+        return None
+    import ctypes
+    from ctypes import wintypes
+
+    user32 = ctypes.windll.user32
+    best_hwnd = 0
+    best_score = -1
+
+    @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+    def callback(hwnd, _lparam):
+        nonlocal best_hwnd, best_score
+        proc_id = wintypes.DWORD()
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(proc_id))
+        if int(proc_id.value) != pid:
+            return True
+        visible = bool(user32.IsWindowVisible(hwnd))
+        length = user32.GetWindowTextLengthW(hwnd)
+        title = ""
+        if length > 0:
+            buf = ctypes.create_unicode_buffer(length + 1)
+            user32.GetWindowTextW(hwnd, buf, length + 1)
+            title = (buf.value or "").strip()
+        cls_buf = ctypes.create_unicode_buffer(256)
+        user32.GetClassNameW(hwnd, cls_buf, 256)
+        cls = (cls_buf.value or "").strip()
+        score = 0
+        if visible:
+            score += 100
+        if title:
+            score += min(len(title), 80)
+        if "Unity" in cls:
+            score += 20
+        if score > best_score:
+            best_score = score
+            best_hwnd = int(hwnd)
+        return True
+
+    user32.EnumWindows(callback, 0)
+    return best_hwnd or None
+
+
+def _wait_hwnd_for_pid(pid: int, timeout: float = TILE_WAIT_HWND_SEC) -> int | None:
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        hwnd = _find_hwnd_for_pid(pid)
+        if hwnd:
+            return hwnd
+        time.sleep(0.4)
+    return None
+
+
+def _move_window(hwnd: int, x: int, y: int) -> bool:
+    if sys.platform != "win32" or not hwnd:
+        return False
+    import ctypes
+    from ctypes import wintypes
+
+    user32 = ctypes.WinDLL("user32", use_last_error=True)
+    user32.ShowWindow.argtypes = [wintypes.HWND, ctypes.c_int]
+    user32.ShowWindow.restype = wintypes.BOOL
+    user32.SetWindowPos.argtypes = [
+        wintypes.HWND,
+        wintypes.HWND,
+        ctypes.c_int,
+        ctypes.c_int,
+        ctypes.c_int,
+        ctypes.c_int,
+        wintypes.UINT,
+    ]
+    user32.SetWindowPos.restype = wintypes.BOOL
+    sw_restore = 9
+    swp_nosize = 0x0001
+    swp_nozorder = 0x0004
+    user32.ShowWindow(hwnd, sw_restore)
+    return bool(user32.SetWindowPos(hwnd, 0, x, y, 0, 0, swp_nosize | swp_nozorder))
 
 
 class MultiLauncherApp:
@@ -85,6 +179,12 @@ class MultiLauncherApp:
             width=14,
         )
         self.batch_summon_btn.pack(side=tk.LEFT)
+        ttk.Button(
+            batch_row,
+            text="开启窗口监视",
+            command=self.launch_window_monitor,
+            width=14,
+        ).pack(side=tk.LEFT, padx=(8, 0))
         self.batch_status_var = tk.StringVar(value="批量状态：就绪")
         ttk.Label(
             batch_frm,
@@ -141,6 +241,18 @@ class MultiLauncherApp:
         ttk.Button(btn_frm, text="修改账号", command=self.edit_account, width=12).pack(side=tk.RIGHT, padx=(0, 8))
         ttk.Button(btn_frm, text="删除账号", command=self.remove_account, width=12).pack(side=tk.RIGHT, padx=(0, 8))
 
+        tile_frm = ttk.Frame(acc_frm)
+        tile_frm.pack(fill=tk.X, pady=(8, 0))
+        self.auto_tile_var = tk.BooleanVar(
+            value=bool(load_settings().get("auto_tile_windows", False))
+        )
+        ttk.Checkbutton(
+            tile_frm,
+            text="自动分窗（批量启动后阶梯摆窗：第1个左上角，之后每次 +80,+80；第11个起右移1200px；最多一次20个）",
+            variable=self.auto_tile_var,
+            command=self._persist_auto_tile,
+        ).pack(anchor=tk.W)
+
         status_bar = ttk.Frame(outer)
         status_bar.pack(fill=tk.X, pady=(8, 0))
         self.status_var = tk.StringVar(value="就绪")
@@ -150,6 +262,14 @@ class MultiLauncherApp:
 
     def _set_status(self, text: str) -> None:
         self.root.after(0, lambda: self.status_var.set(text))
+
+    def _persist_auto_tile(self) -> None:
+        cfg = load_settings()
+        cfg["auto_tile_windows"] = bool(self.auto_tile_var.get())
+        try:
+            save_settings(cfg)
+        except OSError:
+            pass
 
     def pick_game_dir(self) -> None:
         chosen = filedialog.askdirectory(title="选择游戏根目录（含 cg37_Data）")
@@ -262,13 +382,45 @@ class MultiLauncherApp:
 
     def _launch_staggered(self, accounts: list[AccountProfile], label: str) -> None:
         """按账号库顺序逐个启动，每个间隔 LAUNCH_GAP_SEC 秒，避免多开同时初始化黑屏。"""
+        tile = bool(self.auto_tile_var.get())
+        chosen = list(accounts)
+        if tile and len(chosen) > TILE_MAX_WINDOWS:
+            extra = len(chosen) - TILE_MAX_WINDOWS
+            if not messagebox.askyesno(
+                "自动分窗",
+                f"自动分窗一次最多开 {TILE_MAX_WINDOWS} 个窗口。\n"
+                f"当前选了 {len(chosen)} 个，将只启动前 {TILE_MAX_WINDOWS} 个（跳过 {extra} 个）。\n\n继续？",
+            ):
+                return
+            chosen = chosen[:TILE_MAX_WINDOWS]
         threading.Thread(
             target=self._launch_staggered_worker,
-            args=(list(accounts), label),
+            args=(chosen, label, tile),
             daemon=True,
         ).start()
 
-    def _launch_staggered_worker(self, accounts: list[AccountProfile], label: str) -> None:
+    def _place_tiled_window(self, pid: int, slot: int, name: str) -> None:
+        x, y = _tile_xy(slot)
+        hwnd = _wait_hwnd_for_pid(pid)
+        if not hwnd:
+            self._set_status(f"[{name}] 窗口未出现，跳过分窗 ({x},{y})")
+            return
+        moved = _move_window(hwnd, x, y)
+        # Unity 启动画面关掉后会换主窗口，再摆几次以免弹回默认位置
+        for _ in range(4):
+            time.sleep(1.2)
+            again = _find_hwnd_for_pid(pid)
+            if again:
+                hwnd = again
+                moved = _move_window(hwnd, x, y) or moved
+        if moved:
+            self._set_status(f"[{name}] 已分窗到 ({x},{y})")
+        else:
+            self._set_status(f"[{name}] 分窗失败 ({x},{y})")
+
+    def _launch_staggered_worker(
+        self, accounts: list[AccountProfile], label: str, tile: bool
+    ) -> None:
         ok = 0
         errors: list[str] = []
         total = len(accounts)
@@ -284,6 +436,8 @@ class MultiLauncherApp:
                 ).start()
                 ok += 1
                 self._set_status(f"{label}进行中：{name}（{idx}/{total}）已启动")
+                if tile:
+                    self._place_tiled_window(inst.pid, idx - 1, name)
             except Exception as exc:
                 errors.append(f"{name}: {exc}")
 
@@ -291,7 +445,8 @@ class MultiLauncherApp:
                 self._set_status(f"{label}进行中：{idx}/{total} 已启动，{self.LAUNCH_GAP_SEC}秒后启动下一个…")
                 time.sleep(self.LAUNCH_GAP_SEC)
 
-        summary = f"{label}完成：成功 {ok}/{total}（已自动进入登录→拉多控→召唤流程，逐个间隔{self.LAUNCH_GAP_SEC}秒）"
+        tile_part = "，已自动分窗" if tile else ""
+        summary = f"{label}完成：成功 {ok}/{total}（已自动进入登录→拉多控→召唤流程，逐个间隔{self.LAUNCH_GAP_SEC}秒{tile_part}）"
         if errors:
             summary += "\n" + "\n".join(errors[:10])
         self._set_status(summary)
@@ -426,6 +581,53 @@ class MultiLauncherApp:
         if lines:
             summary += "\n" + "\n".join(lines)
         self._set_batch_done(summary)
+
+    def launch_window_monitor(self) -> None:
+        """启动窗口监视（与傻瓜补丁「启动窗口监视」同入口）。"""
+        cands = self._window_monitor_candidates()
+        if not cands:
+            messagebox.showinfo(
+                APP_TITLE,
+                "未找到窗口监视脚本。\n\n"
+                "预期路径：魔力宝贝序章补丁\\scripts\\window_monitor_gui.py\n"
+                "或包内「窗口监视.exe」。",
+                parent=self.root,
+            )
+            return
+        try:
+            exe = cands[0]
+            if exe.suffix.lower() == ".py":
+                pyw = Path(sys.executable).with_name("pythonw.exe")
+                py = str(pyw) if pyw.is_file() else sys.executable
+                subprocess.Popen([py, str(exe)], cwd=str(exe.parent))
+            else:
+                subprocess.Popen([str(exe)], cwd=str(exe.parent))
+            self.status_var.set(f"已启动窗口监视：{exe.name}")
+        except Exception as exc:
+            messagebox.showerror(APP_TITLE, f"无法启动窗口监视：\n{exc}", parent=self.root)
+
+    def _window_monitor_candidates(self) -> list[Path]:
+        cands: list[Path] = []
+        here = Path(__file__).resolve()
+        # 开发：仓库内补丁 scripts；发布：与多开器同级的窗口监视.exe
+        cands.extend(
+            [
+                here.parents[2] / "魔力宝贝序章补丁" / "scripts" / "window_monitor_gui.py",
+                here.parent / "window_monitor_gui.py",
+                here.parents[1] / "窗口监视.exe",
+                here.parents[1] / "window_monitor_gui.exe",
+            ]
+        )
+        if getattr(sys, "frozen", False):
+            exe_dir = Path(sys.executable).resolve().parent
+            cands.extend(
+                [
+                    exe_dir / "窗口监视.exe",
+                    exe_dir / "窗口监视" / "窗口监视.exe",
+                    exe_dir / "window_monitor_gui.exe",
+                ]
+            )
+        return [p for p in cands if p.is_file()]
 
     def _set_batch_busy(self, busy: bool, status: str) -> None:
         state = ("disabled" if busy else "normal")

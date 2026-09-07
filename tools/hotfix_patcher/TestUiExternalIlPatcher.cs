@@ -82,6 +82,7 @@ internal static class TestUiExternalIlPatcher
                 var assetOut = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(source))!, AssetFileName);
                 File.Copy(dllPath, assetOut, overwrite: true);
                 Console.WriteLine("[OK] 已重编译并部署 " + assetOut);
+                // AutoSelect AI 注入已停用（会卡战斗）；dll-only 只部署 TestUi
                 return 0;
             }
             catch (Exception ex)
@@ -139,6 +140,9 @@ internal static class TestUiExternalIlPatcher
             tipOff: "助手面板已关闭",
             tipFail: "助手面板加载失败");
         Console.WriteLine("[HELPER] OnClickWiki -> 助手面板");
+
+        // AutoSelect AI 注入暂停（会卡普通 Auto）；仅拆除残留块
+        FocusFireAutoSelectIlPatcher.InjectIfNeeded(asm, reinject: false);
 
         using var ms = new MemoryStream();
         asm.Write(ms);

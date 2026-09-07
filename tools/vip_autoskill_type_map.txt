@@ -1,0 +1,200 @@
+SkillConfig count=169
+
+=== AutoSkillType=0 count=55 ===
+13	抗毒	SingleAttack=0
+14	抗昏睡	SingleAttack=0
+15	抗石化	SingleAttack=0
+16	抗酒醉	SingleAttack=0
+17	抗混乱	SingleAttack=0
+18	抗遗忘	SingleAttack=0
+54	属性反转	SingleAttack=0
+69	精灵的盟约	SingleAttack=0
+70	宠物强化	SingleAttack=0
+71	调教	SingleAttack=0
+72	偷窃	SingleAttack=0
+200	铸剑	SingleAttack=0
+201	造斧	SingleAttack=0
+202	造枪	SingleAttack=0
+203	造弓	SingleAttack=0
+204	造杖	SingleAttack=0
+205	造投掷武器	SingleAttack=0
+206	造小刀	SingleAttack=0
+207	造头盔	SingleAttack=0
+208	制帽子	SingleAttack=0
+209	造铠	SingleAttack=0
+210	制衣服	SingleAttack=0
+211	制长袍	SingleAttack=0
+212	制长靴	SingleAttack=0
+213	制鞋	SingleAttack=0
+214	造盾	SingleAttack=0
+215	料理	SingleAttack=0
+216	制药	SingleAttack=0
+217	修理武器	SingleAttack=0
+218	修理防具	SingleAttack=0
+219	鉴定	SingleAttack=0
+220	刻印	SingleAttack=0
+221	变装	SingleAttack=0
+224	治疗	SingleAttack=0
+225	伐木	SingleAttack=0
+226	狩猎	SingleAttack=0
+227	挖掘	SingleAttack=0
+250	挖掘体验	SingleAttack=0
+251	伐木体验	SingleAttack=0
+252	锻造体验	SingleAttack=0
+253	狩猎体验	SingleAttack=0
+254	钓鱼	SingleAttack=0
+255	装饰	SingleAttack=0
+256	带宠物散步	SingleAttack=0
+1033	手下留情	SingleAttack=0
+1034	替身之术	SingleAttack=0
+2101	嗜血	SingleAttack=0
+2102	残影连击	SingleAttack=0
+2103	魂躯免死	SingleAttack=0
+2104	魔力涌动	SingleAttack=0
+2105	坚甲	SingleAttack=0
+2106	大地恩赐	SingleAttack=0
+2107	龙裔吐纳	SingleAttack=0
+2108	风之闪避	SingleAttack=0
+2109	蚀骨毒瘴	SingleAttack=0
+
+=== AutoSkillType=1 count=55 ===
+0	连击	SingleAttack=1
+1	诸刃	SingleAttack=1
+3	乾坤一掷	SingleAttack=1
+5	崩击	SingleAttack=0
+9	阳炎	SingleAttack=0
+10	防御魔法攻击	SingleAttack=0
+11	反击	SingleAttack=0
+19	陨石魔法	SingleAttack=1
+20	冰冻魔法	SingleAttack=1
+21	火焰魔法	SingleAttack=1
+22	风刃魔法	SingleAttack=1
+73	攻击	SingleAttack=1
+81	吸血攻击	SingleAttack=0
+82	舍命的一击	SingleAttack=0
+83	生命的意义	SingleAttack=0
+84	掠夺经验值	SingleAttack=0
+85	破坏装备	SingleAttack=0
+86	死神的镰刀	SingleAttack=0
+87	金钱攻击	SingleAttack=0
+88	魔法封印	SingleAttack=0
+93	召唤	SingleAttack=0
+94	混乱攻击	SingleAttack=0
+96	暗杀	SingleAttack=0
+97	大地之怒	SingleAttack=0
+98	跳舞	SingleAttack=0
+99	捷舞	SingleAttack=0
+100	霹雳舞蹈	SingleAttack=0
+101	黏巴达舞	SingleAttack=0
+102	气魄舞	SingleAttack=0
+103	啪啦啪啦舞	SingleAttack=0
+104	房子舞	SingleAttack=0
+105	飞鹤乱舞	SingleAttack=0
+150	逃跑	SingleAttack=0
+160	移位	SingleAttack=0
+170	什么也不做	SingleAttack=0
+180	神圣光芒	SingleAttack=0
+222	变身	SingleAttack=0
+223	急救	SingleAttack=0
+257	突风	SingleAttack=0
+258	アシッド	SingleAttack=0
+259	バリア	SingleAttack=0
+262	等级控制	SingleAttack=0
+300	次元之剑	SingleAttack=0
+302	元素之剑	SingleAttack=0
+1001	戒骄戒躁	SingleAttack=0
+1002	一击必中	SingleAttack=0
+1003	毒击	SingleAttack=0
+1004	一石二鸟	SingleAttack=0
+1005	骑士之誉	SingleAttack=0
+1006	迅速果断	SingleAttack=0
+1007	羊头狗肉	SingleAttack=0
+1008	虚死为上	SingleAttack=0
+1010	因果报应	SingleAttack=0
+1011	精神冲击波	SingleAttack=0
+1032	神圣之力	SingleAttack=0
+
+=== AutoSkillType=2 count=11 ===
+4	气功弹	SingleAttack=1
+23	强力陨石魔法	SingleAttack=0
+24	强力冰冻魔法	SingleAttack=0
+25	强力火焰魔法	SingleAttack=0
+26	强力风刃魔法	SingleAttack=0
+27	超强陨石魔法	SingleAttack=0
+28	超强冰冻魔法	SingleAttack=0
+29	超强火焰魔法	SingleAttack=0
+30	超强风刃魔法	SingleAttack=0
+95	乱射	SingleAttack=1
+2005	追月	SingleAttack=0
+
+=== AutoSkillType=3 count=24 ===
+32	中毒魔法	SingleAttack=0
+33	昏睡魔法	SingleAttack=0
+34	石化魔法	SingleAttack=0
+35	酒醉魔法	SingleAttack=0
+36	混乱魔法	SingleAttack=0
+37	遗忘魔法	SingleAttack=0
+38	强力中毒魔法	SingleAttack=0
+39	强力昏睡魔法	SingleAttack=0
+40	强力石化魔法	SingleAttack=0
+41	强力酒醉魔法	SingleAttack=0
+42	强力混乱魔法	SingleAttack=0
+43	强力遗忘魔法	SingleAttack=0
+44	超强中毒魔法	SingleAttack=0
+45	超强昏睡魔法	SingleAttack=0
+46	超强石化魔法	SingleAttack=0
+47	超强酒醉魔法	SingleAttack=0
+48	超强混乱魔法	SingleAttack=0
+49	超强遗忘魔法	SingleAttack=0
+75	毒性攻击	SingleAttack=0
+76	昏睡攻击	SingleAttack=0
+77	石化攻击	SingleAttack=0
+78	酒醉攻击	SingleAttack=0
+79	混乱攻击	SingleAttack=0
+80	遗忘攻击	SingleAttack=0
+
+=== AutoSkillType=4 count=1 ===
+6	战栗袭心	SingleAttack=0
+
+=== AutoSkillType=5 count=4 ===
+8	圣盾	SingleAttack=0
+12	明镜止水	SingleAttack=0
+31	吸血魔法	SingleAttack=0
+74	防御	SingleAttack=0
+
+=== AutoSkillType=6 count=1 ===
+63	超强补血魔法	SingleAttack=0
+
+=== AutoSkillType=7 count=1 ===
+66	超强恢复魔法	SingleAttack=0
+
+=== AutoSkillType=8 count=2 ===
+61	补血魔法	SingleAttack=0
+62	强力补血魔法	SingleAttack=0
+
+=== AutoSkillType=9 count=2 ===
+64	恢复魔法	SingleAttack=0
+65	强力恢复魔法	SingleAttack=0
+
+=== AutoSkillType=10 count=1 ===
+7	护卫	SingleAttack=0
+
+=== AutoSkillType=11 count=4 ===
+50	大地的祈祷	SingleAttack=0
+51	海洋的祈祷	SingleAttack=0
+52	火焰的祈祷	SingleAttack=0
+53	云群的祈祷	SingleAttack=0
+
+=== AutoSkillType=12 count=1 ===
+67	洁净魔法	SingleAttack=0
+
+=== AutoSkillType=13 count=1 ===
+68	气绝回复	SingleAttack=0
+
+=== AutoSkillType=14 count=6 ===
+55	攻击反弹	SingleAttack=0
+56	魔法反弹	SingleAttack=0
+57	攻击吸收	SingleAttack=0
+58	魔法吸收	SingleAttack=0
+59	攻击无效	SingleAttack=0
+60	魔法无效	SingleAttack=0
