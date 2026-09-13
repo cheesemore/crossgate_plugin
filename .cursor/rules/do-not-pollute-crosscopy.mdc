@@ -1,0 +1,23 @@
+---
+description: 永远不得污染/修改 E:\crosscopy，需要干净底稿时让用户手动更新再复制到 cross
+alwaysApply: true
+---
+
+# crosscopy 纯净目录：禁止污染
+
+`E:\crosscopy\魔力宝贝：序章` 是**纯净官方副本**（干净底稿来源），**永远不得写入/修改**。
+
+## 铁律
+
+0. **永远不要污染 crosscopy**：不在 crosscopy 内写入、修改、打补丁、部署任何 DLL/文件，不运行任何可能写入的检测/补丁命令。
+1. **只读对照**：从 crosscopy 读取文件用于对比（`cross_update.py diff/status`、哈希比对）是允许的；但任何 patcher 命令、`apply_combo_patch.py`、DLL 部署**一律不得以 crosscopy 内文件为 `--hotfix`/`--output` 目标**。
+   - 特别注意：`HotfixPatcher.exe` 的 `vip-timescale-patch` 等命令**没有真正的 `--detect` 只读模式**，`--detect` 会被忽略并直接写入！对 crosscopy 文件跑这类命令 = 污染。
+2. **需要干净底稿时**：先让**用户手动**更新 crosscopy（保持纯净、不打补丁），然后把 crosscopy 的 `hotfix.dll.bytes` 等复制到 cross 目录做 `.orig` / `neworig`，再给 cross 打补丁。**不要自己往 crosscopy 里建 `.orig` 或副本**。
+3. **用完即清**：若因对比临时在 crosscopy 内生成文件，用后立即删除，保持 crosscopy 干净。
+
+## 正确流程（客户端更新后）
+
+1. 用户手动在 crosscopy 运行官方更新器（crosscopy 保持纯净）。
+2. `python tools/cross_update.py anti-cheat`（只读）探测反外挂变化。
+3. `python tools/cross_update.py auto-update` 一条龙：自动从 crosscopy 复制 `hotfix.dll.bytes` 到 cross 作为干净底稿（`.orig` / `neworig`）、更新基线、从 `.orig` 重打默认组合补丁。
+4. 全程 crosscopy 只读，不写入任何文件。

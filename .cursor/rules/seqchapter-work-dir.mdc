@@ -1,0 +1,41 @@
+---
+description: 序章工作默认在 E:\cross；crosscopy 更新后先 anti-cheat 探测，再 auto-update 一条龙重打
+alwaysApply: true
+---
+
+# 序章工作目录（当前约定）
+
+| 角色 | 路径 |
+|---|---|
+| **主开发 / 默认测试 / 打补丁** | `E:\cross\魔力宝贝：序章` |
+| **干净底稿来源（唯一权威）** | `E:\crosscopy\魔力宝贝：序章` |
+| **桥接实验目录** | `E:\cross桥接\魔力宝贝：序章`（**暂搁置**，除非用户明确要求） |
+
+## 固定流程：crosscopy 更新 / 重打补丁一律一条龙
+
+**凡出现需要重打补丁/补丁失效/客户端更新等情况，不要想太多，按此流程：**
+
+0. **首选入口**（少思考）：`python tools/workflow.py status|update|repatch|publish-foolproof`（见仓库根 `AGENTS.md`）。
+
+1. **检测 crosscopy 是否最新**（只读）：
+   - `python tools/cross_update.py status` 或直接比较 crosscopy 的 `hotfix.dll.bytes` SHA256 与 `tools/hotfix_baseline.json` 的 `neworig_sha256`。
+   - 一致 = 最新；不一致 = 用户更新过（新版本）。
+   - 只看哈希/体积/时间戳，**不跑任何可能写入的 patcher 命令**。
+2. **若 crosscopy 不是最新** → **提示用户手动更新 crosscopy**（保持纯净、不打补丁），等用户确认更新完成后再继续。
+3. **反外挂探测**（只读）：
+   - `python tools/cross_update.py anti-cheat` —— 对比 cross 的 `.orig`（旧底稿）与 crosscopy 的 hotfix（新），深度分析关键词/字符串/PE 结构。
+   - 结论 `✓ 无变化` 才继续；出现 `⚠ 检测到反外挂/上报相关变化` 需人工核对。
+4. **一条龙重打**（需关闭游戏；不关游戏只能 `--dry-run`）：
+   - `python tools/workflow.py update --dry-run` 预演；
+   - `python tools/workflow.py update` —— 自动完成：同步官方文件 → 从 crosscopy 复制干净 hotfix 为新底稿（`.orig`/`neworig`）→ 更新 `EXPECTED_SIZE`/基线 → 从干净 `.orig` 重打默认组合补丁。
+   - 仅重打：`python tools/workflow.py repatch`。
+5. **保持 crosscopy 纯净**：只读取、不写入（详见 `do-not-pollute-crosscopy.mdc`）。
+
+## 规则
+
+1. **默认照顾 `E:\cross`**，不要主动在 `E:\cross桥接` 上改补丁或联调。
+2. **默认补丁选项不含桥接**（`inject_bridge=False`）；桥接与神奇九动互斥，仅在用户明确要求时再开。
+3. **不依赖 `cross` 目录自身的 `.orig` 可信度**：`cross` 的 `.orig` 可能被覆盖/污染，重打前统一从 crosscopy 重新复制底稿（`auto-update` 自动做）。
+4. 发布仍以主目录补丁工具链为准。
+5. `E:\crosscopy` 永远只读（详见 `do-not-pollute-crosscopy.mdc`）。
+6. `tools/_unused_backup/` 是已清理的一次性临时文件备份，gitignore 忽略，正常思考不看它。

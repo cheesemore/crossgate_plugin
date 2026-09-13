@@ -1,0 +1,25 @@
+---
+description: 分享改日常（daily_claim）默认开启；打补丁时除非冲突都要带上
+alwaysApply: true
+---
+
+# 日常补丁默认开启
+
+## GUI
+
+- 「分享改日常」勾选框**默认勾选**（`daily_claim=True`）。
+- 组合补丁 GUI、傻瓜包 GUI、`apply_combo` / `run_foolproof_patch` / `DEFAULT_COMBO_KWARGS` 均默认开启。
+
+## Agent 打补丁时
+
+用户要求打补丁、重打组合、同步客户端时：
+
+1. **默认带上** `daily_claim=True`（分享 → 日常流水线）。
+2. **除非冲突才跳过**：目前仅当另有补丁占用 `MapSidebarPanel.OnClickShareCallback` 时冲突；日常不占百科 / Pause，一般与九动、抓宠、烧卡、加速可并存。
+3. 用户明确说「不要日常 / 保留原版分享 / `--no-daily`」时才关掉。
+
+## 实现位置
+
+- DLL：`tools/seqchapter_daily_claim/SeqChapterDailyClaim.cs`
+- 补丁：`daily-claim-external-patch`（`DailyClaimExternalIlPatcher`）
+- 脚本：`魔力宝贝序章补丁/scripts/apply_combo_patch.py` 等

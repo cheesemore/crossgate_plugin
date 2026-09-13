@@ -1,0 +1,11 @@
+---
+description: 客服入口默认打 autoskill（高级自动战斗）；以 patch_defaults.py 为准
+alwaysApply: true
+---
+
+# 客服入口：默认打 autoskill
+
+- **默认打** `customer_gm=True, customer_gm_mode="autoskill"`（客服入口 → 高级自动战斗）。
+- 权威默认值见 `魔力宝贝序章补丁/scripts/patch_defaults.py` 的 `DEFAULT_COMBO_KWARGS`。
+- 用户明确说「不要客服改 / 保留原版客服」时才关（`customer_gm=False`）。
+- 其它客服改（盲盒/秘宝/水晶/讨伐/试炼等）需用户明确指定模式。

@@ -485,7 +485,7 @@ public static class SeqChapterTestUi
     private static long _escortBattleExitAtMs;
     private static bool _escortBattleWhTabDone;
     private static long _escortBattleLastWhOpenMs;
-    private static string _escortBattleNote = "退战后魔池低于阈值会停挂机补魔（默认吃锅子）。";
+    private static string _escortBattleNote = "退战后魔池低于阈值会停挂机补魔（默认吃锅子）；队伍不足5人停战。";
 
     // ----- 任务护航（队列） -----
     /// <summary>正在编辑/追加队列（自建列表）。</summary>
@@ -532,6 +532,8 @@ public static class SeqChapterTestUi
     private static bool _escortPrevInBattle;
     /// <summary>洗礼预备：本场战斗中是否见过 forceQuitBattle（战败/踢出/逃跑类）。</summary>
     private static bool _baptismSawForceQuit;
+    /// <summary>半山预备：本场战斗中是否见过 forceQuitBattle（战败/踢出/逃跑类）。</summary>
+    private static bool _banshanSawForceQuit;
     /// <summary>洗礼4完成后、洗礼5开始前：等道具#651022（无则暂停）。</summary>
     private static bool _baptismNeedItemBefore5;
     /// <summary>洗礼4后法兰治疗失败：点继续时重跑治疗。</summary>
@@ -634,9 +636,13 @@ public static class SeqChapterTestUi
     private const long BattleGhostStuckMs = 4000;
     /// <summary>无法行动且 AllEnd+空队列才补发 idle（毫秒）。</summary>
     private const long BattleEmptyQueueStuckMs = 5000;
-    // BATTLE_TYPE：P_vs_P=2 WATCH=3 PVP_WATCH=9 REPLAY_BATTLE=10（跳过动画不处理）
+    // BATTLE_TYPE：NONE=0 P_vs_E=1 P_vs_P=2 WATCH=3 ANCHORAGE=4
+    // BOSS_BATTLE=5 LASTBOSS_BATTLE=6 DP=7 PVP_WATCH=8 REPLAY=9 END=10
+    // （跳过动画旧常量 PVP_WATCH=9/REPLAY=10 与枚举有偏差，勿混用）
     private const int BattleTypePvp = 2;
     private const int BattleTypeWatch = 3;
+    private const int BattleTypeBoss = 5;
+    private const int BattleTypeLastBoss = 6;
     private const int BattleTypePvpWatch = 9;
     private const int BattleTypeReplay = 10;
     /// <summary>遇敌步骤：必须先到达本步导航点附近才开遇敌（格）。</summary>
@@ -708,6 +714,9 @@ public static class SeqChapterTestUi
     private const int FloraHealPhasePick = 9;
     /// <summary>治疗前回队长背包丢名字为「绿头盔」「红头盔」的道具（七夕每轮；一件一丢）。</summary>
     private const int FloraHealPhaseDropHelmets = 10;
+    /// <summary>全队回复后：再回城记录点2（与开局同一落点）。</summary>
+    private const int FloraHealPhaseReturnHome = 11;
+    private const int FloraHealPhaseDelayAfterReturnHome = 12;
     private const int FloraHealBagStart = 8;
     private const int FloraHealBagEnd = 68;
     private const long FloraHealDropDelayMs = 1000;
@@ -926,11 +935,12 @@ public static class SeqChapterTestUi
     private const int DragonCheckMaxRetries = 5;
     private const long DragonCheckRetryMs = 1500;
 
-    // ----- 洗礼预备（护航页）：合击→治疗→重置#99→护航1/2/4→再治疗→用651022→#99 -----
+    // ----- 洗礼预备（护航页）：先丢#13651+用古钱包→合击→治疗→重置#99→护航1/2/4→再治疗→用651022→#99 -----
     private static bool _baptismPrepActive;
-    /// <summary>0=未运行 1=法兰治疗 2=重置后等待 3=护航中。</summary>
+    /// <summary>0=未运行 4=开局背包 1=法兰治疗 2=重置后等待 3=护航中。</summary>
     private static int _baptismPrepPhase;
     private static long _baptismPrepPhaseAtMs;
+    private const int BaptismPhaseBagPrep = 4;
     private const int BaptismPhaseFlora = 1;
     private const int BaptismPhaseResetWait = 2;
     private const int BaptismPhaseEscort = 3;
@@ -942,6 +952,25 @@ public static class SeqChapterTestUi
     private const int Baptism5MissionId = 99;
     /// <summary>洗礼5开场前队长需使用的道具。</summary>
     private const int Baptism5StartItemId = 651022;
+    /// <summary>洗礼开局：全员丢弃此道具 Id（可多格/多堆）。</summary>
+    private const int BaptismDropItemId = 13651;
+    /// <summary>洗礼开局：全员使用到背包没有为止。</summary>
+    private const string BaptismWalletKeyword = "古钱包";
+    private const long BaptismBagIntervalMs = 550;
+    private const long BaptismBagUseSettleMs = 900;
+    private const int BaptismBagMaxFails = 5;
+    private const int BaptismBagSubDrop = 0;
+    private const int BaptismBagSubUse = 1;
+    private static List<string> _baptismBagUids;
+    private static int _baptismBagUidIdx;
+    private static int _baptismBagSub;
+    private static long _baptismBagNextAtMs;
+    private static string _baptismBagNote = "";
+    private static int _baptismBagDropped;
+    private static int _baptismBagUsed;
+    private static int _baptismBagFailStreak;
+    private static bool _baptismBagAwaitUse;
+    private static long _baptismBagUseAtMs;
     private const int Baptism5BossFloor = 60305;
     private const int Baptism5BossX = 173;
     private const int Baptism5BossY = 28;
@@ -953,6 +982,35 @@ public static class SeqChapterTestUi
     private const long BaptismMemberUnbindGoldMin = 20000;
     private static readonly int[] BaptismPrepMissionIds =
         { Baptism1MissionId, Baptism2MissionId, Baptism4MissionId, Baptism5MissionId };
+
+    // ----- 半山预备（护航页）：半山9已完成→重置13689+查#15210×2→入队未完成1368；否则中途续做；不做5/其余；战败暂停 -----
+    private static bool _banshanPrepActive;
+    /// <summary>0=未运行 1=重置后等待 2=护航中。</summary>
+    private static int _banshanPrepPhase;
+    private static long _banshanPrepPhaseAtMs;
+    private const int BanshanPhaseResetWait = 1;
+    private const int BanshanPhaseEscort = 2;
+    private const long BanshanResetDelayMs = 2500;
+    private const int Banshan1MissionId = 75;
+    private const int Banshan3MissionId = 77;
+    private const int Banshan6MissionId = 80;
+    private const int Banshan8MissionId = 82;
+    private const int Banshan9MissionId = 83;
+    /// <summary>重置起点需每人背包至少此数量的道具。</summary>
+    private const int BanshanResetItemId = 15210;
+    private const int BanshanResetItemMin = 2;
+    /// <summary>半山可重置：1/3/6/8/9（不管 2/4/5/7）。</summary>
+    private static readonly int[] BanshanResetMissionIds =
+    {
+        Banshan1MissionId, Banshan3MissionId, Banshan6MissionId,
+        Banshan8MissionId, Banshan9MissionId
+    };
+    /// <summary>半山预备护航队列：仅 1/3/6/8（不做 5/9 及其余）。</summary>
+    private static readonly int[] BanshanEscortMissionIds =
+    {
+        Banshan1MissionId, Banshan3MissionId, Banshan6MissionId, Banshan8MissionId
+    };
+
     private const int StorePetLevel = 1;
     private const int PetStatusRest = 0;
 
@@ -1033,6 +1091,7 @@ public static class SeqChapterTestUi
     private static readonly string[] JunkDropNameKeywords =
     {
         "引魔香", "绿头盔", "红头盔", "封印卡", "铜钥匙", "梦幻头巾",
+        "红凤凰的羽毛", "蓝凤凰的羽毛",
     };
 
     // ----- 超级AI（纯提示：不改出手、不关 VIP、不发包） -----
@@ -1120,14 +1179,16 @@ public static class SeqChapterTestUi
         public string Actor;
         public string Str;
         public string Label;
+        /// <summary>强制代发（血瓶/骑士之誉/战栗）；其余空 Str 交给自动/VIP。</summary>
+        public bool Forced;
     }
 
     private static readonly List<SuperAiPlannedCmd> _superAiPlannedCmds = new List<SuperAiPlannedCmd>();
     private const int SuperAiPetAttackSkillId = 73;
     private const int SuperAiBattleItemMinType = 23;
-    /// <summary>高压战斗吃瓶阈值；普通 Boss / 低压 50%。</summary>
+    /// <summary>高压战斗吃瓶阈值；普通 Boss / 低压 45%。</summary>
     private const float SuperAiPotionHpHighPressure = 0.60f;
-    private const float SuperAiPotionHpLowPressure = 0.50f;
+    private const float SuperAiPotionHpLowPressure = 0.45f;
     private const int SuperAiPotionLowMpPriority = 100;
     private const int SuperAiJobPriest = 60;
     private const int SuperAiJobSorcerer = 80;
@@ -1155,6 +1216,31 @@ public static class SeqChapterTestUi
     private static readonly Dictionary<string, List<int[]>> _superAiPrepBankRows =
         new Dictionary<string, List<int[]>>();
 
+    /// <summary>重写攻防序：开则写 AiBattleTarget 锚点（杂兵→精英→首领 / 特殊 AI）；关则完全交给官方选目标。</summary>
+    private static bool _superAiRewriteAtkDef = true;
+
+    /// <summary>VIP「攻击无效」重写：不按血量；目标序 自己→己宠→队友人→队友宠；本客户端本场尽量不重复套。</summary>
+    private static bool _superAiVipType14Rewrite = true;
+    /// <summary>已废弃：攻无目标序固定，不再用人/宠开关。</summary>
+    private static bool _superAiVipType14PreferPlayer = true;
+    /// <summary>本场战斗内本客户端已指定过攻无的目标 Index（人宠接力防重复）。</summary>
+    private static readonly HashSet<int> _vipAtkInvalidClaimedIdx = new HashSet<int>();
+    private static int _vipAtkInvalidClaimBattleIndex = -1;
+
+    private const int SuperAiSkillIdAtkRebound = 55;
+    private const int SuperAiSkillIdMagicRebound = 56;
+    private const int SuperAiSkillIdAtkAbsorb = 57;
+    private const int SuperAiSkillIdMagicAbsorb = 58;
+    private const int SuperAiSkillIdAtkInvalid = 59;
+    private const int SuperAiSkillIdMagicInvalid = 60;
+
+    /// <summary>本回合血瓶规划：先列可丢药者再配对，一人一瓶、一目标一瓶。</summary>
+    private static int _superAiPotionPlanBattle = -1;
+    private static int _superAiPotionPlanTurn = -1;
+    private static readonly Dictionary<int, int> _superAiPotionAssignByGiver =
+        new Dictionary<int, int>();
+    private static string _superAiPotionPlanNote = "";
+
     private static bool _superAiBankPullActive;
     private static string _superAiBankPullUid = "";
     private static int _superAiBankPullPhase;
@@ -1162,7 +1248,7 @@ public static class SeqChapterTestUi
     private static bool _superAiBankPullWhTabDone;
     private static long _superAiBankPullLastWhOpenMs;
 
-    /// <summary>MaxHp &lt; 此值 → 杂兵；首领1 也须 ≥ 此值才算首领战。</summary>
+    /// <summary>MaxHp &lt; 此值 → 杂兵（场内分档用；是否接管看战斗类型）。</summary>
     private const int SuperAiTrashMaxHp = 3000;
     /// <summary>非首领1 且 MaxHp≥此值（或 ≥首领1 的 60%）→ 可进首领2–4。</summary>
     private const int SuperAiBossHpFloor = 10000;
@@ -1172,26 +1258,53 @@ public static class SeqChapterTestUi
     private static bool _superAiIsBossBattle;
     /// <summary>高压战斗（吃瓶 60%）；普通 Boss 战为 false（50%）。</summary>
     private static bool _superAiIsHighPressure;
+    /// <summary>进战后统一：等 1 秒再取开战信息；失败再等 1 秒；最多 3 次。</summary>
+    private const long SuperAiStartInfoProbeMs = 1000;
+    private const int SuperAiStartInfoMaxAttempts = 3;
+    private static int _superAiWaitBattleIndex = -1;
+    private static long _superAiNextInfoProbeAtMs;
+    private static int _superAiInfoProbeAttempt;
+    private static bool _superAiStartInfoReady;
+    private static bool _superAiTakeoverFailed;
     private static string _superAiSpecialRuleId = "";
     /// <summary>特殊模式标题后缀，完整标题为「AI战斗-{Title}」。</summary>
     private static string _superAiSpecialRuleTitle = "";
     private static int _superAiLastFocusAnchorIdx = -1;
+    private static string _superAiLastFocusAnchorName = "";
     private static readonly Dictionary<int, SuperAiEnemyRole> _superAiEnemyRoleByIdx =
         new Dictionary<int, SuperAiEnemyRole>();
     private static readonly List<string> _superAiStartEnemyNames = new List<string>();
     private static object _superAiHintTitleText;
+    private static string _superAiLastWindowTitleKey = "";
 
     private const string SuperAiSpecialIdKillbear = "killbear";
     private const string SuperAiSpecialIdFerni = "ferni";
+    private const string SuperAiSpecialIdGoldSilver = "goldsilver";
+    private const string SuperAiSpecialIdRepChallenge = "repchallenge";
 
-    /// <summary>战栗袭心（宠，任意等级同一 SkillId）。</summary>
+    /// <summary>战栗袭心配置 SkillId；宠栏位常存 TechId（6xx），匹配见 SuperAiPetTechMatchesWant。</summary>
     private const int SuperAiSkillIdTremble = 6;
+    /// <summary>乾坤一掷（宠强制；任意等级，Use=false 则跳过）。</summary>
+    private const int SuperAiSkillIdQiankun = 3;
     /// <summary>骑士之誉（人物）。</summary>
     private const int SuperAiSkillIdKnightHonor = 1005;
+    /// <summary>B_TARGET 位：IN_ME / IN_FRIEND / IN_ENEMY。</summary>
+    private const int BtTargetInMe = 8;
+    private const int BtTargetInFriend = 0x10;
+    private const int BtTargetInEnemy = 0x20;
     /// <summary>菲尔尼一阶段：士官长蓝绝对值低于此值即视为抽完（不是百分比）。</summary>
     private const int SuperAiFerniDrainMpThreshold = 70;
     private const string SuperAiEnemyNameFerni = "菲尔尼";
     private const string SuperAiEnemyNameSergeant = "士官长";
+    private const string SuperAiEnemyNameGoldKing = "金角大王";
+    private const string SuperAiEnemyNameSilverKing = "银角大王";
+    /// <summary>声望挑战激活关键字。</summary>
+    private const string SuperAiEnemyNameFallenDukeTerun = "堕落公爵特伦";
+    /// <summary>声望挑战集火序（名含即命中）。</summary>
+    private static readonly string[] SuperAiRepChallengeFocusOrder =
+    {
+        "上忍佐木", "魔导士", "金怪", "银怪", "神箭", "大武", "堕落公爵"
+    };
 
     private enum SuperAiFerniPhase : byte
     {
@@ -1201,7 +1314,16 @@ public static class SeqChapterTestUi
         Cleanup = 3
     }
 
+    /// <summary>金银角：清杂 → 双王比血。</summary>
+    private enum SuperAiGoldSilverPhase : byte
+    {
+        None = 0,
+        ClearAdds = 1,
+        DuoHighestHp = 2
+    }
+
     private static SuperAiFerniPhase _superAiFerniPhase;
+    private static SuperAiGoldSilverPhase _superAiGoldSilverPhase;
 
     /// <summary>特殊定制表：开场敌名关键字（各关键字须落在不同单位）。</summary>
     private static readonly SuperAiSpecialRule[] SuperAiSpecialRules =
@@ -1217,6 +1339,18 @@ public static class SeqChapterTestUi
             Id = SuperAiSpecialIdFerni,
             Title = "菲尔尼",
             Keywords = new[] { "菲尔尼" }
+        },
+        new SuperAiSpecialRule
+        {
+            Id = SuperAiSpecialIdGoldSilver,
+            Title = "金银角",
+            Keywords = new[] { SuperAiEnemyNameGoldKing, SuperAiEnemyNameSilverKing }
+        },
+        new SuperAiSpecialRule
+        {
+            Id = SuperAiSpecialIdRepChallenge,
+            Title = "声望挑战",
+            Keywords = new[] { SuperAiEnemyNameFallenDukeTerun }
         }
     };
     /// <summary>VIP AutoSkillType：与 BattleProcesser.TryUseVipAutoSkill 一致，便于后续决策。</summary>
@@ -1591,6 +1725,21 @@ public static class SeqChapterTestUi
             parts.Add("★七夕" + _midAutumnLoopCount + "轮★");
         }
 
+        if (_superAiActive)
+        {
+            var inBattle = false;
+            try
+            {
+                inBattle = Convert.ToBoolean(GetStaticMember("BattleDataHolder", "IsInBattle") ?? false);
+            }
+            catch
+            {
+                // ignore
+            }
+
+            parts.Add(inBattle ? FormatSuperAiBattleTitle() : "AI战斗");
+        }
+
         return string.Join(" ", parts);
     }
 
@@ -1790,7 +1939,8 @@ public static class SeqChapterTestUi
                 SetEscortBattleNote(
                     "退战后魔池低于" + EscortBattleMpLow
                     + "会停挂机，用" + EscortBattleItemName()
-                    + "(" + EscortBattleMpItemId + ")×" + EscortBattleMpUseNum + "补魔。");
+                    + "(" + EscortBattleMpItemId + ")×" + EscortBattleMpUseNum + "补魔；队伍不足"
+                    + EscortTeamMinMembers + "人停战。");
             }
 
             if (!IsSuperAiModeAllowed(mode) && _superAiActive)
@@ -2429,7 +2579,7 @@ public static class SeqChapterTestUi
     {
         if (!_junkDropActive)
         {
-            return "一键丢弃: 未启动\n关键字(引魔香/绿红头盔/封印卡/铜钥匙/梦幻头巾) + 名含卡片/图鉴卡 + 未鉴定≤4级宝石/装备；5角色；间隔0.5s；同格失败3次停";
+            return "一键丢弃: 未启动\n关键字(引魔香/绿红头盔/封印卡/铜钥匙/梦幻头巾/红蓝凤凰羽毛) + 名含卡片/图鉴卡 + 未鉴定≤4级宝石/装备；5角色；间隔0.5s；同格失败3次停";
         }
 
         var total = _junkDropUids != null ? _junkDropUids.Count : 0;
@@ -5153,6 +5303,7 @@ public static class SeqChapterTestUi
         {
             _escortBattlePrevInBattle = false;
             _escortBattleExitAtMs = now;
+            WriteLog("escort-battle 战斗结束");
             return;
         }
 
@@ -5179,6 +5330,26 @@ public static class SeqChapterTestUi
             return;
         }
 
+        // 战后队伍不足：停挂机，不自动补魔/提取（避免又开挂）
+        var teamNum = GetEscortTeamNum();
+        if (teamNum < EscortTeamMinMembers)
+        {
+            _escortBattleExitAtMs = 0;
+            var reason = "战后队伍不足" + EscortTeamMinMembers + "人（当前" + teamNum + "），已停战";
+            var wasHang = GetEncounterStatus() != 0;
+            if (wasHang)
+            {
+                TrySendLocalAutoBattle("停止挂机");
+            }
+
+            SetEscortBattleNote(reason);
+            Tip("护航战斗：" + reason);
+            WriteLog("escort-battle 停战 reason=" + reason
+                     + " wasHang=" + wasHang
+                     + " fights=" + _escortBattleFightCount);
+            return;
+        }
+
         var mp = ReadMpPond(uid);
         if (mp == 0 && sinceExit < EscortBattleMpZeroRetryMs)
         {
@@ -5188,7 +5359,8 @@ public static class SeqChapterTestUi
         _escortBattleExitAtMs = 0;
         WriteLog("escort-battle exit mp=" + mp + " item=" + EscortBattleMpItemId
                  + " fights=" + _escortBattleFightCount
-                 + " extract=" + _escortBattleExtractOn);
+                 + " extract=" + _escortBattleExtractOn
+                 + " team=" + teamNum);
         UpdateEscortBattleTitleMp(mp);
         if (_escortBattleExtractOn)
         {
@@ -7552,7 +7724,8 @@ public static class SeqChapterTestUi
             SetEscortBattleNote(
                 "退战后魔池低于" + EscortBattleMpLow
                 + "会停挂机，用" + EscortBattleItemName()
-                + "(" + EscortBattleMpItemId + ")×" + EscortBattleMpUseNum + "补魔。");
+                + "(" + EscortBattleMpItemId + ")×" + EscortBattleMpUseNum + "补魔；队伍不足"
+                + EscortTeamMinMembers + "人停战。");
             try
             {
                 RefreshTitleFromFeature();
@@ -9307,8 +9480,47 @@ public static class SeqChapterTestUi
         BindButton(prepBtn, prepImg, StartSuperAiPrep);
 
         y -= 40f;
+        var atkBtn = CreateUiChild(_bodyRoot, "SuperAiAtkDef", rtType);
+        SetAnchoredTop(RequireRect(atkBtn, "saiad"), 0f, y, 540f, 32f);
+        var atkImg = AddComp(atkBtn, "UnityEngine.UI.Image");
+        SetColor(atkImg,
+            _superAiRewriteAtkDef ? 0.16f : 0.22f,
+            _superAiRewriteAtkDef ? 0.36f : 0.22f,
+            _superAiRewriteAtkDef ? 0.42f : 0.18f, 1f);
+        var atkLab = CreateUiChild(atkBtn, "L", rtType);
+        StretchFull(RequireRect(atkLab, "saiadl"));
+        SetText(AddText(atkLab),
+            _superAiRewriteAtkDef
+                ? "● 重写攻防序（AI选目标·开）"
+                : "○ 重写攻防序（AI选目标·关）",
+            13);
+        BindButton(atkBtn, atkImg, ToggleSuperAiRewriteAtkDef);
+
+        y -= 40f;
+        var t14Btn = CreateUiChild(_bodyRoot, "SuperAiType14", rtType);
+        SetAnchoredTop(RequireRect(t14Btn, "sait14"), 0f, y, 260f, 32f);
+        var t14Img = AddComp(t14Btn, "UnityEngine.UI.Image");
+        SetColor(t14Img,
+            _superAiVipType14Rewrite ? 0.18f : 0.22f,
+            _superAiVipType14Rewrite ? 0.32f : 0.22f,
+            _superAiVipType14Rewrite ? 0.48f : 0.18f, 1f);
+        var t14Lab = CreateUiChild(t14Btn, "L", rtType);
+        StretchFull(RequireRect(t14Lab, "sait14l"));
+        SetText(AddText(t14Lab),
+            _superAiVipType14Rewrite ? "● 攻击无效重写·开" : "○ 攻击无效重写·关", 12);
+        BindButton(t14Btn, t14Img, ToggleSuperAiVipType14Rewrite);
+
+        var prefHint = CreateUiChild(_bodyRoot, "SuperAiType14Pref", rtType);
+        SetAnchoredTop(RequireRect(prefHint, "sait14p"), 140f, y, 260f, 32f);
+        var prefImg = AddComp(prefHint, "UnityEngine.UI.Image");
+        SetColor(prefImg, 0.16f, 0.22f, 0.30f, 1f);
+        var prefLab = CreateUiChild(prefHint, "L", rtType);
+        StretchFull(RequireRect(prefLab, "sait14pl"));
+        SetText(AddText(prefLab), "序:自己→己宠→队友人→队友宠", 11);
+
+        y -= 40f;
         _superAiBattleRoot = CreateUiChild(_bodyRoot, "SuperAiHintHelp", rtType);
-        SetAnchoredTop(RequireRect(_superAiBattleRoot, "saib"), 0f, y, 540f, 240f);
+        SetAnchoredTop(RequireRect(_superAiBattleRoot, "saib"), 0f, y, 540f, 160f);
         SetColor(AddComp(_superAiBattleRoot, "UnityEngine.UI.Image"), 0.08f, 0.1f, 0.14f, 0.75f);
         var tip = CreateUiChild(_superAiBattleRoot, "Tip", rtType);
         StretchFull(RequireRect(tip, "tip"));
@@ -9641,17 +9853,18 @@ public static class SeqChapterTestUi
             var prep = _superAiPrepReady
                 ? ("备战:已完成\n" + (_superAiPrepNote.Length > 0 ? _superAiPrepNote + "\n" : ""))
                 : (_superAiPrepActive ? ("备战中: " + _superAiPrepNote + "\n") : "备战:未跑（空包取银需先备战）\n");
-            return "AI战斗（虚拟）：关闭\n"
+            return "AI战斗：关闭\n"
                    + prep
-                   + "仅「常规」模式可开；遇首领战标题变为「AI战斗」。\n"
-                   + "普通 Boss 非高压；菲尔尼为高压三阶段；特殊另有杀熊者模式。\n"
-                   + "血瓶15611–15615，回血=药力×回复/100。\n"
-                   + "只写本客户端能实际发出的包（H/I/G/N/W/S）。";
+                   + "仅「常规」可开。血瓶：先列可丢药者再配对（高压60%/低压45%）。\n"
+                   + "强制：血瓶；菲尔尼抽蓝：骑士之誉(有则每回合)/否则普攻士官长+宠战栗。其余自动/VIP。\n"
+                   + "「重写攻防序」开关控制是否写目标锚点。";
         }
 
         var prepLine = _superAiPrepReady ? "备战✓" : (_superAiPrepActive ? "备战中" : "备战未跑");
-        return "AI战斗（虚拟）：运行中（只显示，不发包）\n模式: " + ModeLabel(_battleMode)
-               + " · " + prepLine + "\n只接管首领战；非首领战不介入。\n"
+        var atkLine = _superAiRewriteAtkDef ? "攻防序·开" : "攻防序·关";
+        return "AI战斗：运行中\n模式: " + ModeLabel(_battleMode)
+               + " · " + prepLine + " · " + atkLine + " · " + FormatSuperAiHandoffShort() + "\n"
+               + (_superAiPotionPlanNote.Length > 0 ? _superAiPotionPlanNote + "\n" : "")
                + (_superAiLastSimLine.Length > 0 ? _superAiLastSimLine : "等待进入战斗…");
     }
 
@@ -9674,6 +9887,44 @@ public static class SeqChapterTestUi
         }
     }
 
+    private static void ToggleSuperAiRewriteAtkDef()
+    {
+        _superAiRewriteAtkDef = !_superAiRewriteAtkDef;
+        if (!_superAiRewriteAtkDef)
+        {
+            ClearSuperAiVipFocusAnchor();
+        }
+
+        Tip(_superAiRewriteAtkDef ? "重写攻防序已开启" : "重写攻防序已关闭");
+        WriteLog("SuperAI rewriteAtkDef=" + _superAiRewriteAtkDef);
+        if (_tab == TabSuperAi)
+        {
+            ClearBody();
+            BuildSuperAiBody();
+            RefreshTabButtonLabels();
+        }
+    }
+
+    private static void ToggleSuperAiVipType14Rewrite()
+    {
+        _superAiVipType14Rewrite = !_superAiVipType14Rewrite;
+        Tip(_superAiVipType14Rewrite
+            ? "攻击无效重写已开启（自己→己宠→队友人→队友宠；等级用VIP）"
+            : "攻击无效重写已关闭（走官方VIP血量判断）");
+        WriteLog("VIP atkInvalidRewrite=" + _superAiVipType14Rewrite);
+        if (_tab == TabSuperAi)
+        {
+            ClearBody();
+            BuildSuperAiBody();
+            RefreshTabButtonLabels();
+        }
+    }
+
+    private static void ToggleSuperAiVipType14Prefer()
+    {
+        Tip("攻无目标序已固定：自己→己宠→队友人→队友宠");
+    }
+
     private static void StartSuperAi()
     {
         if (!IsSuperAiModeAllowed(_battleMode))
@@ -9690,7 +9941,7 @@ public static class SeqChapterTestUi
         EnsureSuperAiHintOverlay();
         RefreshSuperAiHintOverlay("等待进入战斗…");
         Tip("AI战斗已开启");
-        WriteLog("SuperAI start(hint-only) mode=" + _battleMode);
+        WriteLog("SuperAI start(send) mode=" + _battleMode);
     }
 
     private static void StopSuperAi(string reason)
@@ -9707,9 +9958,11 @@ public static class SeqChapterTestUi
         _superAiUnits.Clear();
         _superAiPlannedCmds.Clear();
         _superAiLastHintKey = "";
+        _superAiLastWindowTitleKey = "";
         ClearSuperAiVipFocusAnchor();
         ResetSuperAiBattleClassify();
         HideSuperAiHintOverlay();
+        try { RefreshTitleFromFeature(); } catch { }
         WriteLog("SuperAI stop: " + reason);
         Tip("AI战斗已关闭");
     }
@@ -9722,6 +9975,16 @@ public static class SeqChapterTestUi
         _superAiSpecialRuleId = "";
         _superAiSpecialRuleTitle = "";
         _superAiFerniPhase = SuperAiFerniPhase.None;
+        _superAiGoldSilverPhase = SuperAiGoldSilverPhase.None;
+        _superAiWaitBattleIndex = -1;
+        _superAiNextInfoProbeAtMs = 0;
+        _superAiInfoProbeAttempt = 0;
+        _superAiStartInfoReady = false;
+        _superAiTakeoverFailed = false;
+        _superAiPotionPlanBattle = -1;
+        _superAiPotionPlanTurn = -1;
+        _superAiPotionAssignByGiver.Clear();
+        _superAiPotionPlanNote = "";
         _superAiEnemyRoleByIdx.Clear();
         _superAiStartEnemyNames.Clear();
         ClearSuperAiVipFocusAnchor();
@@ -9730,9 +9993,25 @@ public static class SeqChapterTestUi
     /// <summary>首领战标题：普通「AI战斗」；特殊「AI战斗-{后缀}」；菲尔尼带阶段。</summary>
     private static string FormatSuperAiBattleTitle()
     {
+        if (_superAiTakeoverFailed)
+        {
+            return "AI战斗 接管失败";
+        }
+
+        if (!_superAiStartInfoReady)
+        {
+            var n = Math.Min(_superAiInfoProbeAttempt + 1, SuperAiStartInfoMaxAttempts);
+            return "AI战斗 等待开战信息(" + n + "/" + SuperAiStartInfoMaxAttempts + ")";
+        }
+
+        if (_superAiClassifiedBattleIndex < 0)
+        {
+            return "AI战斗 定档中";
+        }
+
         if (!_superAiIsBossBattle)
         {
-            return "AI战斗（虚拟）非首领战·不接管";
+            return "AI战斗 非首领战·不接管";
         }
 
         if (_superAiSpecialRuleId == SuperAiSpecialIdFerni)
@@ -9750,6 +10029,30 @@ public static class SeqChapterTestUi
             }
         }
 
+        if (_superAiSpecialRuleId == SuperAiSpecialIdGoldSilver)
+        {
+            switch (ResolveSuperAiGoldSilverPhase())
+            {
+                case SuperAiGoldSilverPhase.ClearAdds:
+                    return "AI战斗-金银角-清杂";
+                case SuperAiGoldSilverPhase.DuoHighestHp:
+                    return "AI战斗-金银角-双王比血";
+                default:
+                    return "AI战斗-金银角";
+            }
+        }
+
+        if (_superAiSpecialRuleId == SuperAiSpecialIdRepChallenge)
+        {
+            string focusKw;
+            if (TryPeekSuperAiRepChallengeFocusKw(out focusKw) && !string.IsNullOrEmpty(focusKw))
+            {
+                return "AI战斗-声望挑战-" + focusKw;
+            }
+
+            return "AI战斗-声望挑战";
+        }
+
         if (_superAiSpecialRuleTitle.Length > 0)
         {
             return "AI战斗-" + _superAiSpecialRuleTitle;
@@ -9759,13 +10062,15 @@ public static class SeqChapterTestUi
     }
 
     /// <summary>
-    /// 首领战接管：把本回合锁定目标写入 AI 独占锚点 <c>SeqChapterAiBattleTarget.Index</c>，
-    /// 供合击/随机 AutoSelect 修正（不碰官方 VIP <c>focusFireIndex</c> / 集火标签）。
-    /// 非首领 / 无目标时清 -1。
+    /// 首领战接管：写官方 VIP <c>focusFireIndex</c>（AutoSelect AI 锚点已拆除，必须写官方才生效），
+    /// 并尽力写 <c>SeqChapterAiBattleTarget.Index</c>。攻防序关 / 无目标时清 -1。
     /// </summary>
     private static void SyncSuperAiVipFocusAnchor()
     {
-        if (!_superAiIsBossBattle)
+        // 金银角 / 声望挑战全程写锚点；其它特殊仍受「重写攻防序」开关约束
+        var forceAnchor = _superAiSpecialRuleId == SuperAiSpecialIdGoldSilver
+                          || _superAiSpecialRuleId == SuperAiSpecialIdRepChallenge;
+        if (!_superAiIsBossBattle || (!_superAiRewriteAtkDef && !forceAnchor))
         {
             ClearSuperAiVipFocusAnchor();
             return;
@@ -9780,66 +10085,80 @@ public static class SeqChapterTestUi
             return;
         }
 
-        if (!TrySetAiBattleTargetIndex(idx))
-        {
-            return;
-        }
+        TrySetAiBattleTargetIndex(idx);
+        TrySetOfficialFocusFireIndex(idx);
 
-        if (idx != _superAiLastFocusAnchorIdx)
+        if (idx != _superAiLastFocusAnchorIdx
+            || !string.Equals(_superAiLastFocusAnchorName, name ?? "", StringComparison.Ordinal))
         {
             _superAiLastFocusAnchorIdx = idx;
-            WriteLog("SuperAI AiBattleTarget.Index=" + idx + " [" + role + "] " + name);
+            _superAiLastFocusAnchorName = name ?? "";
+            WriteLog("SuperAI focus target=" + idx + " [" + role + "] " + _superAiLastFocusAnchorName);
         }
         else
         {
             _superAiLastFocusAnchorIdx = idx;
+            _superAiLastFocusAnchorName = name ?? "";
         }
     }
 
     private static void ClearSuperAiVipFocusAnchor()
     {
-        if (_superAiLastFocusAnchorIdx == -1)
+        if (_superAiLastFocusAnchorIdx == -1 && string.IsNullOrEmpty(_superAiLastFocusAnchorName))
         {
             TrySetAiBattleTargetIndex(-1);
-            // 顺手清掉旧版误写入的官方 focusFireIndex，避免未开 AI 仍被旧 IL 劫持
-            TryClearOfficialFocusFireIndexLeftover();
+            TrySetOfficialFocusFireIndex(-1);
             return;
         }
 
         TrySetAiBattleTargetIndex(-1);
-        TryClearOfficialFocusFireIndexLeftover();
+        TrySetOfficialFocusFireIndex(-1);
         _superAiLastFocusAnchorIdx = -1;
-        WriteLog("SuperAI AiBattleTarget.Index cleared");
+        _superAiLastFocusAnchorName = "";
+        WriteLog("SuperAI focus target cleared");
     }
 
-    /// <summary>仅清残留：旧版 AI 曾写过官方 focusFireIndex；正常 AI 不再写入。</summary>
-    private static void TryClearOfficialFocusFireIndexLeftover()
+    /// <summary>辅助面板锚点文案：优先敌人名。</summary>
+    private static string FormatSuperAiFocusAnchorShort()
+    {
+        if (_superAiLastFocusAnchorIdx < 0)
+        {
+            return "无锚点";
+        }
+
+        var n = _superAiLastFocusAnchorName;
+        if (string.IsNullOrEmpty(n))
+        {
+            return "锚点#" + _superAiLastFocusAnchorIdx;
+        }
+
+        return "锚点 " + n + "#" + _superAiLastFocusAnchorIdx;
+    }
+
+    /// <summary>写官方 VIP 集火下标；-1 清除。</summary>
+    private static bool TrySetOfficialFocusFireIndex(int index)
     {
         try
         {
-            var asm = GetManagerInstance("BattleAutoSkillManager");
-            if (asm == null)
+            var mgr = GetManagerInstance("BattleAutoSkillManager");
+            if (mgr == null)
             {
-                return;
+                return false;
             }
 
-            var f = asm.GetType().GetField("focusFireIndex",
-                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-            if (f == null)
+            var cur = Convert.ToInt32(GetMember(mgr, "focusFireIndex") ?? -1);
+            if (cur == index)
             {
-                return;
+                return true;
             }
 
-            var cur = Convert.ToInt32(f.GetValue(asm) ?? -1);
-            if (cur != -1)
-            {
-                f.SetValue(asm, -1);
-                WriteLog("SuperAI cleared leftover official focusFireIndex=" + cur);
-            }
+            SetMember(mgr, "focusFireIndex", index);
+            return true;
         }
-        catch
+        catch (Exception ex)
         {
-            // ignore
+            WriteLog("TrySetOfficialFocusFireIndex EX: " + RootMessage(ex));
+            return false;
         }
     }
 
@@ -9910,7 +10229,7 @@ public static class SeqChapterTestUi
         {
             _superAiLastHintKey = "";
             _superAiHintTurn = -1;
-            if (_superAiClassifiedBattleIndex != -1)
+            if (_superAiClassifiedBattleIndex != -1 || _superAiWaitBattleIndex != -1)
             {
                 ResetSuperAiBattleClassify();
             }
@@ -9921,7 +10240,76 @@ public static class SeqChapterTestUi
         }
 
         var battleIndex = Convert.ToInt32(GetStaticMember("BattleDataHolder", "BattleIndex") ?? -1);
+        var now = NowMs();
+        if (battleIndex != _superAiWaitBattleIndex)
+        {
+            _superAiWaitBattleIndex = battleIndex;
+            _superAiLastHintKey = "";
+            _superAiClassifiedBattleIndex = -1;
+            _superAiStartInfoReady = false;
+            _superAiTakeoverFailed = false;
+            _superAiInfoProbeAttempt = 0;
+            _superAiNextInfoProbeAtMs = now + SuperAiStartInfoProbeMs;
+            WriteLog("SuperAI start-info probe battle=" + battleIndex
+                     + " wait=" + SuperAiStartInfoProbeMs + "ms x" + SuperAiStartInfoMaxAttempts);
+        }
+
+        if (_superAiTakeoverFailed)
+        {
+            RefreshSuperAiHintOverlay("接管失败：开战信息未就绪（已试"
+                                      + SuperAiStartInfoMaxAttempts + "次）");
+            _superAiLastSimLine = "接管失败";
+            return;
+        }
+
+        if (!_superAiStartInfoReady)
+        {
+            if (now < _superAiNextInfoProbeAtMs)
+            {
+                var nextAttempt = _superAiInfoProbeAttempt + 1;
+                RefreshSuperAiHintOverlay("等待开战信息（" + nextAttempt + "/"
+                                          + SuperAiStartInfoMaxAttempts + "）… "
+                                          + FormatSuperAiWaitRemainSec(_superAiNextInfoProbeAtMs - now)
+                                          + "s");
+                return;
+            }
+
+            CollectSuperAiRoundUnits();
+            _superAiInfoProbeAttempt++;
+            if (SuperAiRoundStartInfoReady())
+            {
+                _superAiStartInfoReady = true;
+                WriteLog("SuperAI start-info OK attempt=" + _superAiInfoProbeAttempt
+                         + "/" + SuperAiStartInfoMaxAttempts
+                         + " type=" + GetSuperAiBattleModeFlag()
+                         + " enemies=" + CountSuperAiEnemies());
+            }
+            else if (_superAiInfoProbeAttempt >= SuperAiStartInfoMaxAttempts)
+            {
+                _superAiTakeoverFailed = true;
+                WriteLog("SuperAI start-info FAIL after " + _superAiInfoProbeAttempt
+                         + " attempts battle=" + battleIndex);
+                Tip("AI接管失败：开战信息未就绪");
+                RefreshSuperAiHintOverlay("接管失败：开战信息未就绪（已试"
+                                          + SuperAiStartInfoMaxAttempts + "次）");
+                _superAiLastSimLine = "接管失败";
+                return;
+            }
+            else
+            {
+                _superAiNextInfoProbeAtMs = now + SuperAiStartInfoProbeMs;
+                WriteLog("SuperAI start-info retry attempt=" + _superAiInfoProbeAttempt
+                         + "/" + SuperAiStartInfoMaxAttempts);
+                RefreshSuperAiHintOverlay("开战信息未齐，重试（"
+                                          + (_superAiInfoProbeAttempt + 1) + "/"
+                                          + SuperAiStartInfoMaxAttempts + "）… "
+                                          + FormatSuperAiWaitRemainSec(SuperAiStartInfoProbeMs) + "s");
+                return;
+            }
+        }
+
         var turn = GetSuperAiBattleTurn();
+        var acct = Convert.ToString(GetStaticMember("BattleDataHolder", "CurrentAccount") ?? "") ?? "";
         var cmdRunning = false;
         try
         {
@@ -9933,7 +10321,7 @@ public static class SeqChapterTestUi
             // ignore
         }
 
-        // 选指令阶段：定档 + 持续写 AI 独占目标锚点（合击/随机 AutoSelect 会读）
+        // 选指令阶段：每拍重采单位（死人换锚点）+ 定档 + 写集火锚点
         if (!cmdRunning)
         {
             CollectSuperAiRoundUnits();
@@ -9946,10 +10334,19 @@ public static class SeqChapterTestUi
                 ApplySuperAiEnemyRolesToUnits();
             }
 
+            var prevFocusIdx = _superAiLastFocusAnchorIdx;
+            var prevFocusName = _superAiLastFocusAnchorName ?? "";
             SyncSuperAiVipFocusAnchor();
+            // 锚点因击杀切换时，同回合也要刷新辅助面板
+            if (_superAiLastFocusAnchorIdx != prevFocusIdx
+                || !string.Equals(_superAiLastFocusAnchorName, prevFocusName, StringComparison.Ordinal))
+            {
+                _superAiLastHintKey = "";
+            }
         }
 
-        var key = battleIndex + "|" + turn;
+        // 按「战斗|回合|当前账号」刷新面板规划（强制出手由 AutoFight/DoVip 钩子代发）
+        var key = battleIndex + "|" + turn + "|" + acct;
         if (cmdRunning)
         {
             return;
@@ -9970,17 +10367,19 @@ public static class SeqChapterTestUi
         }
         else
         {
-            var anchor = _superAiLastFocusAnchorIdx >= 0
-                ? (" 锚点#" + _superAiLastFocusAnchorIdx)
-                : "";
-            _superAiLastSimLine = FormatSuperAiBattleTitle() + anchor + " · 第" + (turn + 1) + "回合 将发 "
-                                  + _superAiPlannedCmds.Count + " 条";
+            var anchor = FormatSuperAiFocusAnchorShort();
+            var handoff = FormatSuperAiHandoffShort();
+            _superAiLastSimLine = FormatSuperAiBattleTitle() + " " + anchor + " · 第" + (turn + 1) + "回合 · " + handoff;
         }
 
         RefreshSuperAiHintOverlay(board);
-        WriteLog("===== SuperAI HINT turn=" + turn + " key=" + key
+        WriteLog("===== SuperAI turn=" + turn + " key=" + key
                  + " boss=" + _superAiIsBossBattle + " focus=" + _superAiLastFocusAnchorIdx
-                 + " spec=" + _superAiSpecialRuleId + " =====");
+                 + " auto=" + IsSuperAiAutoBattleOn()
+                 + " vipP=" + IsSuperAiVipAutoSwitchOn(acct, 0)
+                 + " vipPet=" + IsSuperAiVipAutoSwitchOn(acct, 1)
+                 + " spec=" + _superAiSpecialRuleId
+                 + " type=" + GetSuperAiBattleModeFlag() + " =====");
         WriteLog(board);
         if (_tab == TabSuperAi && _visible && _superAiStatusText != null && !IsUnityNull(_superAiStatusText))
         {
@@ -10047,6 +10446,7 @@ public static class SeqChapterTestUi
             try { SetProp(_superAiHintText, "raycastTarget", false); } catch { }
             LayoutSuperAiHintOverlay();
             SetText(_superAiHintText, "等待进入战斗…", 12);
+            RefreshSuperAiHintTitle();
         }
         catch (Exception ex)
         {
@@ -10071,25 +10471,55 @@ public static class SeqChapterTestUi
         var title = GetChild(panel, "Title");
         if (title != null)
         {
-            SetAnchoredTopLeft(RequireRect(title, "ait"), 8f, -6f, 344f, 22f);
-            if (_superAiHintTitleText == null || IsUnityNull(_superAiHintTitleText))
-            {
-                _superAiHintTitleText = GetComp(title, FindType("UnityEngine.UI.Text"));
-            }
-
+            SetAnchoredTopLeft(RequireRect(title, "ait"), 8f, -4f, 344f, 28f);
+            _superAiHintTitleText = ResolveSuperAiHintTitleText(title);
             RefreshSuperAiHintTitle();
         }
 
         var body = GetChild(panel, "Body");
         if (body != null)
         {
-            SetAnchoredTopLeft(RequireRect(body, "aib"), 8f, -30f, 344f, 172f);
+            SetAnchoredTopLeft(RequireRect(body, "aib"), 8f, -34f, 344f, 168f);
+        }
+    }
+
+    private static object ResolveSuperAiHintTitleText(object titleGo = null)
+    {
+        try
+        {
+            if (titleGo == null && _superAiHintCanvas != null && !IsUnityNull(_superAiHintCanvas))
+            {
+                var panel = GetChild(_superAiHintCanvas, "Panel");
+                titleGo = panel != null ? GetChild(panel, "Title") : null;
+            }
+
+            if (titleGo == null || IsUnityNull(titleGo))
+            {
+                return _superAiHintTitleText;
+            }
+
+            var tx = GetComp(titleGo, FindType("UnityEngine.UI.Text"))
+                     ?? GetComp(titleGo, FindType("TMPro.TextMeshProUGUI"));
+            if (tx != null)
+            {
+                _superAiHintTitleText = tx;
+                try { SetProp(tx, "horizontalOverflow", EnumValue("UnityEngine.HorizontalWrapMode", "Overflow", 1)); } catch { }
+                try { SetProp(tx, "verticalOverflow", EnumValue("UnityEngine.VerticalWrapMode", "Overflow", 0)); } catch { }
+                try { SetProp(tx, "resizeTextForBestFit", false); } catch { }
+            }
+
+            return _superAiHintTitleText;
+        }
+        catch
+        {
+            return _superAiHintTitleText;
         }
     }
 
     private static void RefreshSuperAiHintTitle()
     {
-        if (_superAiHintTitleText == null || IsUnityNull(_superAiHintTitleText))
+        var titleTx = ResolveSuperAiHintTitleText();
+        if (titleTx == null || IsUnityNull(titleTx))
         {
             return;
         }
@@ -10097,18 +10527,26 @@ public static class SeqChapterTestUi
         string title;
         if (!_superAiActive)
         {
-            title = "AI战斗（虚拟）";
+            title = "AI战斗";
         }
         else if (!Convert.ToBoolean(GetStaticMember("BattleDataHolder", "IsInBattle") ?? false))
         {
-            title = "AI战斗（虚拟）等待战斗";
+            title = "AI战斗 等待战斗";
         }
         else
         {
             title = FormatSuperAiBattleTitle();
         }
 
-        SetText(_superAiHintTitleText, title, 13);
+        SetText(titleTx, title, 13);
+        try { SetProp(titleTx, "color", MakeColor(1f, 0.92f, 0.45f, 1f)); } catch { }
+
+        // 同步游戏窗口标题（CollectTitleSuffix 读 FormatSuperAiBattleTitle）
+        if (_superAiActive && title != _superAiLastWindowTitleKey)
+        {
+            _superAiLastWindowTitleKey = title;
+            try { RefreshTitleFromFeature(); } catch { }
+        }
     }
 
     private static void HideSuperAiHintOverlay()
@@ -10141,33 +10579,42 @@ public static class SeqChapterTestUi
         var sb = new StringBuilder();
         if (!_superAiIsBossBattle)
         {
-            sb.Append("非首领战（敌方最高 MaxHp < ").Append(SuperAiTrashMaxHp)
-              .Append("）· 不接管");
+            sb.Append("非首领战（battleModeFlag=").Append(GetSuperAiBattleModeFlag())
+              .Append("/").Append(FormatSuperAiBattleType(GetSuperAiBattleModeFlag()))
+              .Append("，非 BOSS/LASTBOSS）· 不接管");
             return sb.ToString();
         }
 
         sb.Append("第").Append(turn + 1).Append("回合 · ").Append(FormatSuperAiBattleTitle());
-        sb.Append(" · 虚拟不发包");
+        sb.Append(" · ").Append(FormatSuperAiHandoffShort());
         sb.AppendLine();
         var focus = ResolveSuperAiFocusTier();
         sb.Append("本回合锁定：").Append(FormatSuperAiFocusTier(focus));
         if (_superAiLastFocusAnchorIdx >= 0)
         {
-            sb.Append(" → VIP锚点#").Append(_superAiLastFocusAnchorIdx);
+            sb.Append(" → ").Append(FormatSuperAiFocusAnchorShort());
         }
 
         sb.AppendLine();
         AppendSuperAiRoleSummary(sb);
         if (_superAiPlannedCmds.Count == 0)
         {
-            sb.Append("（本客户端本回合无可发包）");
+            sb.Append("（本回合无说明）");
             return sb.ToString();
         }
 
         for (var i = 0; i < _superAiPlannedCmds.Count; i++)
         {
             var c = _superAiPlannedCmds[i];
-            sb.AppendLine(c.Actor + "  " + c.Str + "  " + c.Label);
+            var tag = c.Forced ? "[强制] " : "";
+            if (!string.IsNullOrEmpty(c.Str))
+            {
+                sb.AppendLine(tag + c.Actor + "  " + c.Str + "  " + c.Label);
+            }
+            else
+            {
+                sb.AppendLine(tag + c.Actor + "  " + c.Label);
+            }
         }
 
         return sb.ToString().TrimEnd();
@@ -10387,18 +10834,446 @@ public static class SeqChapterTestUi
         FillSuperAiSendableCommands();
     }
 
-    private static void AddSuperAiPlannedCmd(string actor, string str, string label)
+    private static void AddSuperAiPlannedCmd(string actor, string str, string label, bool forced = false)
     {
-        if (string.IsNullOrEmpty(str))
+        // 自动出手行允许 Str 为空，只展示说明
+        if (!forced && string.IsNullOrEmpty(str) && string.IsNullOrEmpty(label))
+        {
+            return;
+        }
+
+        if (forced && string.IsNullOrEmpty(str))
         {
             return;
         }
 
         var cmd = new SuperAiPlannedCmd();
         cmd.Actor = actor ?? "";
-        cmd.Str = str;
+        cmd.Str = str ?? "";
         cmd.Label = label ?? "";
+        cmd.Forced = forced;
         _superAiPlannedCmds.Add(cmd);
+    }
+
+    /// <summary>
+    /// 官方 AutoFight_PlayerAction / DoVipPlayerAutoFight 入口钩：需强制则代发并 return true。
+    /// </summary>
+    /// <summary>
+    /// 官方 AutoFight_PlayerAction / DoVipPlayerAutoFight 入口钩：
+    /// AI 开则先血瓶/菲尔尼等；再「攻击无效重写」（不依赖 AI 也能单独生效）。
+    /// </summary>
+    public static bool TrySuperAiPlayerAuto()
+    {
+        if (_superAiActive && TrySuperAiHookPlayerForce("PlayerAuto"))
+        {
+            return true;
+        }
+
+        return TryVipAtkInvalidRewriteHook(true, "PlayerAuto");
+    }
+
+    /// <summary>官方 AutoFight_PlayerAction2（无宠二动）入口钩。</summary>
+    public static bool TrySuperAiPlayerAuto2()
+    {
+        if (_superAiActive && TrySuperAiHookPlayerForce("PlayerAuto2"))
+        {
+            return true;
+        }
+
+        return TryVipAtkInvalidRewriteHook(true, "PlayerAuto2");
+    }
+
+    /// <summary>
+    /// 官方 AutoFight_PetAction / DoVipPetAutoFight 入口钩：
+    /// AI 开则先战栗/集火；再攻击无效重写。
+    /// </summary>
+    public static bool TrySuperAiPetAuto()
+    {
+        if (_superAiActive)
+        {
+            try
+            {
+                if (EnsureSuperAiHookContext())
+                {
+                    SuperAiUnitSnap player;
+                    SuperAiUnitSnap pet;
+                    bool hasPlayer;
+                    bool hasPet;
+                    if (TryGetSuperAiSelfUnits(out player, out hasPlayer, out pet, out hasPet)
+                        && hasPlayer && hasPet && !pet.Unable)
+                    {
+                        var ferniPhase = ResolveSuperAiFerniPhase();
+                        _superAiFerniPhase = ferniPhase;
+
+                        string forceStr = null;
+                        string forceLabel = null;
+                        int enemyIdx;
+                        string enemyName;
+                        string enemyRole;
+                        var hasEnemy = TryFindSuperAiPriorityEnemy(
+                            out enemyIdx, out enemyName, out enemyRole);
+
+                        if (ferniPhase == SuperAiFerniPhase.Drain && hasEnemy)
+                        {
+                            int trembleSlot;
+                            if (TryGetSuperAiPetSkillSlot(
+                                    player.Uid, SuperAiSkillIdTremble, out trembleSlot)
+                                && trembleSlot >= 0)
+                            {
+                                forceStr = "W|" + SuperAiHex(trembleSlot) + "|"
+                                           + SuperAiHex(enemyIdx);
+                                forceLabel = "战栗袭心→[" + enemyRole + "] "
+                                             + enemyName + "#" + enemyIdx;
+                            }
+                        }
+
+                        if (forceStr == null
+                            && (ferniPhase == SuperAiFerniPhase.Focus
+                                || ferniPhase == SuperAiFerniPhase.Cleanup)
+                            && _superAiRewriteAtkDef
+                            && TryBuildSuperAiFerniPhaseAttackCmd(
+                                player, true, ferniPhase, out forceStr, out forceLabel))
+                        {
+                            // 二/三阶段宠打菲尔尼或收尾士官长
+                        }
+
+                        if (forceStr == null
+                            && (_superAiSpecialRuleId == SuperAiSpecialIdGoldSilver
+                                || _superAiSpecialRuleId == SuperAiSpecialIdRepChallenge)
+                            && TryBuildSuperAiQiankunPetCmd(
+                                player, out forceStr, out forceLabel))
+                        {
+                            // 金银角/声望：乾坤优先，否则普攻
+                        }
+
+                        if (!string.IsNullOrEmpty(forceStr))
+                        {
+                            var bm = GetManagerInstance("BattleManager");
+                            var uid = Convert.ToString(
+                                GetStaticMember("BattleDataHolder", "CurrentAccount") ?? "") ?? "";
+                            if (SendSuperAiBattleCmd(bm, uid, forceStr))
+                            {
+                                WriteLog("SuperAI HOOK pet " + forceStr + " · " + forceLabel);
+                                return true;
+                            }
+
+                            WriteLog("SuperAI HOOK pet FAIL " + forceStr);
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                WriteLog("TrySuperAiPetAuto EX: " + RootMessage(ex));
+            }
+        }
+
+        return TryVipAtkInvalidRewriteHook(false, "PetAuto");
+    }
+
+    /// <summary>
+    /// 攻击无效重写（独立于 AI）：VIP 开着且列表有 59 时，给无攻无 buff 友方强制套；
+    /// 无人可套则 return false，其余 VIP 技能照常。菲尔尼 AI 抽蓝/集火/收尾时让路。
+    /// </summary>
+    private static bool TryVipAtkInvalidRewriteHook(bool forPlayer, string tag)
+    {
+        try
+        {
+            if (!_superAiVipType14Rewrite)
+            {
+                return false;
+            }
+
+            if (!Convert.ToBoolean(GetStaticMember("BattleDataHolder", "IsInBattle") ?? false))
+            {
+                return false;
+            }
+
+            // AI 菲尔尼特殊阶段优先，不抢出手
+            if (_superAiActive && _superAiIsBossBattle)
+            {
+                var ferni = ResolveSuperAiFerniPhase();
+                if (ferni == SuperAiFerniPhase.Drain
+                    || ferni == SuperAiFerniPhase.Focus
+                    || ferni == SuperAiFerniPhase.Cleanup)
+                {
+                    return false;
+                }
+            }
+
+            CollectSuperAiRoundUnits();
+            SuperAiUnitSnap player;
+            SuperAiUnitSnap pet;
+            bool hasPlayer;
+            bool hasPet;
+            if (!TryGetSuperAiSelfUnits(out player, out hasPlayer, out pet, out hasPet) || !hasPlayer)
+            {
+                return false;
+            }
+
+            if (forPlayer)
+            {
+                if (player.Unable)
+                {
+                    return false;
+                }
+            }
+            else
+            {
+                if (!hasPet || pet.Unable)
+                {
+                    return false;
+                }
+            }
+
+            string forceStr;
+            string forceLabel;
+            if (!TryBuildVipAtkInvalidCmd(player, forPlayer, out forceStr, out forceLabel))
+            {
+                return false;
+            }
+
+            var bm = GetManagerInstance("BattleManager");
+            var uid = Convert.ToString(GetStaticMember("BattleDataHolder", "CurrentAccount") ?? "") ?? "";
+            if (!SendSuperAiBattleCmd(bm, uid, forceStr))
+            {
+                WriteLog("VIP atkInvalid HOOK FAIL " + tag + " " + forceStr);
+                return false;
+            }
+
+            WriteLog("VIP atkInvalid HOOK " + tag + " " + forceStr + " · " + forceLabel);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            WriteLog("TryVipAtkInvalidRewriteHook EX " + tag + ": " + RootMessage(ex));
+            return false;
+        }
+    }
+
+    private static bool TrySuperAiHookPlayerForce(string tag)
+    {
+        try
+        {
+            if (!EnsureSuperAiHookContext())
+            {
+                return false;
+            }
+
+            SuperAiUnitSnap player;
+            SuperAiUnitSnap pet;
+            bool hasPlayer;
+            bool hasPet;
+            if (!TryGetSuperAiSelfUnits(out player, out hasPlayer, out pet, out hasPet) || !hasPlayer)
+            {
+                return false;
+            }
+
+            if (player.Unable)
+            {
+                return false;
+            }
+
+            var ferniPhase = ResolveSuperAiFerniPhase();
+            _superAiFerniPhase = ferniPhase;
+            EnsureSuperAiPotionPlan();
+
+            string forceStr;
+            string forceLabel;
+            if (!TryBuildSuperAiPotionCmd(player, hasPet, pet, out forceStr, out forceLabel)
+                && !(ferniPhase == SuperAiFerniPhase.Drain
+                     && TryBuildSuperAiFerniDrainPlayerCmd(player, out forceStr, out forceLabel))
+                && !((ferniPhase == SuperAiFerniPhase.Focus || ferniPhase == SuperAiFerniPhase.Cleanup)
+                     && _superAiRewriteAtkDef
+                     && TryBuildSuperAiFerniPhaseAttackCmd(player, false, ferniPhase, out forceStr, out forceLabel)))
+            {
+                return false;
+            }
+
+            var bm = GetManagerInstance("BattleManager");
+            var uid = Convert.ToString(GetStaticMember("BattleDataHolder", "CurrentAccount") ?? "") ?? "";
+            if (!SendSuperAiBattleCmd(bm, uid, forceStr))
+            {
+                WriteLog("SuperAI HOOK player FAIL " + tag + " " + forceStr);
+                return false;
+            }
+
+            WriteLog("SuperAI HOOK player " + tag + " " + forceStr + " · " + forceLabel);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            WriteLog("TrySuperAiHookPlayerForce EX " + tag + ": " + RootMessage(ex));
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// 钩子上下文：AI 开着、开战信息齐、本场是首领战。到号时若 Tick 还在等 1s，这里直接定档。
+    /// </summary>
+    private static bool EnsureSuperAiHookContext()
+    {
+        if (!_superAiActive || _superAiTakeoverFailed)
+        {
+            return false;
+        }
+
+        if (!Convert.ToBoolean(GetStaticMember("BattleDataHolder", "IsInBattle") ?? false))
+        {
+            return false;
+        }
+
+        var battleIndex = Convert.ToInt32(GetStaticMember("BattleDataHolder", "BattleIndex") ?? -1);
+        if (battleIndex < 0)
+        {
+            return false;
+        }
+
+        if (battleIndex != _superAiClassifiedBattleIndex || !_superAiStartInfoReady)
+        {
+            CollectSuperAiRoundUnits();
+            if (!SuperAiRoundStartInfoReady())
+            {
+                return false;
+            }
+
+            _superAiStartInfoReady = true;
+            _superAiWaitBattleIndex = battleIndex;
+            ClassifySuperAiBattle(battleIndex);
+            WriteLog("SuperAI HOOK classify battle=" + battleIndex
+                     + " boss=" + _superAiIsBossBattle + " spec=" + _superAiSpecialRuleId);
+        }
+        else
+        {
+            CollectSuperAiRoundUnits();
+            ApplySuperAiEnemyRolesToUnits();
+        }
+
+        if (!_superAiIsBossBattle)
+        {
+            return false;
+        }
+
+        SyncSuperAiVipFocusAnchor();
+        return true;
+    }
+
+    private static bool IsSuperAiAutoBattleOn()
+    {
+        try
+        {
+            var bm = GetManagerInstance("BattleManager");
+            return bm != null && Convert.ToBoolean(GetMember(bm, "IsAutoBattle") ?? false);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>VIP 自动技开关：kind 0=人物 1=宠（GetAutoSkillSwitch==1）。</summary>
+    private static bool IsSuperAiVipAutoSwitchOn(string uid, int kind)
+    {
+        if (string.IsNullOrEmpty(uid))
+        {
+            return false;
+        }
+
+        try
+        {
+            var mgr = GetManagerInstance("BattleAutoSkillManager");
+            if (mgr == null)
+            {
+                return false;
+            }
+
+            MethodInfo method = null;
+            foreach (var m in mgr.GetType().GetMethods(
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+            {
+                if (m.Name != "GetAutoSkillSwitch" || m.GetParameters().Length != 2)
+                {
+                    continue;
+                }
+
+                method = m;
+                break;
+            }
+
+            if (method == null)
+            {
+                return false;
+            }
+
+            return Convert.ToInt32(method.Invoke(mgr, new object[] { uid, kind }) ?? 0) == 1;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static string FormatSuperAiHandoffShort()
+    {
+        if (!IsSuperAiAutoBattleOn())
+        {
+            return "未开自动·不代发";
+        }
+
+        var uid = Convert.ToString(GetStaticMember("BattleDataHolder", "CurrentAccount") ?? "") ?? "";
+        if (IsSuperAiVipAutoSwitchOn(uid, 0) || IsSuperAiVipAutoSwitchOn(uid, 1))
+        {
+            return "VIP自动出手";
+        }
+
+        return "普通自动出手";
+    }
+
+    private static bool SendSuperAiBattleCmd(object battleMgr, string uid, string cmd)
+    {
+        if (battleMgr == null || string.IsNullOrEmpty(cmd))
+        {
+            return false;
+        }
+
+        try
+        {
+            if (cmd.Length >= 2 && (cmd[0] == 'S' || cmd[0] == 's') && cmd[1] == '|')
+            {
+                SetStaticMember("BattleDataHolder", "skillUsed", true);
+                try
+                {
+                    var pam = GetMember(battleMgr, "PlayerActionMagics") as IDictionary;
+                    if (pam != null && !string.IsNullOrEmpty(uid))
+                    {
+                        pam[uid] = true;
+                    }
+                }
+                catch
+                {
+                    // ignore
+                }
+            }
+
+            var send = battleMgr.GetType().GetMethod(
+                "SendBattleCommond",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+                null,
+                new[] { typeof(string) },
+                null);
+            if (send == null)
+            {
+                return false;
+            }
+
+            send.Invoke(battleMgr, new object[] { cmd });
+            return true;
+        }
+        catch (Exception ex)
+        {
+            WriteLog("SendSuperAiBattleCmd EX: " + RootMessage(ex));
+            return false;
+        }
     }
 
     private static string SuperAiHex(int n)
@@ -10407,12 +11282,12 @@ public static class SeqChapterTestUi
     }
 
     /// <summary>
-    /// 虚拟版：只为本客户端（CurrentAccount 人物+宠）列出能实际 SendBattleCommond 的包。
+    /// 本客户端（CurrentAccount 人物+宠）规划可实际 SendBattleCommond 的包。
     /// 敌方/队友/发不出的动作一律不写。
     /// </summary>
     /// <summary>
-    /// 开战定档：MaxHp&lt;3000=杂兵；最高=首领1（须≥3000 才算首领战）；
-    /// 其余 MaxHp≥1W 或 ≥首领1×60% 按血量排首领2–4；其余≥3000=精英。
+    /// 是否接管：看官方战斗类型 <c>battleModeFlag</c> 是否为 BOSS_BATTLE / LASTBOSS_BATTLE。
+    /// 场内分档仍按 MaxHp：&lt;3000 杂兵；最高=首领1；其余 ≥1W 或 ≥首领1×60%→首领2–4；其余≥3000=精英。
     /// 特殊 AI：仅用开场敌名关键字，每个关键字须匹配不同单位。
     /// </summary>
     private static void ClassifySuperAiBattle(int battleIndex)
@@ -10424,7 +11299,11 @@ public static class SeqChapterTestUi
         _superAiSpecialRuleId = "";
         _superAiSpecialRuleTitle = "";
         _superAiFerniPhase = SuperAiFerniPhase.None;
+        _superAiGoldSilverPhase = SuperAiGoldSilverPhase.None;
         _superAiClassifiedBattleIndex = battleIndex;
+
+        var battleType = GetSuperAiBattleModeFlag();
+        _superAiIsBossBattle = IsSuperAiBossBattleType(battleType);
 
         var enemies = new List<SuperAiUnitSnap>();
         for (var i = 0; i < _superAiUnits.Count; i++)
@@ -10444,7 +11323,8 @@ public static class SeqChapterTestUi
 
         if (enemies.Count == 0)
         {
-            WriteLog("SuperAI classify battle=" + battleIndex + " empty-enemy");
+            WriteLog("SuperAI classify battle=" + battleIndex
+                     + " type=" + battleType + " empty-enemy bossType=" + _superAiIsBossBattle);
             ApplySuperAiEnemyRolesToUnits();
             return;
         }
@@ -10455,22 +11335,23 @@ public static class SeqChapterTestUi
             return c != 0 ? c : a.Idx.CompareTo(b.Idx);
         });
 
-        var boss1 = enemies[0];
-        if (boss1.MaxHp < SuperAiTrashMaxHp)
+        if (!_superAiIsBossBattle)
         {
             for (var i = 0; i < enemies.Count; i++)
             {
                 _superAiEnemyRoleByIdx[enemies[i].Idx] = SuperAiEnemyRole.Trash;
             }
 
-            WriteLog("SuperAI classify battle=" + battleIndex + " NOT-boss maxHp=" + boss1.MaxHp);
+            WriteLog("SuperAI classify battle=" + battleIndex
+                     + " NOT-boss type=" + battleType + " (" + FormatSuperAiBattleType(battleType) + ")"
+                     + " maxHp=" + enemies[0].MaxHp);
             ApplySuperAiEnemyRolesToUnits();
             return;
         }
 
-        _superAiIsBossBattle = true;
-        // 普通 Boss 战非高压；高压仅由特定特殊 AI 日后开启
+        // 首领战类型：场内按 MaxHp 定档（高压仍仅特殊 AI 另开）
         _superAiIsHighPressure = false;
+        var boss1 = enemies[0];
         _superAiEnemyRoleByIdx[boss1.Idx] = SuperAiEnemyRole.Boss1;
         var used = new HashSet<int> { boss1.Idx };
         var ratioCut = (int)Math.Ceiling(boss1.MaxHp * SuperAiBossHpRatioOfBoss1);
@@ -10529,6 +11410,7 @@ public static class SeqChapterTestUi
 
         var sb = new StringBuilder();
         sb.Append("SuperAI classify battle=").Append(battleIndex)
+          .Append(" type=").Append(battleType).Append("(").Append(FormatSuperAiBattleType(battleType)).Append(")")
           .Append(" boss1Hp=").Append(boss1.MaxHp)
           .Append(" ratioCut=").Append(ratioCut)
           .Append(" spec=").Append(_superAiSpecialRuleId.Length > 0 ? _superAiSpecialRuleId : "-");
@@ -10539,6 +11421,90 @@ public static class SeqChapterTestUi
             _superAiEnemyRoleByIdx.TryGetValue(enemies[i].Idx, out role);
             WriteLog("  #" + enemies[i].Idx + " " + enemies[i].Name
                      + " maxHp=" + enemies[i].MaxHp + " → " + FormatSuperAiEnemyRole(role));
+        }
+    }
+
+    private static int GetSuperAiBattleModeFlag()
+    {
+        try
+        {
+            return Convert.ToInt32(GetStaticMember("BattleDataHolder", "battleModeFlag") ?? 0);
+        }
+        catch
+        {
+            return 0;
+        }
+    }
+
+    private static string FormatSuperAiWaitRemainSec(long remainMs)
+    {
+        if (remainMs < 0)
+        {
+            remainMs = 0;
+        }
+
+        return ((remainMs + 99) / 100 / 10.0).ToString("0.0");
+    }
+
+    private static int CountSuperAiEnemies()
+    {
+        var n = 0;
+        for (var i = 0; i < _superAiUnits.Count; i++)
+        {
+            if (!_superAiUnits[i].Mine)
+            {
+                n++;
+            }
+        }
+
+        return n;
+    }
+
+    /// <summary>
+    /// 开战信息就绪：有敌方、敌名齐、MaxHp 已刷出（定档/特殊 AI/战斗类型共用这一套）。
+    /// </summary>
+    private static bool SuperAiRoundStartInfoReady()
+    {
+        var enemies = 0;
+        for (var i = 0; i < _superAiUnits.Count; i++)
+        {
+            var u = _superAiUnits[i];
+            if (u.Mine)
+            {
+                continue;
+            }
+
+            enemies++;
+            if (string.IsNullOrEmpty(u.Name) || u.MaxHp <= 0)
+            {
+                return false;
+            }
+        }
+
+        return enemies > 0;
+    }
+
+    /// <summary>官方 BATTLE_TYPE：BOSS_BATTLE=5 / LASTBOSS_BATTLE=6 → 接管。</summary>
+    private static bool IsSuperAiBossBattleType(int battleType)
+    {
+        return battleType == BattleTypeBoss || battleType == BattleTypeLastBoss;
+    }
+
+    private static string FormatSuperAiBattleType(int battleType)
+    {
+        switch (battleType)
+        {
+            case 0: return "NONE";
+            case 1: return "P_vs_E";
+            case 2: return "P_vs_P";
+            case 3: return "WATCH";
+            case 4: return "ANCHORAGE";
+            case BattleTypeBoss: return "BOSS_BATTLE";
+            case BattleTypeLastBoss: return "LASTBOSS_BATTLE";
+            case 7: return "DP_BATTLE";
+            case 8: return "PVP_WATCH";
+            case 9: return "REPLAY_BATTLE";
+            default: return "type" + battleType;
         }
     }
 
@@ -10810,7 +11776,6 @@ public static class SeqChapterTestUi
             _superAiUnits[i] = u;
         }
 
-        // 非首领战：明确不接管（不写攻击包）
         if (!_superAiIsBossBattle)
         {
             return;
@@ -10832,40 +11797,63 @@ public static class SeqChapterTestUi
         string enemyName;
         string enemyRole;
         var hasEnemy = TryFindSuperAiPriorityEnemy(out enemyIdx, out enemyName, out enemyRole);
-        var playerActor = "人 " + (player.Name ?? "?");
+        EnsureSuperAiPotionPlan();
+        var potBagCount = ScanSuperAiHpPotions(player.Uid).Count;
+        AddSuperAiPlannedCmd("信息", "",
+            "背包血瓶=" + potBagCount
+            + " · 攻防序=" + (_superAiRewriteAtkDef ? "开" : "关")
+            + " · 攻无重写=" + (_superAiVipType14Rewrite ? "开(自己→己宠→友→友宠)" : "关")
+            + (hasEnemy && _superAiRewriteAtkDef
+                ? (" · 锚点[" + enemyRole + "] " + enemyName + "#" + enemyIdx)
+                : " · 无锚点")
+            + " · " + FormatSuperAiHandoffShort()
+            + (_superAiPotionPlanNote.Length > 0 ? "\n" + _superAiPotionPlanNote : ""),
+            false);
 
+        var playerActor = "人 " + (player.Name ?? "?");
         if (player.Unable)
         {
-            AddSuperAiPlannedCmd(playerActor, "N", "待机（" + (player.Status ?? "异常") + "）");
-            player.Suggest = "N";
+            AddSuperAiPlannedCmd(playerActor, "", "无法行动·交给自动", false);
+            player.Suggest = "auto";
         }
         else
         {
-            string potStr;
-            string potLabel;
-            if (TryBuildSuperAiPotionCmd(player, hasPet, pet, out potStr, out potLabel))
+            string forceStr;
+            string forceLabel;
+            if (TryBuildSuperAiPotionCmd(player, hasPet, pet, out forceStr, out forceLabel))
             {
-                AddSuperAiPlannedCmd(playerActor, potStr, potLabel);
-                player.Suggest = potStr;
+                AddSuperAiPlannedCmd(playerActor, forceStr, "强制·" + forceLabel, true);
+                player.Suggest = forceStr;
             }
             else if (ferniPhase == SuperAiFerniPhase.Drain
-                     && TryBuildSuperAiKnightHonorCmd(player, out potStr, out potLabel))
+                     && TryBuildSuperAiFerniDrainPlayerCmd(player, out forceStr, out forceLabel))
             {
-                // 一阶段：有骑士之誉则一直用（对自身）
-                AddSuperAiPlannedCmd(playerActor, potStr, potLabel);
-                player.Suggest = potStr;
+                AddSuperAiPlannedCmd(playerActor, forceStr, "强制·" + forceLabel, true);
+                player.Suggest = forceStr;
             }
-            else if (hasEnemy)
+            else if ((ferniPhase == SuperAiFerniPhase.Focus || ferniPhase == SuperAiFerniPhase.Cleanup)
+                     && _superAiRewriteAtkDef
+                     && TryBuildSuperAiFerniPhaseAttackCmd(player, false, ferniPhase, out forceStr, out forceLabel))
             {
-                var str = "H|" + SuperAiHex(enemyIdx);
-                AddSuperAiPlannedCmd(playerActor, str,
-                    "攻击[" + enemyRole + "] " + enemyName + "#" + enemyIdx);
-                player.Suggest = str;
+                AddSuperAiPlannedCmd(playerActor, forceStr, "强制·" + forceLabel, true);
+                player.Suggest = forceStr;
+            }
+            else if (_superAiVipType14Rewrite
+                     && ferniPhase != SuperAiFerniPhase.Drain
+                     && ferniPhase != SuperAiFerniPhase.Focus
+                     && ferniPhase != SuperAiFerniPhase.Cleanup
+                     && TryBuildSuperAiType14Cmd(player, true, out forceStr, out forceLabel))
+            {
+                AddSuperAiPlannedCmd(playerActor, forceStr, "强制·" + forceLabel, true);
+                player.Suggest = forceStr;
             }
             else
             {
-                AddSuperAiPlannedCmd(playerActor, "G", "防御");
-                player.Suggest = "G";
+                AddSuperAiPlannedCmd(playerActor, "",
+                    "自动出手"
+                    + (hasEnemy ? (" →#" + enemyIdx) : ""),
+                    false);
+                player.Suggest = "auto";
             }
         }
 
@@ -10879,58 +11867,56 @@ public static class SeqChapterTestUi
         var petActor = "宠 " + (pet.Name ?? "?");
         if (pet.Unable)
         {
-            AddSuperAiPlannedCmd(petActor, "W|FF|FF", "待机（" + (pet.Status ?? "异常") + "）");
-            pet.Suggest = "W|FF|FF";
-        }
-        else if (ferniPhase == SuperAiFerniPhase.Drain)
-        {
-            // 一阶段宠：优先战栗抽士官长蓝；无战栗则改打菲尔尼
-            int trembleSlot;
-            if (hasEnemy
-                && TryGetSuperAiPetSkillSlot(player.Uid, SuperAiSkillIdTremble, out trembleSlot)
-                && trembleSlot >= 0)
-            {
-                var str = "W|" + SuperAiHex(trembleSlot) + "|" + SuperAiHex(enemyIdx);
-                AddSuperAiPlannedCmd(petActor, str,
-                    "战栗袭心→[" + enemyRole + "] " + enemyName + "#" + enemyIdx);
-                pet.Suggest = str;
-            }
-            else
-            {
-                int ferniIdx;
-                string ferniName;
-                int atkSlot;
-                if (TryFindSuperAiNamedEnemy(SuperAiEnemyNameFerni, out ferniIdx, out ferniName)
-                    && TryGetSuperAiPetSkillSlot(player.Uid, SuperAiPetAttackSkillId, out atkSlot)
-                    && atkSlot >= 0)
-                {
-                    var str = "W|" + SuperAiHex(atkSlot) + "|" + SuperAiHex(ferniIdx);
-                    AddSuperAiPlannedCmd(petActor, str,
-                        "无战栗→攻击菲尔尼 " + ferniName + "#" + ferniIdx);
-                    pet.Suggest = str;
-                }
-                else
-                {
-                    AddSuperAiPlannedCmd(petActor, "W|FF|FF", "待机");
-                    pet.Suggest = "W|FF|FF";
-                }
-            }
+            AddSuperAiPlannedCmd(petActor, "", "无法行动·交给自动", false);
+            pet.Suggest = "auto";
         }
         else
         {
-            int slot;
-            if (hasEnemy && TryGetSuperAiPetSkillSlot(player.Uid, SuperAiPetAttackSkillId, out slot)
-                && slot >= 0)
+            string petForce = null;
+            string petLabel = null;
+            int trembleSlot;
+            if (ferniPhase == SuperAiFerniPhase.Drain
+                && hasEnemy
+                && TryGetSuperAiPetSkillSlot(player.Uid, SuperAiSkillIdTremble, out trembleSlot)
+                && trembleSlot >= 0)
             {
-                var str = "W|" + SuperAiHex(slot) + "|" + SuperAiHex(enemyIdx);
-                AddSuperAiPlannedCmd(petActor, str,
-                    "攻击[" + enemyRole + "] " + enemyName + "#" + enemyIdx);
-                pet.Suggest = str;
+                petForce = "W|" + SuperAiHex(trembleSlot) + "|" + SuperAiHex(enemyIdx);
+                AddSuperAiPlannedCmd(petActor, petForce,
+                    "强制·战栗袭心→[" + enemyRole + "] " + enemyName + "#" + enemyIdx,
+                    true);
+                pet.Suggest = petForce;
+            }
+            else if ((ferniPhase == SuperAiFerniPhase.Focus || ferniPhase == SuperAiFerniPhase.Cleanup)
+                     && _superAiRewriteAtkDef
+                     && TryBuildSuperAiFerniPhaseAttackCmd(player, true, ferniPhase, out petForce, out petLabel))
+            {
+                AddSuperAiPlannedCmd(petActor, petForce, "强制·" + petLabel, true);
+                pet.Suggest = petForce;
+            }
+            else if ((_superAiSpecialRuleId == SuperAiSpecialIdGoldSilver
+                      || _superAiSpecialRuleId == SuperAiSpecialIdRepChallenge)
+                     && TryBuildSuperAiQiankunPetCmd(player, out petForce, out petLabel))
+            {
+                AddSuperAiPlannedCmd(petActor, petForce, "强制·" + petLabel, true);
+                pet.Suggest = petForce;
+            }
+            else if (_superAiVipType14Rewrite
+                     && ferniPhase != SuperAiFerniPhase.Drain
+                     && ferniPhase != SuperAiFerniPhase.Focus
+                     && ferniPhase != SuperAiFerniPhase.Cleanup
+                     && TryBuildSuperAiType14Cmd(player, false, out petForce, out petLabel))
+            {
+                AddSuperAiPlannedCmd(petActor, petForce, "强制·" + petLabel, true);
+                pet.Suggest = petForce;
             }
             else
             {
-                AddSuperAiPlannedCmd(petActor, "W|FF|FF", "待机");
-                pet.Suggest = "W|FF|FF";
+                AddSuperAiPlannedCmd(petActor, "",
+                    ferniPhase == SuperAiFerniPhase.Drain
+                        ? ("自动出手（无战栗）" + (hasEnemy ? (" →#" + enemyIdx) : ""))
+                        : ("自动出手" + (hasEnemy ? (" →#" + enemyIdx) : "")),
+                    false);
+                pet.Suggest = "auto";
             }
         }
 
@@ -11021,6 +12007,16 @@ public static class SeqChapterTestUi
             return TryFindSuperAiFerniPhaseEnemy(ferniPhase, out idx, out name, out roleLabel);
         }
 
+        if (_superAiSpecialRuleId == SuperAiSpecialIdGoldSilver)
+        {
+            return TryFindSuperAiGoldSilverEnemy(out idx, out name, out roleLabel);
+        }
+
+        if (_superAiSpecialRuleId == SuperAiSpecialIdRepChallenge)
+        {
+            return TryFindSuperAiRepChallengeEnemy(out idx, out name, out roleLabel);
+        }
+
         var focus = ResolveSuperAiFocusTier();
         if (focus == SuperAiFocusTier.None)
         {
@@ -11056,6 +12052,177 @@ public static class SeqChapterTestUi
         return idx >= 0;
     }
 
+    /// <summary>声望挑战：按固定集火序取当前应打的存活敌人。</summary>
+    private static bool TryFindSuperAiRepChallengeEnemy(out int idx, out string name, out string roleLabel)
+    {
+        idx = -1;
+        name = "";
+        roleLabel = "";
+        if (_superAiSpecialRuleId != SuperAiSpecialIdRepChallenge || !_superAiIsBossBattle)
+        {
+            return false;
+        }
+
+        string kw;
+        if (!TryPeekSuperAiRepChallengeFocusKw(out kw) || string.IsNullOrEmpty(kw))
+        {
+            return false;
+        }
+
+        var playerIdx = Convert.ToInt32(GetStaticMember("BattleDataHolder", "battlePlayerIndex") ?? -1);
+        var enemyHighSide = playerIdx < 10;
+        var bestPri = int.MaxValue;
+        for (var i = 0; i < _superAiUnits.Count; i++)
+        {
+            var u = _superAiUnits[i];
+            if (u.Mine || u.Unable || u.Hp <= 0 || !SuperAiUnitNameHas(u, kw))
+            {
+                continue;
+            }
+
+            var sidePri = SuperAiEliteScanRank(u.Idx, enemyHighSide);
+            if (sidePri < bestPri || (sidePri == bestPri && (idx < 0 || u.Idx < idx)))
+            {
+                bestPri = sidePri;
+                idx = u.Idx;
+                name = u.Name ?? "?";
+                roleLabel = "声望-" + kw;
+            }
+        }
+
+        return idx >= 0;
+    }
+
+    /// <summary>返回集火序中第一个仍有存活单位的关键字。</summary>
+    private static bool TryPeekSuperAiRepChallengeFocusKw(out string kw)
+    {
+        kw = "";
+        if (_superAiSpecialRuleId != SuperAiSpecialIdRepChallenge)
+        {
+            return false;
+        }
+
+        for (var k = 0; k < SuperAiRepChallengeFocusOrder.Length; k++)
+        {
+            var cand = SuperAiRepChallengeFocusOrder[k];
+            for (var i = 0; i < _superAiUnits.Count; i++)
+            {
+                var u = _superAiUnits[i];
+                if (u.Mine || u.Unable || u.Hp <= 0)
+                {
+                    continue;
+                }
+
+                if (SuperAiUnitNameHas(u, cand))
+                {
+                    kw = cand;
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>金银角阶段：仍有非双王杂兵 → 清杂；否则双王比血。</summary>
+    private static SuperAiGoldSilverPhase ResolveSuperAiGoldSilverPhase()
+    {
+        if (_superAiSpecialRuleId != SuperAiSpecialIdGoldSilver || !_superAiIsBossBattle)
+        {
+            return SuperAiGoldSilverPhase.None;
+        }
+
+        for (var i = 0; i < _superAiUnits.Count; i++)
+        {
+            var u = _superAiUnits[i];
+            if (u.Mine || u.Unable || u.Hp <= 0)
+            {
+                continue;
+            }
+
+            if (!IsSuperAiGoldOrSilverKing(u))
+            {
+                return SuperAiGoldSilverPhase.ClearAdds;
+            }
+        }
+
+        return SuperAiGoldSilverPhase.DuoHighestHp;
+    }
+
+    private static bool IsSuperAiGoldOrSilverKing(SuperAiUnitSnap u)
+    {
+        return SuperAiUnitNameHas(u, SuperAiEnemyNameGoldKing)
+               || SuperAiUnitNameHas(u, SuperAiEnemyNameSilverKing);
+    }
+
+    /// <summary>
+    /// 金银角目标：先集火非金/银角杂兵（站位序）；杂兵清完后打双王中当前血更高者。
+    /// </summary>
+    private static bool TryFindSuperAiGoldSilverEnemy(out int idx, out string name, out string roleLabel)
+    {
+        idx = -1;
+        name = "";
+        roleLabel = "";
+        var phase = ResolveSuperAiGoldSilverPhase();
+        _superAiGoldSilverPhase = phase;
+        if (phase == SuperAiGoldSilverPhase.None)
+        {
+            return false;
+        }
+
+        var playerIdx = Convert.ToInt32(GetStaticMember("BattleDataHolder", "battlePlayerIndex") ?? -1);
+        var enemyHighSide = playerIdx < 10;
+
+        if (phase == SuperAiGoldSilverPhase.ClearAdds)
+        {
+            var bestPri = int.MaxValue;
+            for (var i = 0; i < _superAiUnits.Count; i++)
+            {
+                var u = _superAiUnits[i];
+                if (u.Mine || u.Unable || u.Hp <= 0 || IsSuperAiGoldOrSilverKing(u))
+                {
+                    continue;
+                }
+
+                var sidePri = SuperAiEliteScanRank(u.Idx, enemyHighSide);
+                if (sidePri < bestPri || (sidePri == bestPri && (idx < 0 || u.Idx < idx)))
+                {
+                    bestPri = sidePri;
+                    idx = u.Idx;
+                    name = u.Name ?? "?";
+                    roleLabel = "金银角清杂";
+                }
+            }
+
+            return idx >= 0;
+        }
+
+        // 双王比血：取活着的金/银角中 Hp 更高；并列取 MaxHp 更高，再 Index
+        var bestHp = -1;
+        var bestMax = -1;
+        for (var i = 0; i < _superAiUnits.Count; i++)
+        {
+            var u = _superAiUnits[i];
+            if (u.Mine || u.Unable || u.Hp <= 0 || !IsSuperAiGoldOrSilverKing(u))
+            {
+                continue;
+            }
+
+            if (u.Hp > bestHp
+                || (u.Hp == bestHp && u.MaxHp > bestMax)
+                || (u.Hp == bestHp && u.MaxHp == bestMax && (idx < 0 || u.Idx < idx)))
+            {
+                bestHp = u.Hp;
+                bestMax = u.MaxHp;
+                idx = u.Idx;
+                name = u.Name ?? "?";
+                roleLabel = SuperAiUnitNameHas(u, SuperAiEnemyNameGoldKing) ? "金角比血" : "银角比血";
+            }
+        }
+
+        return idx >= 0;
+    }
+
     private static SuperAiFerniPhase ResolveSuperAiFerniPhase()
     {
         if (_superAiSpecialRuleId != SuperAiSpecialIdFerni || !_superAiIsBossBattle)
@@ -11063,13 +12230,14 @@ public static class SeqChapterTestUi
             return SuperAiFerniPhase.None;
         }
 
-        // 一阶段：仍有活着且蓝≥70（绝对值）的士官长
-        if (SuperAiAnySergeant(u => u.Hp > 0 && !u.Unable && u.Mp >= SuperAiFerniDrainMpThreshold))
+        // 一阶段：仍有活着且蓝≥70 的士官长，且场上至少有一只宠会战栗（否则抽不了蓝，直接跳二阶段）
+        if (SuperAiAnySergeant(u => u.Hp > 0 && !u.Unable && u.Mp >= SuperAiFerniDrainMpThreshold)
+            && SuperAiTeamHasTremble())
         {
             return SuperAiFerniPhase.Drain;
         }
 
-        // 二阶段：菲尔尼仍存活
+        // 二阶段：菲尔尼仍存活（含：有士官长高蓝但全队无战栗 → 无法抽蓝，直接集火）
         int ferniIdx;
         string ferniName;
         if (TryFindSuperAiNamedEnemy(SuperAiEnemyNameFerni, out ferniIdx, out ferniName))
@@ -11079,6 +12247,40 @@ public static class SeqChapterTestUi
 
         // 三阶段：收尾击杀剩余士官长
         return SuperAiFerniPhase.Cleanup;
+    }
+
+    /// <summary>场上是否有会战栗的出战宠（人物死了但宠仍在也算）。</summary>
+    private static bool SuperAiTeamHasTremble()
+    {
+        var seen = new HashSet<string>();
+        for (var i = 0; i < _superAiUnits.Count; i++)
+        {
+            var u = _superAiUnits[i];
+            if (!u.Mine || u.Hp <= 0)
+            {
+                continue;
+            }
+
+            var uid = u.Uid;
+            if (string.IsNullOrEmpty(uid))
+            {
+                continue;
+            }
+
+            if (!seen.Add(uid))
+            {
+                continue;
+            }
+
+            int slot;
+            if (TryGetSuperAiPetSkillSlot(uid, SuperAiSkillIdTremble, out slot) && slot >= 0)
+            {
+                return true;
+            }
+        }
+
+        WriteLog("SuperAI Ferni: team has no tremble → skip drain phase");
+        return false;
     }
 
     private static bool TryFindSuperAiFerniPhaseEnemy(
@@ -11209,7 +12411,122 @@ public static class SeqChapterTestUi
         return idx >= 0;
     }
 
-    /// <summary>一阶段人物：骑士之誉 → S|skill|tech|自身。</summary>
+    /// <summary>
+    /// 菲尔尼抽蓝期人物：有骑士之誉(1005)则每回合强制；否则普攻当前抽蓝士官长（不打菲尔尼）。
+    /// </summary>
+    private static bool TryBuildSuperAiFerniDrainPlayerCmd(
+        SuperAiUnitSnap player, out string str, out string label)
+    {
+        str = "";
+        label = "";
+        if (TryBuildSuperAiKnightHonorCmd(player, out str, out label))
+        {
+            return true;
+        }
+
+        int enemyIdx;
+        string enemyName;
+        string enemyRole;
+        if (!TryFindSuperAiFerniPhaseEnemy(
+                SuperAiFerniPhase.Drain, out enemyIdx, out enemyName, out enemyRole))
+        {
+            WriteLog("SuperAI Ferni drain: no knight honor & no sergeant → skip force");
+            return false;
+        }
+
+        str = "H|" + SuperAiHex(enemyIdx);
+        label = "普攻→[" + enemyRole + "] " + enemyName + "#" + enemyIdx;
+        WriteLog("SuperAI Ferni drain: no 骑士之誉 → " + label);
+        return true;
+    }
+
+    /// <summary>
+    /// 金银角 / 声望挑战宠：优先乾坤一掷（任意等级，Use 才放）；否则普攻。目标跟当前锚点。
+    /// </summary>
+    private static bool TryBuildSuperAiQiankunPetCmd(
+        SuperAiUnitSnap player, out string str, out string label)
+    {
+        str = "";
+        label = "";
+        if ((_superAiSpecialRuleId != SuperAiSpecialIdGoldSilver
+             && _superAiSpecialRuleId != SuperAiSpecialIdRepChallenge)
+            || player.Unable
+            || string.IsNullOrEmpty(player.Uid))
+        {
+            return false;
+        }
+
+        int enemyIdx;
+        string enemyName;
+        string enemyRole;
+        if (!TryFindSuperAiPriorityEnemy(out enemyIdx, out enemyName, out enemyRole))
+        {
+            return false;
+        }
+
+        int qiankunSlot;
+        if (TryGetSuperAiPetSkillSlot(player.Uid, SuperAiSkillIdQiankun, out qiankunSlot)
+            && qiankunSlot >= 0)
+        {
+            str = "W|" + SuperAiHex(qiankunSlot) + "|" + SuperAiHex(enemyIdx);
+            label = "乾坤一掷→[" + enemyRole + "] " + enemyName + "#" + enemyIdx;
+            return true;
+        }
+
+        int atkSlot;
+        if (!TryGetSuperAiPetSkillSlot(player.Uid, SuperAiPetAttackSkillId, out atkSlot)
+            || atkSlot < 0)
+        {
+            atkSlot = 0;
+        }
+
+        str = "W|" + SuperAiHex(atkSlot) + "|" + SuperAiHex(enemyIdx);
+        label = "宠普攻→[" + enemyRole + "] " + enemyName + "#" + enemyIdx;
+        return true;
+    }
+
+    /// <summary>
+    /// 菲尔尼二阶段集火菲尔尼 / 三阶段收尾士官长：人 H|、宠攻击技打阶段目标。
+    /// </summary>
+    private static bool TryBuildSuperAiFerniPhaseAttackCmd(
+        SuperAiUnitSnap player, bool forPet, SuperAiFerniPhase phase,
+        out string str, out string label)
+    {
+        str = "";
+        label = "";
+        if (phase != SuperAiFerniPhase.Focus && phase != SuperAiFerniPhase.Cleanup)
+        {
+            return false;
+        }
+
+        int enemyIdx;
+        string enemyName;
+        string enemyRole;
+        if (!TryFindSuperAiFerniPhaseEnemy(phase, out enemyIdx, out enemyName, out enemyRole))
+        {
+            return false;
+        }
+
+        if (!forPet)
+        {
+            str = "H|" + SuperAiHex(enemyIdx);
+            label = "普攻→[" + enemyRole + "] " + enemyName + "#" + enemyIdx;
+            return true;
+        }
+
+        int slot;
+        if (!TryGetSuperAiPetSkillSlot(player.Uid, SuperAiPetAttackSkillId, out slot) || slot < 0)
+        {
+            // 无「攻击」技：仍发 W|0|目标，避免 VIP 乱打小怪
+            slot = 0;
+        }
+
+        str = "W|" + SuperAiHex(slot) + "|" + SuperAiHex(enemyIdx);
+        label = "宠出手→[" + enemyRole + "] " + enemyName + "#" + enemyIdx;
+        return true;
+    }
+
+    /// <summary>一阶段人物：骑士之誉 → 按技 Target 选友/己或抽蓝士官长。</summary>
     private static bool TryBuildSuperAiKnightHonorCmd(
         SuperAiUnitSnap player, out string str, out string label)
     {
@@ -11217,16 +12534,668 @@ public static class SeqChapterTestUi
         label = "";
         int skillIndex;
         int techIndex;
-        if (!TryGetSuperAiPlayerSkillIndices(
-                player.Uid, SuperAiSkillIdKnightHonor, player.Mp, out skillIndex, out techIndex))
+        int targetFlags;
+        string skillName;
+        if (!TryResolveSuperAiKnightHonorSkill(
+                player.Uid, player.Mp, out skillIndex, out techIndex, out targetFlags, out skillName))
         {
             return false;
         }
 
+        int targetIdx;
+        string targetName;
+        var wantsEnemy = (targetFlags & BtTargetInEnemy) != 0;
+        var wantsFriend = (targetFlags & BtTargetInFriend) != 0;
+        var wantsMe = (targetFlags & BtTargetInMe) != 0;
+        if (wantsEnemy && !wantsFriend && !wantsMe)
+        {
+            string role;
+            if (!TryFindSuperAiFerniPhaseEnemy(
+                    SuperAiFerniPhase.Drain, out targetIdx, out targetName, out role))
+            {
+                WriteLog("SuperAI knight honor: enemy-target but no sergeant");
+                return false;
+            }
+
+            str = "S|" + SuperAiHex(skillIndex) + "|" + SuperAiHex(techIndex) + "|"
+                  + SuperAiHex(targetIdx);
+            label = skillName + "→[" + role + "] " + targetName + "#" + targetIdx;
+            return true;
+        }
+
+        if (!TryPickSuperAiKnightHonorTarget(player, wantsMe, wantsFriend, out targetIdx, out targetName))
+        {
+            WriteLog("SuperAI knight honor: found skill but no valid ally target flags=0x"
+                     + targetFlags.ToString("X"));
+            return false;
+        }
+
         str = "S|" + SuperAiHex(skillIndex) + "|" + SuperAiHex(techIndex) + "|"
-              + SuperAiHex(player.Idx);
-        label = "骑士之誉";
+              + SuperAiHex(targetIdx);
+        label = skillName + "→" + (targetName ?? "?") + "#" + targetIdx;
         return true;
+    }
+
+    /// <summary>
+    /// 找骑士之誉：SkillId=1005 或名称含「骑士之誉」；优先 Use+Flg，否则仅 Use。
+    /// </summary>
+    private static bool TryResolveSuperAiKnightHonorSkill(
+        string uid, int currentMp,
+        out int skillIndex, out int techIndex, out int targetFlags, out string skillName)
+    {
+        skillIndex = -1;
+        techIndex = -1;
+        targetFlags = 0;
+        skillName = "骑士之誉";
+        if (string.IsNullOrEmpty(uid))
+        {
+            return false;
+        }
+
+        try
+        {
+            var getMag = FindType("PlayerDataHolder")?.GetMethod(
+                "GetMagicDatasFromUid", BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic);
+            var magics = getMag?.Invoke(null, new object[] { uid }) as IList;
+            if (magics == null)
+            {
+                WriteLog("SuperAI knight honor: MagicDatas null uid=" + uid);
+                return false;
+            }
+
+            for (var pass = 0; pass < 2; pass++)
+            {
+                for (var si = 0; si < magics.Count; si++)
+                {
+                    var magic = magics[si];
+                    if (magic == null || Convert.ToInt32(GetMember(magic, "useFlag") ?? 0) != 1)
+                    {
+                        continue;
+                    }
+
+                    var sid = Convert.ToInt32(GetMember(magic, "skillId") ?? GetMember(magic, "SkillId") ?? 0);
+                    var mname = Convert.ToString(GetMember(magic, "Name") ?? GetMember(magic, "name") ?? "") ?? "";
+                    var idOk = sid == SuperAiSkillIdKnightHonor;
+                    var nameOk = mname.IndexOf("骑士之誉", StringComparison.Ordinal) >= 0;
+                    if (!idOk && !nameOk)
+                    {
+                        var techsProbe = GetMember(magic, "techs") as IList;
+                        if (techsProbe != null)
+                        {
+                            for (var pi = 0; pi < techsProbe.Count && !nameOk; pi++)
+                            {
+                                var t = techsProbe[pi];
+                                if (t == null)
+                                {
+                                    continue;
+                                }
+
+                                var tn = Convert.ToString(GetMember(t, "Name") ?? GetMember(t, "name") ?? "") ?? "";
+                                if (tn.IndexOf("骑士之誉", StringComparison.Ordinal) >= 0)
+                                {
+                                    nameOk = true;
+                                }
+                            }
+                        }
+                    }
+
+                    if (!idOk && !nameOk)
+                    {
+                        continue;
+                    }
+
+                    if (Convert.ToBoolean(GetMember(magic, "forgetInBatlle") ?? false)
+                        || Convert.ToBoolean(GetMember(magic, "isCD") ?? false))
+                    {
+                        WriteLog("SuperAI knight honor: skill sid=" + sid + " forget/CD");
+                        continue;
+                    }
+
+                    var techs = GetMember(magic, "techs") as IList;
+                    if (techs == null)
+                    {
+                        continue;
+                    }
+
+                    var bestLv = -1;
+                    var bestTechIndex = -1;
+                    var bestFlags = 0;
+                    var bestName = string.IsNullOrEmpty(mname) ? "骑士之誉" : mname;
+                    for (var ti = 0; ti < techs.Count; ti++)
+                    {
+                        var tech = techs[ti];
+                        if (tech == null)
+                        {
+                            continue;
+                        }
+
+                        var use = Convert.ToBoolean(GetMember(tech, "Use") ?? GetMember(tech, "use") ?? false);
+                        var flg = Convert.ToBoolean(GetMember(tech, "Flg") ?? GetMember(tech, "flg") ?? false);
+                        if (!use || (pass == 0 && !flg))
+                        {
+                            continue;
+                        }
+
+                        var fp = Convert.ToInt32(GetMember(tech, "Fp") ?? GetMember(tech, "fp") ?? 0);
+                        if (currentMp < fp)
+                        {
+                            continue;
+                        }
+
+                        var lv = Convert.ToInt32(GetMember(tech, "Level") ?? GetMember(tech, "level") ?? (ti + 1));
+                        if (lv < bestLv)
+                        {
+                            continue;
+                        }
+
+                        bestLv = lv;
+                        bestTechIndex = Convert.ToInt32(GetMember(tech, "Index") ?? GetMember(tech, "index") ?? ti);
+                        bestFlags = Convert.ToInt32(GetMember(tech, "Target") ?? GetMember(tech, "target") ?? 0);
+                        var tn = Convert.ToString(GetMember(tech, "Name") ?? GetMember(tech, "name") ?? "") ?? "";
+                        if (tn.Length > 0)
+                        {
+                            bestName = tn;
+                        }
+                    }
+
+                    if (bestTechIndex < 0)
+                    {
+                        continue;
+                    }
+
+                    skillIndex = si;
+                    techIndex = bestTechIndex;
+                    targetFlags = bestFlags;
+                    skillName = bestName;
+                    if (targetFlags == 0)
+                    {
+                        targetFlags = BtTargetInMe | BtTargetInFriend;
+                    }
+
+                    WriteLog("SuperAI knight honor OK sid=" + sid + " magic#" + si
+                             + " tech=" + techIndex + " flags=0x" + targetFlags.ToString("X")
+                             + " pass=" + pass + " name=" + skillName);
+                    return true;
+                }
+            }
+
+            WriteLog("SuperAI knight honor: not in Magic list uid=" + uid + " mp=" + currentMp);
+        }
+        catch (Exception ex)
+        {
+            WriteLog("TryResolveSuperAiKnightHonorSkill EX: " + RootMessage(ex));
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// 仅接管 VIP「攻击无效」(SkillId=59)：不看血量；
+    /// 目标序 自己→己宠→队友人→队友宠；本客户端本场已套过的尽量跳过，实在重复则套自己。
+    /// 技能栏位/等级取自已学攻无（与 VIP 同一套）。反弹等仍走官方。
+    /// </summary>
+    private static bool TryBuildVipAtkInvalidCmd(
+        SuperAiUnitSnap ownerPlayer, bool forPlayer, out string str, out string label)
+    {
+        str = "";
+        label = "";
+        if (!_superAiVipType14Rewrite || ownerPlayer.Unable || string.IsNullOrEmpty(ownerPlayer.Uid))
+        {
+            return false;
+        }
+
+        var kind = forPlayer ? 0 : 1;
+        if (!IsSuperAiVipAutoSwitchOn(ownerPlayer.Uid, kind))
+        {
+            return false;
+        }
+
+        if (!VipListHasAtkInvalid(ownerPlayer.Uid, forPlayer))
+        {
+            return false;
+        }
+
+        SuperAiUnitSnap selfPlayer;
+        SuperAiUnitSnap selfPet;
+        bool hasPlayer;
+        bool hasPet;
+        TryGetSuperAiSelfUnits(out selfPlayer, out hasPlayer, out selfPet, out hasPet);
+
+        int targetIdx;
+        string targetName;
+        if (!TryPickVipAtkInvalidTarget(
+                forPlayer, selfPlayer, hasPlayer, selfPet, hasPet,
+                out targetIdx, out targetName))
+        {
+            return false;
+        }
+
+        if (forPlayer)
+        {
+            int skillIndex;
+            int techIndex;
+            if (!TryGetSuperAiPlayerSkillIndices(
+                    ownerPlayer.Uid, SuperAiSkillIdAtkInvalid, ownerPlayer.Mp,
+                    out skillIndex, out techIndex))
+            {
+                return false;
+            }
+
+            str = "S|" + SuperAiHex(skillIndex) + "|" + SuperAiHex(techIndex) + "|"
+                  + SuperAiHex(targetIdx);
+            label = "攻击无效→" + (targetName ?? "?") + "#" + targetIdx;
+            ClaimVipAtkInvalidTarget(targetIdx);
+            return true;
+        }
+
+        int slot;
+        if (!TryGetSuperAiPetSkillSlot(ownerPlayer.Uid, SuperAiSkillIdAtkInvalid, out slot)
+            || slot < 0)
+        {
+            return false;
+        }
+
+        str = "W|" + SuperAiHex(slot) + "|" + SuperAiHex(targetIdx);
+        label = "宠攻击无效→" + (targetName ?? "?") + "#" + targetIdx;
+        ClaimVipAtkInvalidTarget(targetIdx);
+        return true;
+    }
+
+    private static void RefreshVipAtkInvalidClaimBattle()
+    {
+        var battleIndex = Convert.ToInt32(GetStaticMember("BattleDataHolder", "BattleIndex") ?? -1);
+        if (battleIndex != _vipAtkInvalidClaimBattleIndex)
+        {
+            _vipAtkInvalidClaimBattleIndex = battleIndex;
+            _vipAtkInvalidClaimedIdx.Clear();
+        }
+    }
+
+    private static void ClaimVipAtkInvalidTarget(int targetIdx)
+    {
+        if (targetIdx < 0)
+        {
+            return;
+        }
+
+        RefreshVipAtkInvalidClaimBattle();
+        _vipAtkInvalidClaimedIdx.Add(targetIdx);
+    }
+
+    /// <summary>
+    /// 攻无目标：无 buff 优先；序 自己→己宠→队友人→队友宠；
+    /// 跳过本客户端本场已 claim 的；若只剩重复则套自己。
+    /// </summary>
+    private static bool TryPickVipAtkInvalidTarget(
+        bool casterIsPlayer,
+        SuperAiUnitSnap selfPlayer, bool hasPlayer,
+        SuperAiUnitSnap selfPet, bool hasPet,
+        out int idx, out string name)
+    {
+        idx = -1;
+        name = "";
+        RefreshVipAtkInvalidClaimBattle();
+
+        var selfIdx = -1;
+        var ownPetIdx = -1;
+        if (casterIsPlayer)
+        {
+            if (hasPlayer)
+            {
+                selfIdx = selfPlayer.Idx;
+            }
+
+            if (hasPet)
+            {
+                ownPetIdx = selfPet.Idx;
+            }
+        }
+        else if (hasPet)
+        {
+            selfIdx = selfPet.Idx;
+        }
+
+        var need = new List<SuperAiUnitSnap>();
+        for (var i = 0; i < _superAiUnits.Count; i++)
+        {
+            var u = _superAiUnits[i];
+            if (!u.Mine || u.Hp <= 0 || (u.Bc & 2L) != 0)
+            {
+                continue;
+            }
+
+            if ((u.Bc & BcAtkInvalid) != 0)
+            {
+                continue;
+            }
+
+            need.Add(u);
+        }
+
+        if (TryPickVipAtkInvalidFromList(need, selfIdx, ownPetIdx, true, out idx, out name))
+        {
+            return true;
+        }
+
+        if (selfIdx >= 0)
+        {
+            for (var i = 0; i < _superAiUnits.Count; i++)
+            {
+                var u = _superAiUnits[i];
+                if (u.Idx != selfIdx)
+                {
+                    continue;
+                }
+
+                if (u.Hp <= 0 || (u.Bc & 2L) != 0)
+                {
+                    break;
+                }
+
+                idx = u.Idx;
+                name = u.Name ?? "?";
+                return true;
+            }
+        }
+
+        return TryPickVipAtkInvalidFromList(need, selfIdx, ownPetIdx, false, out idx, out name);
+    }
+
+    private static bool TryPickVipAtkInvalidFromList(
+        List<SuperAiUnitSnap> need, int selfIdx, int ownPetIdx, bool skipClaimed,
+        out int idx, out string name)
+    {
+        idx = -1;
+        name = "";
+        SuperAiUnitSnap best = default(SuperAiUnitSnap);
+        var bestRank = int.MaxValue;
+        var found = false;
+        for (var i = 0; i < need.Count; i++)
+        {
+            var u = need[i];
+            if (skipClaimed && _vipAtkInvalidClaimedIdx.Contains(u.Idx))
+            {
+                continue;
+            }
+
+            var rank = RankVipAtkInvalidTarget(u, selfIdx, ownPetIdx);
+            if (!found || rank < bestRank || (rank == bestRank && u.Idx < best.Idx))
+            {
+                best = u;
+                bestRank = rank;
+                found = true;
+            }
+        }
+
+        if (!found)
+        {
+            return false;
+        }
+
+        idx = best.Idx;
+        name = best.Name ?? "?";
+        return true;
+    }
+
+    /// <summary>0自己 1己宠 2队友人 3队友宠。</summary>
+    private static int RankVipAtkInvalidTarget(SuperAiUnitSnap u, int selfIdx, int ownPetIdx)
+    {
+        if (selfIdx >= 0 && u.Idx == selfIdx)
+        {
+            return 0;
+        }
+
+        if (ownPetIdx >= 0 && u.Idx == ownPetIdx)
+        {
+            return 1;
+        }
+
+        return u.IsPlayer ? 2 : 3;
+    }
+
+    /// <summary>VIP 自动技列表是否含攻击无效(59)。</summary>
+    private static bool VipListHasAtkInvalid(string uid, bool forPlayer)
+    {
+        var ids = CollectSuperAiVipType14SkillIds(uid, forPlayer);
+        for (var i = 0; i < ids.Count; i++)
+        {
+            if (ids[i] == SuperAiSkillIdAtkInvalid)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>兼容旧名：仅攻击无效。</summary>
+    private static bool TryBuildSuperAiType14Cmd(
+        SuperAiUnitSnap ownerPlayer, bool forPlayer, out string str, out string label)
+    {
+        return TryBuildVipAtkInvalidCmd(ownerPlayer, forPlayer, out str, out label);
+    }
+
+    private static bool TryGetSuperAiType14Flag(int skillId, out long flag, out string name)
+    {
+        flag = 0;
+        name = "";
+        switch (skillId)
+        {
+            case SuperAiSkillIdAtkRebound:
+                flag = BcAtkRebound;
+                name = "攻击反弹";
+                return true;
+            case SuperAiSkillIdMagicRebound:
+                flag = BcMagicRebound;
+                name = "魔法反弹";
+                return true;
+            case SuperAiSkillIdAtkAbsorb:
+                flag = BcAtkAbsorb;
+                name = "攻击吸收";
+                return true;
+            case SuperAiSkillIdMagicAbsorb:
+                flag = BcMagicAbsorb;
+                name = "魔法吸收";
+                return true;
+            case SuperAiSkillIdAtkInvalid:
+                flag = BcAtkInvalid;
+                name = "攻击无效";
+                return true;
+            case SuperAiSkillIdMagicInvalid:
+                flag = BcMagicInvalid;
+                name = "魔法无效";
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    /// <summary>从 VIP 列表取 Type14 六件套 SkillId（保持列表优先级）。</summary>
+    private static List<int> CollectSuperAiVipType14SkillIds(string uid, bool forPlayer)
+    {
+        var list = new List<int>();
+        if (string.IsNullOrEmpty(uid))
+        {
+            return list;
+        }
+
+        try
+        {
+            var mgr = GetManagerInstance("BattleAutoSkillManager");
+            if (mgr == null)
+            {
+                return list;
+            }
+
+            MethodInfo getSorted = null;
+            foreach (var m in mgr.GetType().GetMethods(
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+            {
+                if (m.Name != "GetSortedSkillDataByUid" || m.GetParameters().Length != 2)
+                {
+                    continue;
+                }
+
+                getSorted = m;
+                break;
+            }
+
+            if (getSorted == null)
+            {
+                return list;
+            }
+
+            // 人物列表用 (uid,uid)；宠列表官方也常按主号 uid 取宠配置
+            var raw = getSorted.Invoke(mgr, new object[] { uid, uid }) as IEnumerable;
+            if (raw == null)
+            {
+                return list;
+            }
+
+            foreach (var item in raw)
+            {
+                if (item == null)
+                {
+                    continue;
+                }
+
+                var rawSkillId = Convert.ToInt32(
+                    GetMember(item, "SkillId") ?? GetMember(item, "skillId") ?? 0);
+                // 宠 VIP 列表 SkillId 字段实际是 TechId（如 5901）；族 ID 才是配置 55–60
+                var skillId = forPlayer ? rawSkillId : NormalizeSuperAiSkillFamilyId(rawSkillId);
+                long flag;
+                string name;
+                if (!TryGetSuperAiType14Flag(skillId, out flag, out name))
+                {
+                    continue;
+                }
+
+                // 宠：PetSkills 比 TechId/族；人：Magic 比 SkillId
+                if (forPlayer)
+                {
+                    int si;
+                    int ti;
+                    if (!TryGetSuperAiPlayerSkillIndices(uid, skillId, int.MaxValue, out si, out ti))
+                    {
+                        continue;
+                    }
+                }
+                else
+                {
+                    int slot;
+                    if (!TryGetSuperAiPetSkillSlot(uid, rawSkillId, out slot) || slot < 0)
+                    {
+                        continue;
+                    }
+                }
+
+                if (!list.Contains(skillId))
+                {
+                    list.Add(skillId);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            WriteLog("CollectSuperAiVipType14SkillIds EX: " + RootMessage(ex));
+        }
+
+        return list;
+    }
+
+    /// <summary>活人中无对应 buff；优先人/宠后再 Index 升序。</summary>
+    private static bool TryPickSuperAiType14Target(long needFlag, out int idx, out string name)
+    {
+        idx = -1;
+        name = "";
+        var candidates = new List<SuperAiUnitSnap>();
+        for (var i = 0; i < _superAiUnits.Count; i++)
+        {
+            var u = _superAiUnits[i];
+            if (!u.Mine || u.Hp <= 0 || (u.Bc & 2L) != 0)
+            {
+                continue;
+            }
+
+            if ((u.Bc & needFlag) != 0)
+            {
+                continue;
+            }
+
+            candidates.Add(u);
+        }
+
+        if (candidates.Count == 0)
+        {
+            return false;
+        }
+
+        candidates.Sort((a, b) =>
+        {
+            var ap = a.IsPlayer ? 0 : 1;
+            var bp = b.IsPlayer ? 0 : 1;
+            if (!_superAiVipType14PreferPlayer)
+            {
+                ap = 1 - ap;
+                bp = 1 - bp;
+            }
+
+            var c = ap.CompareTo(bp);
+            return c != 0 ? c : a.Idx.CompareTo(b.Idx);
+        });
+
+        idx = candidates[0].Idx;
+        name = candidates[0].Name ?? "?";
+        return true;
+    }
+
+    /// <summary>骑士之誉友方目标：官方同补血走 LowHP；可含自己（IN_ME）与队友（IN_FRIEND）。</summary>
+    private static bool TryPickSuperAiKnightHonorTarget(
+        SuperAiUnitSnap self, bool allowSelf, bool allowFriend, out int idx, out string name)
+    {
+        idx = -1;
+        name = "";
+        if (!allowSelf && !allowFriend)
+        {
+            allowSelf = true;
+            allowFriend = true;
+        }
+
+        var bestPct = 2.0;
+        var bestIdx = int.MaxValue;
+        for (var i = 0; i < _superAiUnits.Count; i++)
+        {
+            var u = _superAiUnits[i];
+            if (!u.Mine || u.Hp <= 0)
+            {
+                continue;
+            }
+
+            var isSelf = u.Idx == self.Idx;
+            if (isSelf)
+            {
+                if (!allowSelf)
+                {
+                    continue;
+                }
+            }
+            else if (!allowFriend)
+            {
+                continue;
+            }
+
+            var maxHp = u.MaxHp > 0 ? u.MaxHp : 1;
+            var pct = (double)u.Hp / maxHp;
+            if (pct < bestPct || (Math.Abs(pct - bestPct) < 1e-6 && u.Idx < bestIdx))
+            {
+                bestPct = pct;
+                bestIdx = u.Idx;
+                idx = u.Idx;
+                name = u.Name ?? "?";
+            }
+        }
+
+        return idx >= 0;
     }
 
     private static bool TryGetSuperAiPlayerSkillIndices(
@@ -11347,11 +13316,14 @@ public static class SeqChapterTestUi
             return false;
         }
 
-        var pots = ScanSuperAiHpPotions(player.Uid);
-        if (pots.Count == 0)
+        EnsureSuperAiPotionPlan();
+        int targetIdx;
+        if (!_superAiPotionAssignByGiver.TryGetValue(player.Idx, out targetIdx))
         {
-            // 备战已扫过且银行有货：排队从账号银行取（战外 Tick 执行）
-            if (_superAiPrepReady && SuperAiPrepBankHasAny(player.Uid))
+            // 自己不是本回合规划的丢药者
+            if (ScanSuperAiHpPotions(player.Uid).Count == 0
+                && _superAiPrepReady && SuperAiPrepBankHasAny(player.Uid)
+                && SuperAiAnyAllyNeedsPotion())
             {
                 TryQueueSuperAiPotionBankPull(player.Uid);
             }
@@ -11359,29 +13331,27 @@ public static class SeqChapterTestUi
             return false;
         }
 
-        var rcvCount = CountSuperAiAllyRcvUp();
-        var hasPrayer = SuperAiBattleHasPrayerField();
-        var giverTier = GetSuperAiPotionGiverTier(player, rcvCount, hasPrayer);
-        if (giverTier >= int.MaxValue)
-        {
-            return false;
-        }
-
-        // 场上若有更优丢药者，本客户端不抢丢（虚拟版只发本号包）
-        if (!IsSuperAiBestPotionGiver(player, giverTier, rcvCount, hasPrayer))
-        {
-            return false;
-        }
-
         SuperAiUnitSnap target;
-        if (!TryPickSuperAiPotionTarget(out target))
+        if (!TryFindSuperAiUnitByIdx(targetIdx, out target))
         {
+            return false;
+        }
+
+        var pots = ScanSuperAiHpPotions(player.Uid);
+        if (pots.Count == 0)
+        {
+            if (_superAiPrepReady && SuperAiPrepBankHasAny(player.Uid))
+            {
+                TryQueueSuperAiPotionBankPull(player.Uid);
+                WriteLog("SuperAI potion assigned but bag=0 → bank pull uid=" + player.Uid);
+            }
+
             return false;
         }
 
         var rec = Math.Max(1, target.Rec);
         var missing = Math.Max(1, target.MaxHp - target.Hp);
-        var best = 0;
+        var best = -1;
         var bestScore = int.MaxValue;
         for (var i = 0; i < pots.Count; i++)
         {
@@ -11399,7 +13369,7 @@ public static class SeqChapterTestUi
             }
         }
 
-        if (best < 0 || best >= pots.Count || pots[best].Type < SuperAiBattleItemMinType)
+        if (best < 0 || best >= pots.Count)
         {
             return false;
         }
@@ -11411,7 +13381,130 @@ public static class SeqChapterTestUi
         return true;
     }
 
-    /// <summary>高压吃瓶 60%；普通 Boss / 低压 50%。</summary>
+    private static bool SuperAiAnyAllyNeedsPotion()
+    {
+        for (var i = 0; i < _superAiUnits.Count; i++)
+        {
+            if (SuperAiNeedsPotion(_superAiUnits[i]))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool TryFindSuperAiUnitByIdx(int idx, out SuperAiUnitSnap unit)
+    {
+        unit = default(SuperAiUnitSnap);
+        for (var i = 0; i < _superAiUnits.Count; i++)
+        {
+            if (_superAiUnits[i].Idx == idx)
+            {
+                unit = _superAiUnits[i];
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// 先确定可丢药者（按昨天优先级），再按需瓶者 HP% 从低到高一对一配对。
+    /// 同一目标本回合只分到一瓶；同一丢药者只丢一瓶。
+    /// </summary>
+    private static void EnsureSuperAiPotionPlan()
+    {
+        var battle = Convert.ToInt32(GetStaticMember("BattleDataHolder", "BattleIndex") ?? -1);
+        var turn = GetSuperAiBattleTurn();
+        if (battle == _superAiPotionPlanBattle && turn == _superAiPotionPlanTurn)
+        {
+            return;
+        }
+
+        _superAiPotionPlanBattle = battle;
+        _superAiPotionPlanTurn = turn;
+        _superAiPotionAssignByGiver.Clear();
+        _superAiPotionPlanNote = "";
+
+        var rcvCount = CountSuperAiAllyRcvUp();
+        var hasPrayer = SuperAiBattleHasPrayerField();
+
+        var givers = new List<SuperAiUnitSnap>();
+        var needers = new List<SuperAiUnitSnap>();
+        for (var i = 0; i < _superAiUnits.Count; i++)
+        {
+            var u = _superAiUnits[i];
+            if (!u.Mine)
+            {
+                continue;
+            }
+
+            if (SuperAiNeedsPotion(u))
+            {
+                needers.Add(u);
+            }
+
+            if (u.IsPlayer && GetSuperAiPotionGiverTier(u, rcvCount, hasPrayer) < int.MaxValue)
+            {
+                givers.Add(u);
+            }
+        }
+
+        if (givers.Count == 0 || needers.Count == 0)
+        {
+            _superAiPotionPlanNote = "血瓶规划：可丢=" + givers.Count + " 需瓶=" + needers.Count;
+            return;
+        }
+
+        givers.Sort((a, b) =>
+        {
+            var ta = GetSuperAiPotionGiverTier(a, rcvCount, hasPrayer);
+            var tb = GetSuperAiPotionGiverTier(b, rcvCount, hasPrayer);
+            var c = ta.CompareTo(tb);
+            return c != 0 ? c : a.Idx.CompareTo(b.Idx);
+        });
+        needers.Sort((a, b) =>
+        {
+            var c = SuperAiHpRatio(a).CompareTo(SuperAiHpRatio(b));
+            return c != 0 ? c : a.Idx.CompareTo(b.Idx);
+        });
+
+        var assignedTargets = new HashSet<int>();
+        var pairs = new StringBuilder();
+        var gi = 0;
+        var ni = 0;
+        while (gi < givers.Count && ni < needers.Count)
+        {
+            var g = givers[gi];
+            var n = needers[ni];
+            if (assignedTargets.Contains(n.Idx))
+            {
+                ni++;
+                continue;
+            }
+
+            _superAiPotionAssignByGiver[g.Idx] = n.Idx;
+            assignedTargets.Add(n.Idx);
+            if (pairs.Length > 0)
+            {
+                pairs.Append("；");
+            }
+
+            pairs.Append((g.Name ?? ("#" + g.Idx)) + "→" + (n.Name ?? ("#" + n.Idx))
+                         + "(" + ((int)(SuperAiHpRatio(n) * 100)).ToString() + "%)");
+            gi++;
+            ni++;
+        }
+
+        _superAiPotionPlanNote = "血瓶规划：可丢" + givers.Count + " 需" + needers.Count
+                                 + " 配对" + _superAiPotionAssignByGiver.Count
+                                 + (pairs.Length > 0 ? "｜" + pairs : "");
+        WriteLog("SuperAI potion plan battle=" + battle + " turn=" + turn
+                 + " " + _superAiPotionPlanNote);
+    }
+
+    /// <summary>高压吃瓶 60%；普通 Boss / 低压 45%。</summary>
     private static float GetSuperAiPotionHpThreshold()
     {
         return _superAiIsHighPressure ? SuperAiPotionHpHighPressure : SuperAiPotionHpLowPressure;
@@ -11621,6 +13714,68 @@ public static class SeqChapterTestUi
         return true;
     }
 
+    /// <summary>
+    /// 宠技能族 ID：配置 SkillId（如战栗 6）；VIP 宠列表存的是 TechId（如 601），族=TechId/100。
+    /// </summary>
+    private static int NormalizeSuperAiSkillFamilyId(int id)
+    {
+        return id >= 100 ? id / 100 : id;
+    }
+
+    /// <summary>
+    /// 宠 PetSkills 是否对上目标技能。官方 VIP：人物比 SkillId，宠比 TechId；护卫用 TechId/100==7。
+    /// </summary>
+    private static bool SuperAiPetTechMatchesWant(object tech, int wantId)
+    {
+        if (tech == null || wantId < 0)
+        {
+            return false;
+        }
+
+        var skillId = Convert.ToInt32(GetMember(tech, "SkillId") ?? GetMember(tech, "skillId") ?? 0);
+        var techId = Convert.ToInt32(GetMember(tech, "TechId") ?? GetMember(tech, "techId") ?? 0);
+        var wantFamily = NormalizeSuperAiSkillFamilyId(wantId);
+
+        if (skillId == wantId || techId == wantId)
+        {
+            return true;
+        }
+
+        if (wantFamily > 0)
+        {
+            if (skillId == wantFamily)
+            {
+                return true;
+            }
+
+            if (techId > 0 && techId / 100 == wantFamily)
+            {
+                return true;
+            }
+        }
+
+        // 战栗：名称兜底（个别数据 SkillId/TechId 编码异常）
+        if (wantFamily == SuperAiSkillIdTremble)
+        {
+            var tname = Convert.ToString(GetMember(tech, "Name") ?? GetMember(tech, "name") ?? "") ?? "";
+            if (tname.IndexOf("战栗", StringComparison.Ordinal) >= 0)
+            {
+                return true;
+            }
+        }
+
+        if (wantFamily == SuperAiSkillIdQiankun)
+        {
+            var tname = Convert.ToString(GetMember(tech, "Name") ?? GetMember(tech, "name") ?? "") ?? "";
+            if (tname.IndexOf("乾坤", StringComparison.Ordinal) >= 0)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private static bool TryGetSuperAiPetSkillSlot(string uid, int wantSkillId, out int slot)
     {
         slot = -1;
@@ -11669,9 +13824,7 @@ public static class SeqChapterTestUi
                     continue;
                 }
 
-                // 任意等级：同一 SkillId（战栗=6 / 攻击=73）
-                var skillId = Convert.ToInt32(GetMember(tech, "SkillId") ?? GetMember(tech, "skillId") ?? 0);
-                if (skillId == wantSkillId)
+                if (SuperAiPetTechMatchesWant(tech, wantSkillId))
                 {
                     slot = i;
                     return true;
@@ -11722,9 +13875,17 @@ public static class SeqChapterTestUi
                     continue;
                 }
 
+                // 已知生命力回复药道具号：强制可投（Type 偶发未刷齐）
                 if (pot.Type < SuperAiBattleItemMinType)
                 {
-                    continue;
+                    if (IsSuperAiHpPotionItemId(pot.ItemId))
+                    {
+                        pot.Type = SuperAiBattleItemMinType;
+                    }
+                    else
+                    {
+                        continue;
+                    }
                 }
 
                 list.Add(pot);
@@ -13351,6 +15512,12 @@ public static class SeqChapterTestUi
             0.42f, 0.28f, 0.18f,
             _wildExActive ? "兑换野生宠（停止）" : "兑换野生宠",
             ToggleWildExchange);
+
+        AddScriptColButton(
+            rtType, "ResetBanshan", "rbs", rightX, row0 - rowStep * 4,
+            0.35f, 0.40f, 0.28f,
+            "重置半山",
+            RunResetBanshan);
 
         var wildY = row0 - rowStep * 5;
         var junkStatus = CreateUiChild(_bodyRoot, "JunkDropStatus", rtType);
@@ -16042,9 +18209,9 @@ public static class SeqChapterTestUi
         SetText(
             hintText,
             "队列护航：可塞未接；完成一项后等 5 秒再下一项。\n"
-            + "手动暂停不清铃；自动暂停约每2秒响铃，点「我知道了」或停止才停。静止5秒尝试恢复，连挪5次后改为直接续任务再观察5秒；本步骤连续20次失败自动暂停。\n"
-            + "洗礼预备：合击→治疗→重置#99→护航1/2/4→再治疗→用#651022→#99；战败暂停；60305(173,28)手动Boss。\n"
-            + "战后若队伍解散或不足5人：自动暂停，组好后点「继续护航」。",
+            + "手动暂停不清铃；自动暂停约每2秒响铃。静止5秒恢复；本步骤连续20次失败自动暂停。\n"
+            + "洗礼/半山预备并排；半山：9完成则重置13689并查#15210×2，再护航未完成1368；战败暂停。\n"
+            + "战后队伍不足5人：自动暂停，组好后点「继续护航」。",
             11);
 
         var y = -84f;
@@ -16108,9 +18275,11 @@ public static class SeqChapterTestUi
         }
 
         y -= 50f;
-        // 原中元循环位置：洗礼预备（重置洗礼5 → 入队1/2/4；战败暂停；圣魔龙手动打）
+        // 洗礼预备 | 半山预备（并排缩小）
+        const float prepBtnW = 200f;
+        const float prepBtnH = 34f;
         var baptismBtn = CreateUiChild(_bodyRoot, "BaptismPrepBtn", rtType);
-        SetAnchoredTop(RequireRect(baptismBtn, "bpb"), 0f, y, 420f, 40f);
+        SetAnchoredTop(RequireRect(baptismBtn, "bpb"), -110f, y, prepBtnW, prepBtnH);
         var baptismImg = AddComp(baptismBtn, "UnityEngine.UI.Image");
         SetColor(
             baptismImg,
@@ -16120,18 +18289,23 @@ public static class SeqChapterTestUi
             1f);
         var baptismLab = CreateUiChild(baptismBtn, "L", rtType);
         StretchFull(RequireRect(baptismLab, "bpl"));
-        SetText(
-            AddText(baptismLab),
-            _baptismPrepActive
-                ? (_baptismPrepPhase == BaptismPhaseFlora
-                    ? "洗礼预备（治疗中…点此停止）"
-                    : (_baptismPrepPhase == BaptismPhaseResetWait
-                        ? "洗礼预备（重置中…点此停止）"
-                        : "洗礼预备（停止）"))
-                : "洗礼预备（合击→治疗→1/2/4/5）",
-            14);
+        SetText(AddText(baptismLab), _baptismPrepActive ? "洗礼预备（停）" : "洗礼预备", 13);
         BindButton(baptismBtn, baptismImg, ToggleBaptismPrep);
-        y -= 48f;
+
+        var banshanBtn = CreateUiChild(_bodyRoot, "BanshanPrepBtn", rtType);
+        SetAnchoredTop(RequireRect(banshanBtn, "bspb"), 110f, y, prepBtnW, prepBtnH);
+        var banshanImg = AddComp(banshanBtn, "UnityEngine.UI.Image");
+        SetColor(
+            banshanImg,
+            _banshanPrepActive ? 0.42f : 0.28f,
+            _banshanPrepActive ? 0.38f : 0.40f,
+            _banshanPrepActive ? 0.18f : 0.32f,
+            1f);
+        var banshanLab = CreateUiChild(banshanBtn, "L", rtType);
+        StretchFull(RequireRect(banshanLab, "bspl"));
+        SetText(AddText(banshanLab), _banshanPrepActive ? "半山预备（停）" : "半山预备", 13);
+        BindButton(banshanBtn, banshanImg, ToggleBanshanPrep);
+        y -= 42f;
 
         if (_escortAlertRinging)
         {
@@ -16877,6 +19051,7 @@ public static class SeqChapterTestUi
         _baptismPrepActive = false;
         _baptismPrepPhase = 0;
         _baptismSawForceQuit = false;
+        ClearBaptismBagPrepState();
         ClearBaptism5BridgeFlags();
         WriteLog("baptism prep stop reason=" + reason);
         if (_floraHealActive && _floraHealBaptismStage != FloraBaptismNone)
@@ -16912,6 +19087,220 @@ public static class SeqChapterTestUi
         _baptism5LastNavNudgeMs = 0;
     }
 
+    /// <summary>开局：全员丢弃#13651，再用完古钱包；完后进法兰治疗。</summary>
+    private static void TickBaptismBagPrep()
+    {
+        if (!_baptismPrepActive || _baptismPrepPhase != BaptismPhaseBagPrep)
+        {
+            return;
+        }
+
+        try
+        {
+            if (IsDialoguePanelOpen())
+            {
+                TryAutoPickDialogue();
+                return;
+            }
+
+            var now = NowMs();
+            if (_baptismBagAwaitUse)
+            {
+                if (now - _baptismBagUseAtMs < BaptismBagUseSettleMs)
+                {
+                    return;
+                }
+
+                _baptismBagAwaitUse = false;
+                _baptismBagNextAtMs = now;
+            }
+
+            if (now < _baptismBagNextAtMs)
+            {
+                return;
+            }
+
+            if (_baptismBagUids == null || _baptismBagUids.Count == 0)
+            {
+                BeginBaptismFloraAfterBagPrep();
+                return;
+            }
+
+            if (_baptismBagUidIdx >= _baptismBagUids.Count)
+            {
+                BeginBaptismFloraAfterBagPrep();
+                return;
+            }
+
+            var uid = _baptismBagUids[_baptismBagUidIdx];
+            if (string.IsNullOrEmpty(uid))
+            {
+                AdvanceBaptismBagUid("空uid");
+                return;
+            }
+
+            if (_baptismBagSub == BaptismBagSubDrop)
+            {
+                if (!TryFindBagItemById(uid, BaptismDropItemId, out var index, out var data, out var pile))
+                {
+                    _baptismBagSub = BaptismBagSubUse;
+                    _baptismBagFailStreak = 0;
+                    _baptismBagNote = FormatBaptismPlayerShort(uid) + " 用" + BaptismWalletKeyword;
+                    _baptismBagNextAtMs = now;
+                    return;
+                }
+
+                if (!SendBaptismDropItem(uid, index, data, pile))
+                {
+                    _baptismBagFailStreak++;
+                    WriteLog("baptism bag drop send fail#" + _baptismBagFailStreak + " uid=" + uid);
+                    if (_baptismBagFailStreak >= BaptismBagMaxFails)
+                    {
+                        Tip("洗礼预备：丢弃#" + BaptismDropItemId + "失败，跳过该角色");
+                        AdvanceBaptismBagUid("丢弃发包失败");
+                        return;
+                    }
+
+                    _baptismBagNextAtMs = now + BaptismBagIntervalMs;
+                    return;
+                }
+
+                _baptismBagDropped++;
+                _baptismBagFailStreak = 0;
+                _baptismBagNote = "已丢#" + BaptismDropItemId + "×" + pile
+                                   + " @" + FormatBaptismPlayerShort(uid);
+                _baptismBagNextAtMs = now + BaptismBagIntervalMs;
+                return;
+            }
+
+            // 使用古钱包直到没有
+            var left = CountBagItemByKeyword(uid, BaptismWalletKeyword);
+            if (left <= 0)
+            {
+                AdvanceBaptismBagUid("钱包用完");
+                return;
+            }
+
+            if (!TryUseMemoryItem(uid, BaptismWalletKeyword))
+            {
+                _baptismBagFailStreak++;
+                WriteLog("baptism bag use wallet fail#" + _baptismBagFailStreak
+                         + " uid=" + uid + " left=" + left);
+                if (_baptismBagFailStreak >= BaptismBagMaxFails)
+                {
+                    Tip("洗礼预备：使用" + BaptismWalletKeyword + "失败，跳过该角色");
+                    AdvanceBaptismBagUid("使用失败");
+                    return;
+                }
+
+                _baptismBagNextAtMs = now + BaptismBagIntervalMs;
+                return;
+            }
+
+            _baptismBagUsed++;
+            _baptismBagFailStreak = 0;
+            _baptismBagAwaitUse = true;
+            _baptismBagUseAtMs = now;
+            _baptismBagNote = "已用" + BaptismWalletKeyword + " @" + FormatBaptismPlayerShort(uid)
+                               + " 余约" + Math.Max(0, left - 1);
+            _baptismBagNextAtMs = now + BaptismBagIntervalMs;
+        }
+        catch (Exception ex)
+        {
+            WriteLog("TickBaptismBagPrep EX: " + RootMessage(ex));
+            Tip("洗礼预备：背包处理异常，进入治疗");
+            BeginBaptismFloraAfterBagPrep();
+        }
+    }
+
+    private static void AdvanceBaptismBagUid(string reason)
+    {
+        WriteLog("baptism bag uid done idx=" + _baptismBagUidIdx + " reason=" + reason
+                 + " dropped=" + _baptismBagDropped + " used=" + _baptismBagUsed);
+        _baptismBagUidIdx++;
+        _baptismBagSub = BaptismBagSubDrop;
+        _baptismBagFailStreak = 0;
+        _baptismBagAwaitUse = false;
+        _baptismBagNextAtMs = NowMs();
+        if (_baptismBagUids != null && _baptismBagUidIdx < _baptismBagUids.Count)
+        {
+            _baptismBagNote = "下一位 " + (_baptismBagUidIdx + 1) + "/" + _baptismBagUids.Count;
+        }
+    }
+
+    private static bool TryFindBagItemById(
+        string uid, int itemId, out int index, out object data, out int pile)
+    {
+        index = -1;
+        data = null;
+        pile = 1;
+        if (string.IsNullOrEmpty(uid) || itemId <= 0)
+        {
+            return false;
+        }
+
+        try
+        {
+            var items = GetItemDatasFromUid(uid);
+            if (items == null)
+            {
+                return false;
+            }
+
+            for (var i = 0; i < items.Count; i++)
+            {
+                var item = items[i];
+                if (item == null || Convert.ToInt32(GetMember(item, "useFlag") ?? 0) != 1)
+                {
+                    continue;
+                }
+
+                var d = GetMember(item, "data");
+                var id = Convert.ToInt32(GetMember(d, "Id") ?? GetProp(d, "Id") ?? 0);
+                if (id != itemId)
+                {
+                    continue;
+                }
+
+                index = i;
+                data = d;
+                pile = Convert.ToInt32(GetMember(d, "Pile") ?? 1);
+                if (pile < 1)
+                {
+                    pile = 1;
+                }
+
+                return true;
+            }
+        }
+        catch (Exception ex)
+        {
+            WriteLog("TryFindBagItemById EX: " + RootMessage(ex));
+        }
+
+        return false;
+    }
+
+    private static bool SendBaptismDropItem(string uid, int index, object data, int pile)
+    {
+        var itemMgr = GetManagerInstance("ItemManager");
+        var send = FindSendBackPackMessage(itemMgr);
+        if (send == null || string.IsNullOrEmpty(uid) || index < 0)
+        {
+            return false;
+        }
+
+        if (pile < 1)
+        {
+            pile = 1;
+        }
+
+        send.Invoke(itemMgr, new object[] { "丢弃道具", index, pile, uid });
+        var name = Convert.ToString(GetMember(data, "Name") ?? "") ?? ("#" + BaptismDropItemId);
+        WriteLog("baptism drop uid=" + uid + " idx=" + index + " pile=" + pile + " name=" + name);
+        return true;
+    }
+
     private static void StartBaptismPrep()
     {
         try
@@ -16926,6 +19315,14 @@ public static class SeqChapterTestUi
                 CancelEscort(true, "已切换到洗礼预备");
             }
 
+            if (_banshanPrepActive)
+            {
+                _banshanPrepActive = false;
+                _banshanPrepPhase = 0;
+                _banshanSawForceQuit = false;
+                WriteLog("baptism prep: cleared banshan prep flag");
+            }
+
             if (_floraHealActive)
             {
                 _floraHealBaptismStage = FloraBaptismNone;
@@ -16933,14 +19330,14 @@ public static class SeqChapterTestUi
             }
 
             _baptismPrepActive = true;
-            _baptismPrepPhase = BaptismPhaseFlora;
+            _baptismPrepPhase = BaptismPhaseBagPrep;
             _baptismPrepPhaseAtMs = NowMs();
             _baptismSawForceQuit = false;
             ClearBaptism5BridgeFlags();
+            InitBaptismBagPrepState();
             EnsureCaptainAttackModeCombo();
-            WriteLog("baptism prep start flora then reset #99 queue 84/85/87/99");
-            Tip("洗礼预备：合击已检查，开始法兰治疗…");
-            StartFloraHealForBaptism(FloraBaptismPrepStart);
+            WriteLog("baptism prep start bag-prep then flora reset #99 queue 84/85/87/99");
+            Tip("洗礼预备：先丢弃#" + BaptismDropItemId + "并使用" + BaptismWalletKeyword + "…");
             TryRebuildEscortTab();
         }
         catch (Exception ex)
@@ -16950,9 +19347,59 @@ public static class SeqChapterTestUi
             _baptismPrepActive = false;
             _baptismPrepPhase = 0;
             _floraHealBaptismStage = FloraBaptismNone;
+            ClearBaptismBagPrepState();
             ClearBaptism5BridgeFlags();
             TryRebuildEscortTab();
         }
+    }
+
+    private static void ClearBaptismBagPrepState()
+    {
+        _baptismBagUids = null;
+        _baptismBagUidIdx = 0;
+        _baptismBagSub = BaptismBagSubDrop;
+        _baptismBagNextAtMs = 0;
+        _baptismBagNote = "";
+        _baptismBagDropped = 0;
+        _baptismBagUsed = 0;
+        _baptismBagFailStreak = 0;
+        _baptismBagAwaitUse = false;
+        _baptismBagUseAtMs = 0;
+    }
+
+    private static void InitBaptismBagPrepState()
+    {
+        ClearBaptismBagPrepState();
+        var uids = CollectTeamOrMultiUids();
+        if (uids.Count == 0)
+        {
+            var cap = GetCaptainUid();
+            if (!string.IsNullOrEmpty(cap))
+            {
+                uids.Add(cap);
+            }
+        }
+
+        _baptismBagUids = uids;
+        _baptismBagUidIdx = 0;
+        _baptismBagSub = BaptismBagSubDrop;
+        _baptismBagNextAtMs = NowMs();
+        _baptismBagNote = "准备丢弃#" + BaptismDropItemId;
+        WriteLog("baptism bag-prep uids=" + uids.Count);
+    }
+
+    /// <summary>开局背包处理完毕：进入法兰治疗。</summary>
+    private static void BeginBaptismFloraAfterBagPrep()
+    {
+        var dropped = _baptismBagDropped;
+        var used = _baptismBagUsed;
+        ClearBaptismBagPrepState();
+        _baptismPrepPhase = BaptismPhaseFlora;
+        _baptismPrepPhaseAtMs = NowMs();
+        WriteLog("baptism bag-prep done dropped=" + dropped + " used=" + used + " → flora");
+        Tip("洗礼预备：背包处理完成（丢" + dropped + "/用" + used + "），开始法兰治疗…");
+        StartFloraHealForBaptism(FloraBaptismPrepStart);
+        TryRebuildEscortTab();
     }
 
     /// <summary>
@@ -17411,6 +19858,326 @@ public static class SeqChapterTestUi
             {
                 WriteLog("baptism reset EX uid=" + uid + " " + RootMessage(ex));
             }
+        }
+    }
+
+    /// <summary>脚本页：全队重置半山 1/3/6/8/9（#75/#77/#80/#82/#83）。</summary>
+    private static void RunResetBanshan()
+    {
+        var sent = ResetBanshan13689ForAll();
+        if (sent <= 0)
+        {
+            Tip("重置半山：未发出（无队员或反射失败）");
+            return;
+        }
+
+        Tip("已重置半山13689（全队，" + sent + " 条）");
+    }
+
+    /// <summary>对所有队员发送重置半山 1/3/6/8/9；返回成功发包数。</summary>
+    private static int ResetBanshan13689ForAll()
+    {
+        var uids = CollectTeamOrMultiUids();
+        if (uids.Count == 0)
+        {
+            var cap = GetCaptainUid();
+            if (!string.IsNullOrEmpty(cap))
+            {
+                uids.Add(cap);
+            }
+        }
+
+        if (uids.Count == 0)
+        {
+            WriteLog("banshan reset: 无 uid");
+            return 0;
+        }
+
+        var resetType = FindType("Proto_CS_ResetTask");
+        var lss = FindType("LSSPROTO");
+        var opcodeField = lss?.GetField("LSSPROTO_RESET_TASK_FUNC", BindingFlags.Public | BindingFlags.Static);
+        var net = GetManagerInstance("NetManager");
+        var send = net?.GetType().GetMethod("SendMessage", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        if (resetType == null || opcodeField == null || net == null || send == null)
+        {
+            WriteLog("banshan reset: 反射缺失 resetType=" + (resetType != null)
+                     + " opcode=" + (opcodeField != null) + " net=" + (net != null) + " send=" + (send != null));
+            return 0;
+        }
+
+        var opcode = opcodeField.GetValue(null);
+        var sent = 0;
+        foreach (var uid in uids)
+        {
+            foreach (var missionId in BanshanResetMissionIds)
+            {
+                var mission = GetMissionDataById(missionId);
+                var resetId = mission != null ? Convert.ToInt32(GetMember(mission, "resetId") ?? -1) : -1;
+                if (resetId < 0)
+                {
+                    WriteLog("banshan reset: uid=" + uid + " mission=" + missionId + " resetId 无效，跳过");
+                    continue;
+                }
+
+                try
+                {
+                    var msg = Activator.CreateInstance(resetType);
+                    SetMember(msg, "Type", "重置任务");
+                    SetMember(msg, "Id", resetId.ToString());
+                    SetMember(msg, "KUid", uid);
+                    send.Invoke(net, new object[] { opcode, msg });
+                    sent++;
+                    WriteLog("banshan reset: uid=" + uid + " mission=" + missionId + " resetId=" + resetId);
+                }
+                catch (Exception ex)
+                {
+                    WriteLog("banshan reset EX uid=" + uid + " mission=" + missionId + " " + RootMessage(ex));
+                }
+            }
+        }
+
+        return sent;
+    }
+
+    /// <summary>任务是否已完成（Ended / "2"）。</summary>
+    private static bool IsMissionEndedStatus(object mission)
+    {
+        if (mission == null)
+        {
+            return false;
+        }
+
+        var st = GetMissionStatusStr(mission);
+        return st.EndsWith("Ended", StringComparison.Ordinal) || st == "2";
+    }
+
+    private static bool IsMissionEndedById(int missionId)
+    {
+        return IsMissionEndedStatus(GetMissionDataById(missionId));
+    }
+
+    /// <summary>护航页：半山预备开关。9完成→重置13689+查道具→护航未完成1368；否则中途续做；战败暂停。</summary>
+    private static void ToggleBanshanPrep()
+    {
+        if (_banshanPrepActive)
+        {
+            StopBanshanPrep("已手动停止");
+            return;
+        }
+
+        StartBanshanPrep();
+    }
+
+    private static void StopBanshanPrep(string reason)
+    {
+        if (!_banshanPrepActive && !_escortActive)
+        {
+            Tip("半山预备：未在运行");
+            return;
+        }
+
+        _banshanPrepActive = false;
+        _banshanPrepPhase = 0;
+        _banshanSawForceQuit = false;
+        WriteLog("banshan prep stop reason=" + reason);
+        if (_escortActive || _escortPicking || _escortQueue.Count > 0)
+        {
+            CancelEscort(true, "半山预备已停止");
+        }
+        else
+        {
+            Tip("半山预备：已关闭");
+        }
+
+        TryRebuildEscortTab();
+    }
+
+    private static void StartBanshanPrep()
+    {
+        try
+        {
+            if (_baptismPrepActive)
+            {
+                StopBaptismPrep("已切换到半山预备");
+            }
+
+            if (_dragonLoopActive || _midAutumnLoopActive || _escortActive || _escortPicking)
+            {
+                CancelEscort(true, "已切换到半山预备");
+            }
+
+            _banshanPrepActive = true;
+            _banshanSawForceQuit = false;
+            _banshanPrepPhaseAtMs = NowMs();
+
+            var nineEnded = IsMissionEndedById(Banshan9MissionId);
+            WriteLog("banshan prep start nineEnded=" + nineEnded);
+
+            if (nineEnded)
+            {
+                var sent = ResetBanshan13689ForAll();
+                _banshanPrepPhase = BanshanPhaseResetWait;
+                _banshanPrepPhaseAtMs = NowMs();
+                Tip("半山预备：半山9已完成，重置13689（" + sent + " 条）…");
+                WriteLog("banshan prep reset sent=" + sent + " wait item check");
+                TryRebuildEscortTab();
+                return;
+            }
+
+            // 中途恢复：按 1368 未完成状态入队；全完成则启动即完成（不做5/9）
+            if (!BeginBanshanEscortFromUnfinished(false))
+            {
+                _banshanPrepActive = false;
+                _banshanPrepPhase = 0;
+                TryRebuildEscortTab();
+            }
+        }
+        catch (Exception ex)
+        {
+            WriteLog("StartBanshanPrep EX: " + RootMessage(ex));
+            Tip("半山预备：启动失败");
+            _banshanPrepActive = false;
+            _banshanPrepPhase = 0;
+            _banshanSawForceQuit = false;
+            TryRebuildEscortTab();
+        }
+    }
+
+    /// <summary>
+    /// 收集半山 1/3/6/8 中未完成项入队并开护航。
+    /// afterReset=true 时先查全队 #15210≥2。
+    /// 队列为空：Tip 启动即完成并返回 false。
+    /// </summary>
+    private static bool BeginBanshanEscortFromUnfinished(bool afterReset)
+    {
+        if (afterReset)
+        {
+            if (!CheckBanshanResetItemOrTip())
+            {
+                _banshanPrepActive = false;
+                _banshanPrepPhase = 0;
+                _banshanSawForceQuit = false;
+                return false;
+            }
+        }
+
+        var pending = new List<int>();
+        foreach (var id in BanshanEscortMissionIds)
+        {
+            if (!IsMissionEndedById(id))
+            {
+                pending.Add(id);
+            }
+        }
+
+        if (pending.Count == 0)
+        {
+            WriteLog("banshan prep done: 1368 all ended (skip 5/9)");
+            Tip("半山预备：1368 已完成，启动即完成");
+            _banshanPrepActive = false;
+            _banshanPrepPhase = 0;
+            _banshanSawForceQuit = false;
+            return false;
+        }
+
+        _escortQueue.Clear();
+        foreach (var id in pending)
+        {
+            var mission = GetMissionDataById(id);
+            var title = mission != null
+                ? (Convert.ToString(GetMember(mission, "title") ?? "") ?? "")
+                : "";
+            _escortQueue.Add(new EscortCandidate
+            {
+                Id = id,
+                Title = string.IsNullOrEmpty(title) ? ("半山#" + id) : title,
+                Status = "排队"
+            });
+        }
+
+        var now = NowMs();
+        _banshanPrepPhase = BanshanPhaseEscort;
+        _escortPicking = false;
+        _escortActive = true;
+        _escortPaused = false;
+        _escortPauseReason = "";
+        _escortLastDiag = "";
+        StopEscortAlertRing();
+        _escortQueueIndex = 0;
+        _escortBetweenTasksWaitMs = 0;
+        _escortAwaitingReadyMs = 0;
+        _escortRecoverAttempts = 0;
+        ResetEscortStuckState();
+        _escortFinishWaitMs = 0;
+        _escortLastStepNum = -1;
+        _lastActivityMs = now;
+        _prevRunTaskId = GetRunTaskId();
+        WriteLog("banshan prep run queue=" + _escortQueue.Count + " afterReset=" + afterReset);
+        Tip("半山预备：已入队 " + _escortQueue.Count + " 项（1368，战败将暂停）");
+        TryRebuildEscortTab();
+        return true;
+    }
+
+    /// <summary>重置开局：全队每人背包 #15210 至少 2 个。</summary>
+    private static bool CheckBanshanResetItemOrTip()
+    {
+        var uids = CollectTeamOrMultiUids();
+        if (uids.Count == 0)
+        {
+            var cap = GetCaptainUid();
+            if (!string.IsNullOrEmpty(cap))
+            {
+                uids.Add(cap);
+            }
+        }
+
+        if (uids.Count == 0)
+        {
+            Tip("半山预备：无队员，无法检查道具#" + BanshanResetItemId);
+            return false;
+        }
+
+        var fails = new List<string>();
+        foreach (var uid in uids)
+        {
+            var n = CountBagItemById(uid, BanshanResetItemId);
+            if (n < BanshanResetItemMin)
+            {
+                fails.Add(FormatBaptismPlayerShort(uid) + "×" + n);
+            }
+        }
+
+        if (fails.Count > 0)
+        {
+            var msg = "半山预备：道具#" + BanshanResetItemId + "不足"
+                      + BanshanResetItemMin + "：" + string.Join("，", fails.ToArray());
+            Tip(msg);
+            WriteLog("banshan item check fail " + msg);
+            return false;
+        }
+
+        WriteLog("banshan item check ok uids=" + uids.Count + " id=" + BanshanResetItemId
+                 + " min=" + BanshanResetItemMin);
+        return true;
+    }
+
+    /// <summary>半山预备 phase1：等重置回包后查道具并入队未完成 1368。</summary>
+    private static void TickBanshanPrepPrepare()
+    {
+        if (!_banshanPrepActive || _banshanPrepPhase != BanshanPhaseResetWait)
+        {
+            return;
+        }
+
+        var now = NowMs();
+        if (now - _banshanPrepPhaseAtMs < BanshanResetDelayMs)
+        {
+            return;
+        }
+
+        if (!BeginBanshanEscortFromUnfinished(true))
+        {
+            TryRebuildEscortTab();
         }
     }
 
@@ -24620,13 +27387,30 @@ public static class SeqChapterTestUi
     private static string FormatEscortStatus()
     {
         string state;
-        if (_baptismPrepActive && _baptismPrepPhase == BaptismPhaseFlora)
+        if (_baptismPrepActive && _baptismPrepPhase == BaptismPhaseBagPrep)
+        {
+            var total = _baptismBagUids != null ? _baptismBagUids.Count : 0;
+            var cur = total <= 0 ? 0 : Math.Min(_baptismBagUidIdx + 1, total);
+            state = "洗礼预备：开局背包 " + cur + "/" + total
+                    + "（丢#" + BaptismDropItemId + "→用" + BaptismWalletKeyword + "）"
+                    + " 已丢" + _baptismBagDropped + " 已用" + _baptismBagUsed;
+            if (!string.IsNullOrEmpty(_baptismBagNote))
+            {
+                state += "\n" + _baptismBagNote;
+            }
+        }
+        else if (_baptismPrepActive && _baptismPrepPhase == BaptismPhaseFlora)
         {
             state = "洗礼预备：法兰治疗中…（" + FloraHealPhaseName(_floraHealPhase) + "）";
         }
         else if (_baptismPrepActive && _baptismPrepPhase == BaptismPhaseResetWait)
         {
             state = "洗礼预备：重置洗礼5中…（随后入队1/2/4/5）";
+        }
+        else if (_banshanPrepActive && _banshanPrepPhase == BanshanPhaseResetWait)
+        {
+            state = "半山预备：重置13689中…（查#" + BanshanResetItemId + "×"
+                    + BanshanResetItemMin + "后入队未完成1368）";
         }
         else if (_baptismPrepActive && _floraHealBaptismStage == FloraBaptismBefore5 && _floraHealActive)
         {
@@ -24789,6 +27573,7 @@ public static class SeqChapterTestUi
                + (_dragonLoopActive ? "\n龙族循环: 已循环 " + _dragonLoopCount + " 轮" : "")
                + (_midAutumnLoopActive ? "\n七夕循环: 已完成 " + _midAutumnLoopCount + " 轮（存券后计）" : "")
                + (_baptismPrepActive ? "\n洗礼预备: 运行中（战败暂停；#99前治疗+道具；60305手动Boss）" : "")
+               + (_banshanPrepActive ? "\n半山预备: 运行中（1368；战败暂停）" : "")
                + (_escortStuckAbortResumePending ? "\n卡位：清路径后点任务…" : "")
                + (_stuckResumePending ? "\n卡楼梯：挪格后点任务…" : "");
     }
@@ -25701,7 +28486,17 @@ public static class SeqChapterTestUi
             _baptismPrepActive = false;
             _baptismPrepPhase = 0;
             _baptismSawForceQuit = false;
+            ClearBaptismBagPrepState();
             ClearBaptism5BridgeFlags();
+            TryRebuildEscortTab();
+        }
+
+        if (_banshanPrepActive)
+        {
+            WriteLog("banshan prep queue finish");
+            _banshanPrepActive = false;
+            _banshanPrepPhase = 0;
+            _banshanSawForceQuit = false;
             TryRebuildEscortTab();
         }
 
@@ -25778,7 +28573,16 @@ public static class SeqChapterTestUi
             _baptismPrepActive = false;
             _baptismPrepPhase = 0;
             _baptismSawForceQuit = false;
+            ClearBaptismBagPrepState();
             ClearBaptism5BridgeFlags();
+        }
+
+        if (_banshanPrepActive)
+        {
+            WriteLog("banshan prep stop via cancel");
+            _banshanPrepActive = false;
+            _banshanPrepPhase = 0;
+            _banshanSawForceQuit = false;
         }
 
         // 用记忆等待标志无条件清理（普通护航龙3/4 也可能置位）
@@ -26227,7 +29031,7 @@ public static class SeqChapterTestUi
         }
 
         if (IsEscapeDown() && (_escortPicking || _escortActive || _escortPaused
-            || _dragonLoopActive || _midAutumnLoopActive || _baptismPrepActive))
+            || _dragonLoopActive || _midAutumnLoopActive || _baptismPrepActive || _banshanPrepActive))
         {
             if (_dragonLoopActive)
             {
@@ -26244,6 +29048,12 @@ public static class SeqChapterTestUi
             if (_baptismPrepActive)
             {
                 StopBaptismPrep("已按 ESC 停止");
+                return;
+            }
+
+            if (_banshanPrepActive)
+            {
+                StopBanshanPrep("已按 ESC 停止");
                 return;
             }
 
@@ -26273,9 +29083,21 @@ public static class SeqChapterTestUi
             return;
         }
 
+        if (_baptismPrepActive && _baptismPrepPhase == BaptismPhaseBagPrep)
+        {
+            TickBaptismBagPrep();
+            return;
+        }
+
         if (_baptismPrepActive && _baptismPrepPhase == BaptismPhaseResetWait)
         {
             TickBaptismPrepPrepare();
+            return;
+        }
+
+        if (_banshanPrepActive && _banshanPrepPhase == BanshanPhaseResetWait)
+        {
+            TickBanshanPrepPrepare();
             return;
         }
 
@@ -27423,14 +30245,22 @@ public static class SeqChapterTestUi
     }
 
     /// <summary>
-    /// 护航战斗边沿：出战刷新静止计时；洗礼预备见 forceQuit 则暂停；队伍解散或不足 5 人则暂停。
+    /// 护航战斗边沿：出战刷新静止计时；洗礼/半山预备见 forceQuit 则暂停；队伍解散或不足 5 人则暂停。
     /// </summary>
     private static void TickEscortBattleExitTeamGuard()
     {
         var inBattle = Convert.ToBoolean(GetStaticMember("BattleDataHolder", "IsInBattle") ?? false);
-        if (inBattle && _baptismPrepActive && IsForceQuitBattleNow())
+        if (inBattle && IsForceQuitBattleNow())
         {
-            _baptismSawForceQuit = true;
+            if (_baptismPrepActive)
+            {
+                _baptismSawForceQuit = true;
+            }
+
+            if (_banshanPrepActive)
+            {
+                _banshanSawForceQuit = true;
+            }
         }
 
         if (_escortPrevInBattle && !inBattle)
@@ -27438,13 +30268,21 @@ public static class SeqChapterTestUi
             _lastActivityMs = NowMs();
             WriteLog("escort battle exit idle reset id=" + _escortMissionId
                      + " dragon=" + _dragonLoopActive + " qixi=" + _midAutumnLoopActive
-                     + " baptism=" + _baptismPrepActive + " forceQuitSaw=" + _baptismSawForceQuit);
+                     + " baptism=" + _baptismPrepActive + " banshan=" + _banshanPrepActive
+                     + " forceQuitSawBap=" + _baptismSawForceQuit
+                     + " forceQuitSawBan=" + _banshanSawForceQuit);
             if (!_escortPaused)
             {
                 if (_baptismPrepActive && _baptismSawForceQuit)
                 {
                     _baptismSawForceQuit = false;
+                    _banshanSawForceQuit = false;
                     PauseEscort("洗礼预备：战斗失败已暂停，请手动处理后点继续", true);
+                }
+                else if (_banshanPrepActive && _banshanSawForceQuit)
+                {
+                    _banshanSawForceQuit = false;
+                    PauseEscort("半山预备：战斗失败已暂停，请手动处理后点继续", true);
                 }
                 else
                 {
@@ -27453,6 +30291,7 @@ public static class SeqChapterTestUi
             }
 
             _baptismSawForceQuit = false;
+            _banshanSawForceQuit = false;
         }
 
         _escortPrevInBattle = inBattle;
@@ -30660,6 +33499,8 @@ public static class SeqChapterTestUi
             case FloraHealPhaseDelayAfterLook: return "对话后等待 1 秒";
             case FloraHealPhasePick: return "选全队回复";
             case FloraHealPhaseDropHelmets: return "丢弃绿/红头盔";
+            case FloraHealPhaseReturnHome: return "治后回城点2";
+            case FloraHealPhaseDelayAfterReturnHome: return "回城后等待 1 秒";
             default: return "准备中";
         }
     }
@@ -30678,8 +33519,9 @@ public static class SeqChapterTestUi
     }
 
     /// <summary>
-    /// 通用法兰治疗。脚本页按钮与七夕每轮存券后都走这里（resumeEscort=true 时治完再点任务）。
-    /// 七夕：先丢队长背包里名字为「绿头盔」「红头盔」的道具（一件一丢，间隔 1 秒）→ 回城点2 → 1000(82,83)切图1111 → (7,33) → 点迪拉 → 全队回复。
+    /// 通用法兰治疗。脚本页 / 七夕存券后 / 洗礼预备 / 自动全套都走这里（resumeEscort=true 时治完再点任务）。
+    /// 流程：回城点2 → 1000(82,83)切图1111 → (7,33) → 点迪拉 → 全队回复 → 再回城点2。
+    /// 七夕：先丢队长背包绿/红头盔再走上述流程。
     /// </summary>
     private static void StartFloraHeal(bool resumeEscort)
     {
@@ -31775,11 +34617,27 @@ public static class SeqChapterTestUi
 
                 if (TryPickFloraHealOption())
                 {
-                    StopFloraHeal("已选全队回复", true);
+                    FloraHealEnterStep(FloraHealPhaseReturnHome, "治疗完成，回法兰城点2");
+                    FloraHealDoReturn();
                     return;
                 }
 
                 _floraHealNote = "选项未出现，等待";
+                break;
+
+            case FloraHealPhaseReturnHome:
+                if (IsAtFloraHealReturn(floor, x, y))
+                {
+                    _floraHealStepTries = 0;
+                    FloraHealBeginDelay(FloraHealPhaseDelayAfterReturnHome, "已回法兰城点2，等 1 秒");
+                    return;
+                }
+
+                FloraHealWaitOrRetryReturnHome(now);
+                break;
+
+            case FloraHealPhaseDelayAfterReturnHome:
+                StopFloraHeal("已全队回复并回法兰城点2", true);
                 break;
         }
     }
@@ -31925,11 +34783,40 @@ public static class SeqChapterTestUi
         WriteLog("flora-heal retry wait " + label + " tries=" + _floraHealStepTries);
     }
 
+    /// <summary>治后回城：三次仍不到也不算治疗失败（血已回），Tip 后成功结束。</summary>
+    private static void FloraHealWaitOrRetryReturnHome(long now)
+    {
+        if (_floraHealActionAtMs == 0)
+        {
+            FloraHealDoReturn();
+            return;
+        }
+
+        if (now - _floraHealActionAtMs < FloraHealReturnWaitMs)
+        {
+            _floraHealNote = "回城点2(治后) 等待到位 " + _floraHealStepTries + "/" + FloraHealMaxTries;
+            return;
+        }
+
+        if (_floraHealStepTries >= FloraHealMaxTries)
+        {
+            WriteLog("flora-heal return-home give-up tries=" + _floraHealStepTries);
+            StopFloraHeal("已全队回复，回法兰城点2未到位仍继续", true);
+            return;
+        }
+
+        _floraHealNeedRetry = true;
+        _floraHealDelayUntilMs = now + FloraHealStepDelayMs;
+        _floraHealNote = "回城点2(治后) 未到位，1秒后第 " + (_floraHealStepTries + 1) + " 次";
+        WriteLog("flora-heal return-home retry tries=" + _floraHealStepTries);
+    }
+
     private static void FloraHealRetryCurrentStep()
     {
         switch (_floraHealPhase)
         {
             case FloraHealPhaseReturn:
+            case FloraHealPhaseReturnHome:
                 FloraHealDoReturn();
                 break;
             case FloraHealPhaseToDoor:

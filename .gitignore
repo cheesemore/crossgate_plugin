@@ -1,5 +1,7 @@
-# Cursor / IDE
-.cursor/
+# Cursor / IDE（规则需入库，其余 .cursor 仍忽略）
+.cursor/*
+!.cursor/rules/
+!.cursor/rules/**
 .vs/
 *.user
 *.suo

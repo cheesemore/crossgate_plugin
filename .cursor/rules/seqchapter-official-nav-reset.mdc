@@ -1,0 +1,24 @@
+---
+description: 卡图/传送后清干净缓存路径，再重开官方任务导航
+alwaysApply: true
+---
+
+# 卡图 / 传送：清路径后再开官方导航
+
+护航遇到 **传送落地、过图卡死、官方导航往回城/出发点走** 时，默认这一套（七夕 #119 的 15000 / 哥拉尔已验证）：
+
+1. **彻底掐掉**缓存路径：`AbortEscortTaskPathFully`（不能只 `CancelTaskPathfinding`）
+2. **等约 2 秒**（等待期间每 tick 继续 abort，防止官方自己续上旧路）
+3. **重开官方导航**：`AutoWarpIndex = 0` + `TaskManager.RunTask`（`ClickEscortTaskLikeMouse`）
+
+## 为什么
+
+任务 `movePoint` 是 **倒序表**：index 0 = 真正目的地，表尾 = 出发城镇。`Cancel` 不清 `MissionData.AutoWarpIndex` / `TargetPoint` / TaskManager 路径缓存；`m_IsStartingTaskPath` 为 true 时 Cancel 直接 return。此时再 `RunTask` 若目的地走不通，会 `GetNextFallbackIndex = autoIndex+1`，一路退回芙蕾雅/法兰。
+
+## 禁止
+
+- 自己发明中间跳：`GeneralPointMoveTo(下一张/终点)`、先点 15001 再点 400 这类两段导航
+- 传送/回登入点之后不 abort 就立刻 `RunTask`
+普通卡位（每步骤 20 次）：**第 1 次**用上面这套，等待 **0.5 秒**；**第 2 次起**才是静止 → 挪 1 格 → `ClickEscortTaskNav`。传送落地 / 15000 仍等约 2 秒。
+
+参考：`SeqChapterTestUi.cs` 的 `AbortEscortTaskPathFully`、`_escort119OfficialResumePending`、`ClickEscortTaskLikeMouse`。细节见 `tools/常用反射方法速查.md` 第 17 节。

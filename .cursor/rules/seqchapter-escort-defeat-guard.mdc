@@ -1,0 +1,20 @@
+---
+description: 独立护航脚本必须带战败保护（forceQuit 暂停）
+alwaysApply: true
+---
+
+# 独立护航脚本：战败保护
+
+凡 **独立编写** 的护航流水线（洗礼预备、半山预备、以及后续同类「预备/循环+护航」脚本），**原则上都必须带战败保护**。遇到例外再改。
+
+## 要求
+
+1. 战斗中检测 `BattleDataHolder.forceQuitBattle`（战败 / 踢出 / 逃跑类）。
+2. 出战边沿若见过 forceQuit：`PauseEscort(原因, true)`，**暂停脚本、保留队列**，等玩家处理后点「继续护航」。
+3. 参考实现：`SeqChapterTestUi.TickEscortBattleExitTeamGuard` + `_baptismSawForceQuit` / `_banshanSawForceQuit`。
+4. Tip 需写明是战败暂停，勿静默停死。
+
+## 不要
+
+- 战败后自动清队列 / 自动重开整条预备（除非产品明确要求）。
+- 只依赖「队伍人数不足」暂停而漏掉 forceQuit。

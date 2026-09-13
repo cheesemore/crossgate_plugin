@@ -1,0 +1,24 @@
+---
+description: 固化工作流入口，减少重复思考
+alwaysApply: true
+---
+
+# 序章固化工作流
+
+入口文档：仓库根 `AGENTS.md`。  
+**完整规范（更新 / 打补丁 / 傻瓜包 / 默认组合）：** `游戏更新与补丁规范.md`  
+统一脚本：`python tools/workflow.py <cmd>`。
+
+| 用户意图 | 直接执行（勿另起炉灶） |
+|---|---|
+| 有没有更新 / 状态 | `python tools/workflow.py status` |
+| crosscopy 更新了 / 一条龙 | `python tools/workflow.py update`；可先 `--dry-run`；反外挂误报 `--confirm-anticheat` |
+| 重打 / 给 cross 打补丁 | `python tools/workflow.py repatch`（默认 `DEFAULT_COMBO_KWARGS`） |
+| 打傻瓜补丁包 | `python tools/workflow.py publish-foolproof`（只产融合版） |
+| 按清单发布 | `python tools/workflow.py publish-all` |
+
+细节仍以 `游戏更新与补丁规范.md`、`tools/cross_update.py`、`魔力宝贝序章补丁/scripts/publish_foolproof.py`、`patch_defaults.DEFAULT_COMBO_KWARGS` 为准。
+
+废弃模块：`tools/DEPRECATED.md` —— **默认不读、不扩展、不在总结里提九动**。
+协议复用：先查 `tools/常用反射方法速查.md`。  
+卡图/传送后官方往回城走：清路径 → 等 2 秒 → 官方点任务（见 `seqchapter-official-nav-reset`）。

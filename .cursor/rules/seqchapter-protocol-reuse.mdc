@@ -1,0 +1,16 @@
+---
+description: 新功能优先复用已有协议片段
+alwaysApply: true
+---
+
+# 协议 / 反射复用
+
+做背包、丢弃、NPC、导航、战斗、摊位、任务、Tip 等功能前：
+
+1. 先读 `tools/常用反射方法速查.md`
+2. 在现有 DLL 中 Grep 同名调用（`SeqChapterAutoStall` / `TestUi` / `AutoCatch` / `BearSlayer` / `MiniBridge`）
+3. **复制已验证片段**，勿另造协议字符串（例如丢弃必须是 `"丢弃道具"` 不是 `"丢弃物品"`）
+4. 用户反馈用 `NotifyManager.Tip`（见 `notify-tip-feedback` 规则）
+5. 传送落地 / 过图后官方往回城走：先彻底清路径再官方点任务（见 `seqchapter-official-nav-reset`）
+
+只有速查与现有代码都没有时，再去 `tools/hotfix_ilspy/` 嗅探，并把新条目补回速查文档。

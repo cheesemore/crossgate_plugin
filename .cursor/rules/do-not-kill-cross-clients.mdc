@@ -1,0 +1,22 @@
+---
+description: 未经用户明确同意，不得终止/关闭任何 cross / cross抓宠 客户端
+alwaysApply: true
+---
+
+# 客户端进程：未经同意严禁杀进程
+
+处理 `cg37.exe`（`E:\cross`、`E:\cross抓宠` 等）时：
+
+0. **铁律：未经用户明确允许，不得擅自终止/关闭任何 cross / cross抓宠 客户端进程。** 包括但不限于 `Stop-Process`、任务管理器式杀进程、关窗口脚本、`taskkill`、`.CloseMainWindow()` 等一切终止手段。即使用户提到"重启""验证"，也必须先问清楚并获得同意。
+1. **默认不要关闭**任何正在运行的 cross / cross抓宠。
+2. **例外（用户明确要求反复测试时）**：可以按用户指示重启/关闭相关客户端以便重打补丁验证——此时也须按用户给出的范围（哪些 PID / 哪些窗口）操作。
+3. **自己开的测试实例**：若本回合为测试 `Start-Process` / 启动了新的 `cg37.exe`，只允许结束**自己记下的 PID**；禁止按名称杀掉全部 `cg37.exe`。
+4. 打补丁、部署 DLL、git 操作时，默认假定用户旧客户端要继续挂机；需要新进程验证时**另开**，不要动旧 PID。
+5. 用户说"可以杀/重启"时，先列出将影响的 PID 与数量确认无误再执行。
+
+```text
+❌  Get-Process cg37 | Stop-Process
+❌  taskkill /f /im cg37.exe
+❌  Get-Process cg37 | ForEach-Object { $_.CloseMainWindow() }
+✅  Stop-Process -Id <本回合启动时记录的 PID>   # 仅限自己启动的测试实例
+```

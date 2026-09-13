@@ -1,0 +1,30 @@
+---
+description: 游戏内功能状态用 NotifyManager.Tip 提示（开关/更新反馈）
+alwaysApply: true
+---
+
+# 游戏内提示：NotifyManager.Tip
+
+用户认可的反馈方式：功能开/关或重要状态变更时，用游戏自带飘字提示，**不要**靠改按钮文字、隐藏按钮等方式当主反馈。
+
+## 用法（hotfix / 外部 DLL 反射）
+
+```csharp
+// NotifyManager.Instance.Tip(string str, bool isMessage)
+// isMessage 一般传 false
+Manager<NotifyManager>.Instance.Tip("自动抓宠已开启", false);
+```
+
+外部 DLL 反射示例：
+
+```csharp
+var notify = GetManagerInstance("NotifyManager");
+notify.GetType().GetMethod("Tip", new[] { typeof(string), typeof(bool) })
+    ?.Invoke(notify, new object[] { "自动战斗已关闭", false });
+```
+
+## 约定
+
+- 开关类：点一下开、再点一下关，各 Tip 一句短中文（如「自动烧卡已开启」/「自动烧卡已关闭」、「自动抓宠已开启」/「自动战斗已关闭」）。
+- 以后给游戏加/改功能（补丁、DLL、侧栏按钮钩子等）需要让玩家感知时，**优先 Tip**，保持与「自动抓宠已开启」同风格。
+- 不要用隐藏 UI、改「百科」文案等作为唯一确认手段（可作辅助，Tip 为主）。

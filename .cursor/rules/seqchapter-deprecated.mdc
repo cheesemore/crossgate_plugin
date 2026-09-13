@@ -1,0 +1,19 @@
+---
+description: 废弃模块默认不打开
+alwaysApply: true
+---
+
+# 废弃 / 封存（日常不思考）
+
+完整表：`tools/DEPRECATED.md`。
+
+默认**不要**打开或扩展：
+
+- `tools/seqchapter_nine_action/`（神奇九动永久封存）
+- `tools/seqchapter_escort_loops_backup/`（龙族/七夕卸前快照；中元循环已永久删除，勿恢复）
+- `tools/seqchapter_wiki_chat_test/`
+- `tools/seqchapter_plugin_host/`（除非用户点名）
+- `tools/_unused_backup/`、`tools/_tmp_*.py`、`tools/_tmp_*/`
+
+九动：`battle_nine_*=False`；发布文案**不要**写「无九动 / 不带九动」。
+换装循环仅傻瓜换装包路径使用，日常组合勿默认打开。

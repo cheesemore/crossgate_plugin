@@ -1,0 +1,30 @@
+---
+description: 默认拦截倍速上报 + 多开器批量一键功能
+alwaysApply: true
+---
+
+# 默认拦截上报 & 多开器批量功能
+
+## 默认拦截倍速上报（2026-08-08 用户确认）
+
+- **默认组合总是拦截倍速检测上报**：即使加速类补丁（VIP 倍速 / 战斗加速2 / 心跳回传）未开启，
+  `kill_timescale_report=True` 也会把 `GmManager.CheckTimeScaleWarning` 与 `NetManager.SendTimeScaleWarning`
+  打成空方法（首指令 ret），从根上掐断倍速/变速相关 Web 上报（HTTP + MD5 签名 + 时间戳）。
+- 实现：独立 patcher `tools/hotfix_patcher/KillTimeScaleReportIlPatcher.cs`（子命令
+  `kill-timescale-report-patch`）；脚本 `apply_combo_patch.py::apply_kill_timescale_report`；
+  GUI 选项「拦截倍速检测上报」默认勾选。
+- 幂等：VipTimeScale / CombatAccel 自带同逻辑，三者互相跳过。
+- 未来新增任何可能触发倍速检测/上报的补丁，默认必须携带拦截上报（延续此约定）。
+
+## 多开器批量一键功能
+
+- `新序章多开器/scripts/multi_launcher_gui.py`（改造后独立目录，`APP_TITLE=新序章多开器`）：
+  - 「一键登录并拉取多控」：按账号库顺序对已注入桥接的实例 `workflow_login_enter` → 等进游戏 →
+    `multi_login_offline_all`（拉起离线多控）→ 等 `multi_ready`。
+  - 「一键召唤」：所有实例 `one_key_summon`（`MulitPanel.OnClickOneKey` 协议）→ 按 `team_num>=5`
+    协议判定聚齐；未聚齐补 `team_gather`（队伍召集）。
+  - **判断全部靠协议（IPC / SendMulti / team_num），不依赖坐标**。坐标仅用于状态展示/寻路。
+- 旧版同步目录：`序章多开器`、`序章多开助手` 仍是同一份 `multi_launcher_gui.py`（改后同步）；
+  新改造版以 `新序章多开器` 为准（含批量按钮）。
+- 批量工具函数：`assistant_common/ipc.py::wait_for_team`（team>=5）、`wait_multi_ready`（multi_ready）。
+- 与助手 auto workflow（`workflow_step1`）并存：前者是游戏内队列式（含召唤），批量按钮是 Python 编排的分步协议。

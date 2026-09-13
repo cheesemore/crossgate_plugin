@@ -141,6 +141,9 @@ internal static class TestUiExternalIlPatcher
             tipFail: "助手面板加载失败");
         Console.WriteLine("[HELPER] OnClickWiki -> 助手面板");
 
+        // AI 强制出手：挂官方 AutoFight / DoVip（插在抓宠分发之前）
+        InjectSuperAiBattleHooks(asm);
+
         // AutoSelect AI 注入暂停（会卡普通 Auto）；仅拆除残留块
         FocusFireAutoSelectIlPatcher.InjectIfNeeded(asm, reinject: false);
 
@@ -162,6 +165,47 @@ internal static class TestUiExternalIlPatcher
                      - (long)PeLayout.GetSection(origBytes, ".text").VirtualSize;
         Console.WriteLine($"[TEST-UI] .text VirtualSize {(growth >= 0 ? "+" : "")}{growth}");
         HotfixSize.EnsureUnchanged(outBytes, expectedSize);
+    }
+
+    private static void InjectSuperAiBattleHooks(AssemblyDefinition asm)
+    {
+        var battleProcesser = asm.MainModule.Types.FirstOrDefault(t => t.Name == "BattleProcesser");
+        if (battleProcesser == null)
+        {
+            Console.WriteLine("[SUPERAI-DISPATCH] 警告：未找到 BattleProcesser");
+            return;
+        }
+
+        InjectSuperAiExact(battleProcesser, asm.MainModule, "AutoFight_PlayerAction",
+            "TrySuperAiPlayerAuto", "PlayerAction", requireNoParams: true);
+        InjectSuperAiExact(battleProcesser, asm.MainModule, "AutoFight_PlayerAction2",
+            "TrySuperAiPlayerAuto2", "PlayerAction2", requireNoParams: true);
+        InjectSuperAiExact(battleProcesser, asm.MainModule, "AutoFight_PetAction",
+            "TrySuperAiPetAuto", "PetAction", requireNoParams: true);
+        InjectSuperAiExact(battleProcesser, asm.MainModule, "DoVipPlayerAutoFight",
+            "TrySuperAiPlayerAuto", "VipPlayer", requireNoParams: false);
+        InjectSuperAiExact(battleProcesser, asm.MainModule, "DoVipPetAutoFight",
+            "TrySuperAiPetAuto", "VipPet", requireNoParams: false);
+    }
+
+    private static void InjectSuperAiExact(
+        TypeDefinition battleProcesser,
+        ModuleDefinition module,
+        string methodName,
+        string entryName,
+        string label,
+        bool requireNoParams)
+    {
+        var method = battleProcesser.Methods.FirstOrDefault(
+            m => m.Name == methodName && m.HasBody
+                 && (!requireNoParams || m.Parameters.Count == 0));
+        if (method == null)
+        {
+            Console.WriteLine("[SUPERAI-DISPATCH] 警告：未找到 " + methodName);
+            return;
+        }
+
+        SuperAiBattleDispatchIl.EnsureDispatchHook(method, module, entryName, label);
     }
 
     public static bool IsPatched(string hotfixPath)

@@ -1,0 +1,44 @@
+---
+description: 序章热补丁 Agent 只维护 GUI 工具链，禁止直接修改游戏 hotfix
+alwaysApply: true
+---
+
+# 魔力宝贝：序章 — 补丁 Agent 工作流
+
+## 铁律
+
+**Agent 不得直接修改游戏客户端文件。** 包括但不限于：
+
+- `cg37_Data/assets/hotfixdata/hotfix.dll.bytes`
+- 除首次引导外，不得替用户创建/覆盖 `.orig`（应提示用户在 GUI 点「创建 .orig 备份」）
+
+补丁写入游戏 **只能由用户** 通过 `魔力宝贝序章补丁/启动补丁GUI.bat`（或 GUI 同目录脚本）自行完成。
+
+## Agent 职责范围
+
+| 角色 | 路径 |
+|------|------|
+| **GUI 源码（权威）** | `魔力宝贝序章补丁/scripts/` |
+| **启动入口** | `魔力宝贝序章补丁/启动补丁GUI.bat` |
+| **补丁引擎** | `tools/hotfix_patcher/` → 发布到 `魔力宝贝序章补丁/patcher/HotfixPatcher.exe` |
+| **反编译参考** | `tools/hotfix_ilspy/`（只读分析，非运行时依赖） |
+| **开发文档** | `客户端热补丁开发指南.md` |
+
+## 新增/修改补丁时的流程
+
+1. **嗅探/反编译**：读 `tools/hotfix_ilspy/` 或 `HotfixPatcher ildump`，确认目标类与方法。
+2. **改引擎**：在 `tools/hotfix_patcher/` 实现或扩展 `*IlPatcher.cs`，`Program.cs` 注册子命令。
+3. **改 GUI**：同步 `魔力宝贝序章补丁/scripts/`（`patch_common.py`、`apply_combo_patch.py`、`seqchapter_combo_gui.py`）。
+4. **重建引擎**：运行 `魔力宝贝序章补丁/重建补丁引擎.bat`（或等效 `dotnet publish`）。
+5. **自测**：仅对 **副本** 或 **`.orig`** 跑 patcher / `apply_combo_patch.py`，**不写** 游戏目录下的 `hotfix.dll.bytes`。
+6. **交付用户**：说明关闭游戏 → 打开 GUI → 勾选选项 →「应用补丁」。
+
+## 禁止事项
+
+- 不要运行 `apply_combo_patch.py` 且输出指向游戏真实 `hotfix.dll.bytes`（除非用户明确要求 Agent 代打，默认不做）。
+- 不要用 Cecil `AssemblyDefinition.Write` 产出 hotfix（见开发指南）。
+- 不要把 Crossgate 路径/体积常量硬编码到序章 GUI（`EXPECTED_SIZE` 随版本更新，当前见 `patch_common.py`；`cg37_Data`）。
+
+## 参考工程
+
+Crossgate 仅作 **代码思路参考**：`E:\crossgate_cursor\tools/hotfix_patcher/`、`Crossgate客户端补丁/scripts/`。类名、IL、体积须以序章 hotfix 反编译为准。
