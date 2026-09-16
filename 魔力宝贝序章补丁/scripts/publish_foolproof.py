@@ -161,7 +161,7 @@ def _readme_content(app_name: str) -> str:
 · 界面外层选项：「战斗加速」（默认关：开启→战斗倍速+心跳回传1.5x，会连带掐断倍速检测上报；关→原速+心跳回传1.0x）、「跳帧（切后台/老板键限帧 30FPS）」与「多开器适配功能」（默认不打：勾选=注入精简桥接，供包内「多开器」登录/拉多控/一键召唤；占 hotfixdata 容量）
 · 默认含：分享改日常、礼包码
 · 随包附「多开器」（多开器\多开器.exe，界面「启动多开器」按钮）：多开器需要打「多开器适配功能」才能连接游戏
-· 随包附「窗口监视.exe」（包根，也可「启动窗口监视.bat」或界面按钮）：右下角置顶，刷新 cg37 标题；可填 Bark 链接测试推送；卡死/卡循环会推送（10 分钟最多 1 次）
+· 随包附「窗口监视.exe」（包根，也可「启动窗口监视.bat」或界面按钮）：右下角置顶，刷新 cg37 标题；可填 Bark；左侧选中窗口「开启/关闭监控」决定哪些进护航战斗监控（金色）；仅已监控窗口在停战/180秒无战斗结束/卡死时 Bark（10 分钟最多 1 次）
 · 勾选「移动加速」可在打补丁时一并开启
 
 【用法】
@@ -526,6 +526,45 @@ def _build_launcher_exe(out_dir: Path) -> None:
         "assistant_common.single_instance",
         "--hidden-import",
         "assistant_common.subprocess_win",
+        "--hidden-import",
+        "openpyxl",
+        "--hidden-import",
+        "openpyxl.styles",
+        "--hidden-import",
+        "openpyxl.cell",
+        "--hidden-import",
+        "openpyxl.workbook",
+        "--hidden-import",
+        "openpyxl.worksheet",
+        "--hidden-import",
+        "et_xmlfile",
+        # openpyxl 分析会误扫本机 site-packages，必须显式排除重型库
+        "--exclude-module",
+        "torch",
+        "--exclude-module",
+        "torchvision",
+        "--exclude-module",
+        "torchaudio",
+        "--exclude-module",
+        "pandas",
+        "--exclude-module",
+        "scipy",
+        "--exclude-module",
+        "matplotlib",
+        "--exclude-module",
+        "numba",
+        "--exclude-module",
+        "llvmlite",
+        "--exclude-module",
+        "sklearn",
+        "--exclude-module",
+        "cv2",
+        "--exclude-module",
+        "onnxruntime",
+        "--exclude-module",
+        "PIL",
+        "--exclude-module",
+        "numpy",
         str(LAUNCHER_ENTRY),
     ]
     _run(cmd)

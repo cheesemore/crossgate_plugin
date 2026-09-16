@@ -322,6 +322,8 @@ public static class SeqChapterMiniBridge
                 return DoSwitchChar(GetInt(prm, "index", 0), out msg);
             case "one_key_summon":
                 return DoOneKeySummon(out msg);
+            case "open_helper_minimized":
+                return DoOpenHelperMinimized(out msg);
             case "workflow_step1":
                 return StartWorkflowStep1(GetStr(prm, "phone"), GetStr(prm, "password"), out msg);
             case "workflow_login_enter":
@@ -561,6 +563,12 @@ public static class SeqChapterMiniBridge
     private static bool DoMultiLoginOfflineAll(out string msg)
     {
         msg = "";
+        if (IsInTeam())
+        {
+            msg = "already in team";
+            return true;
+        }
+
         var multi = GetManagerProperty("TeamManager", "MultiInfo");
         if (multi == null)
         {
@@ -988,6 +996,7 @@ public static class SeqChapterMiniBridge
         }
 
         EnqueueLoginEnterSteps();
+        _workflow.Enqueue("skip_if_already_teamed");
         _workflow.Enqueue("multi_login_offline_all");
         _workflow.Enqueue("until:multi_ready:90");
         _workflow.Enqueue("click_multi_head:0");
@@ -1099,6 +1108,16 @@ public static class SeqChapterMiniBridge
 
             if (Now() - _workflowUntilStarted.Value > maxSec)
             {
+                if (cond == "multi_ready" && IsInTeam())
+                {
+                    _workflow.Dequeue();
+                    SkipPullAndSummonKeepShareClose();
+                    Tip("已在队伍中，跳过拉取");
+                    _workflowUntilStarted = null;
+                    _workflowWaitUntil = Now() + 0.3;
+                    return;
+                }
+
                 _workflow.Dequeue();
                 FinishWorkflow(false, "timeout waiting for " + cond);
                 return;
@@ -1113,6 +1132,11 @@ public static class SeqChapterMiniBridge
             _workflow.Dequeue();
             _workflowUntilStarted = null;
             _workflowWaitUntil = Now() + 0.3;
+            if (cond == "multi_ready" && IsInTeam())
+            {
+                SkipPullAndSummonKeepShareClose();
+                Tip("已在队伍中，跳过拉取");
+            }
             return;
         }
 
@@ -1214,6 +1238,20 @@ public static class SeqChapterMiniBridge
             return;
         }
 
+        if (step == "skip_if_already_teamed")
+        {
+            _workflow.Dequeue();
+            _workflowUntilStarted = null;
+            if (IsInTeam())
+            {
+                SkipPullAndSummonKeepShareClose();
+                Tip("已在队伍中，跳过拉取");
+            }
+
+            _workflowWaitUntil = Now() + 0.3;
+            return;
+        }
+
         _workflow.Dequeue();
         _workflowUntilStarted = null;
         if (step.StartsWith("click_multi_head:"))
@@ -1251,7 +1289,7 @@ public static class SeqChapterMiniBridge
             case "in_game":
                 return IsInGame();
             case "multi_ready":
-                return IsMultiReady();
+                return IsMultiReady() || IsInTeam();
             case "net_manager":
                 return IsNetManagerReady();
             case "route_ready":
@@ -1394,6 +1432,126 @@ public static class SeqChapterMiniBridge
 
     private static bool IsTeamOk()
         => InvokeTeamMgrInt("GetTeamNum") >= 5;
+
+    private static bool IsInTeam()
+    {
+        if (InvokeTeamMgrInt("GetTeamNum") >= 2)
+        {
+            return true;
+        }
+
+        var teamMgr = GetManagerInstance("TeamManager");
+        if (teamMgr == null)
+        {
+            return false;
+        }
+
+        try
+        {
+            var method = teamMgr.GetType().GetMethod("IsTeam", BindingFlags.Public | BindingFlags.Instance);
+            if (method != null && method.GetParameters().Length == 0)
+            {
+                return Convert.ToBoolean(method.Invoke(teamMgr, null) ?? false);
+            }
+        }
+        catch
+        {
+            // ignore
+        }
+
+        return false;
+    }
+
+    private static void SkipPullAndSummonKeepShareClose()
+    {
+        var keep = new Queue<string>();
+        while (_workflow.Count > 0)
+        {
+            var step = _workflow.Dequeue();
+            if (step == "close_share_panel")
+            {
+                keep.Enqueue(step);
+            }
+        }
+
+        while (keep.Count > 0)
+        {
+            _workflow.Enqueue(keep.Dequeue());
+        }
+    }
+
+    private static bool DoOpenHelperMinimized(out string msg)
+    {
+        msg = "";
+        var t = FindType("SeqChapterTestUi");
+        if (t == null && !TryLoadTestUiDll(out msg))
+        {
+            return false;
+        }
+
+        t = FindType("SeqChapterTestUi");
+        if (t == null)
+        {
+            msg = "SeqChapterTestUi missing";
+            return false;
+        }
+
+        var method = t.GetMethod("OpenAndMinimizeFromLauncher", BindingFlags.Public | BindingFlags.Static);
+        if (method == null)
+        {
+            msg = "OpenAndMinimizeFromLauncher missing";
+            return false;
+        }
+
+        try
+        {
+            var ret = method.Invoke(null, null);
+            msg = ret == null ? "ok" : ret.ToString();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            var inner = ex.InnerException ?? ex;
+            msg = inner.Message;
+            return false;
+        }
+    }
+
+    private static bool TryLoadTestUiDll(out string msg)
+    {
+        msg = "";
+        try
+        {
+            var fileUtil = FindType("FileUtil");
+            var load = fileUtil == null
+                ? null
+                : fileUtil.GetMethod("LoadBytesFromHotfixAssets", BindingFlags.Public | BindingFlags.Static)
+                    ?? fileUtil.GetMethod("LoadBytes", BindingFlags.Public | BindingFlags.Static);
+            if (load == null || load.GetParameters().Length != 1)
+            {
+                msg = "FileUtil.LoadBytes missing";
+                return false;
+            }
+
+            var bytes = load.Invoke(null, new object[] { "hotfixdata/SeqChapterTestUi.dll.bytes" }) as byte[];
+            if (bytes == null || bytes.Length == 0)
+            {
+                msg = "SeqChapterTestUi.dll.bytes missing";
+                return false;
+            }
+
+            Assembly.Load(bytes);
+            IndexNewAssemblies();
+            msg = "TestUi loaded";
+            return true;
+        }
+        catch (Exception ex)
+        {
+            var inner = ex.InnerException ?? ex;
+            msg = "load TestUi: " + inner.Message;
+            return false;
+        }
+    }
 
     private static string GetFirstMultiUid(IList players)
     {

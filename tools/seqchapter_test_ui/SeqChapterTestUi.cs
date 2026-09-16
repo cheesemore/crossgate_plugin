@@ -82,8 +82,10 @@ public static class SeqChapterTestUi
     private static string _roundTimeoutLogPath;
     private static bool _bootLogged;
     private static bool _visible;
-    /// <summary>面板收缩到左上角小按钮。</summary>
+    /// <summary>面板收缩到右上角小按钮。</summary>
     private static bool _minimized;
+    /// <summary>多开器自动打开后延迟最小化；0=无待办。</summary>
+    private static long _pendingAutoMinimizeMs;
     private static int _wikiCalls;
     private static int _updateCalls;
     private static long _lastToggleMs;
@@ -225,6 +227,83 @@ public static class SeqChapterTestUi
     private const int WildExOptionIndex = 2;
     private const string WildExTicketKeyword = "中元礼盒兑换券";
     private const string AccountPetBankActivity = "远程账号宠物仓库";
+
+    // ----- 半山测试脚本（脚本页）-----
+    private const string BanshanTestEggKeyword = "饥饿的死神之卵";
+    private const string BanshanTestRainKeyword = "冥界之雨";
+    /// <summary>队长用卵后应到达的地图号。</summary>
+    private const int BanshanTestMapAfterEgg = 60275;
+    private const int BanshanTestMoveX = 20;
+    private const int BanshanTestMoveY = 19;
+    private const string BanshanTestNpcName = "荷特普";
+    private const int BanshanTestNpcX = 21;
+    private const int BanshanTestNpcY = 19;
+    /// <summary>对话结束后应到达的地图号。</summary>
+    private const int BanshanTestMapAfterTalk = 1530;
+    private const long BanshanTestMapWaitMs = 1000;
+    private const long BanshanTestRoundGapMs = 1000;
+    private const long BanshanTestBankOpDelayMs = 500;
+    private const long BanshanTestNavRetryMs = 2500;
+    private const long BanshanTestNpcLookRetryMs = 1200;
+    private const int BanshanTestPhaseIdle = 0;
+    private const int BanshanTestPhaseUseEgg = 1;
+    private const int BanshanTestPhaseWaitMapEgg = 2;
+    private const int BanshanTestPhaseWaitAfterMap = 3;
+    private const int BanshanTestPhaseMove = 4;
+    private const int BanshanTestPhaseRainEnsure = 5;
+    private const int BanshanTestPhaseRainBankWait = 6;
+    private const int BanshanTestPhaseRainBankDelay = 7;
+    private const int BanshanTestPhaseTalk = 8;
+    private const int BanshanTestPhaseStoreRain = 9;
+    private const int BanshanTestPhaseStoreDelay = 10;
+    private const int BanshanTestPhaseConfirm = 11;
+    private const int BanshanTestPhaseWaitMapTalk = 12;
+    private const int BanshanTestPhaseLoopWait = 13;
+    private static bool _banshanTestActive;
+    private static int _banshanTestPhase;
+    private static long _banshanTestDelayUntilMs;
+    private static long _banshanTestLastNavMs;
+    private static long _banshanTestLastLookMs;
+    private static int _banshanTestStepTries;
+    private static int _banshanTestRainBagSlot = -1;
+    private static int _banshanTestRound;
+    private static string _banshanTestNote = "";
+    private static object _banshanTestStatusText;
+
+    /// <summary>
+    /// 脚本页「循环等待传送」：无队 → 回城点2 → 1000(67,79) → 建队 → 冥界之雨
+    /// → 每3秒查队，满员或(≥2人且查过5次)点确定 → 图60273 → 解散 → 再循环。
+    /// </summary>
+    private const int WarpWaitIdle = 0;
+    private const int WarpWaitReturn = 1;
+    private const int WarpWaitWalk = 2;
+    private const int WarpWaitCreateTeam = 3;
+    private const int WarpWaitUseRain = 4;
+    private const int WarpWaitWaitConfirm = 5;
+    private const int WarpWaitDismiss = 6;
+    private const int WarpWaitStandFloor = 1000;
+    private const int WarpWaitStandX = 67;
+    private const int WarpWaitStandY = 79;
+    private const int WarpWaitTargetFloor = 60273;
+    private const int WarpWaitTeamFull = 5;
+    private const int WarpWaitTeamMinEarly = 2;
+    private const int WarpWaitEarlyAfterChecks = 5;
+    private const long WarpWaitPollMs = 3000;
+    private const long WarpWaitReturnWaitMs = 8000;
+    private const long WarpWaitNavRetryMs = 2500;
+    private const int WarpWaitMaxReturnTries = 3;
+    private const string WarpWaitRainKeyword = "冥界之雨";
+    private static bool _warpWaitActive;
+    private static int _warpWaitPhase;
+    private static long _warpWaitDelayUntilMs;
+    private static long _warpWaitActionAtMs;
+    private static long _warpWaitLastNavMs;
+    private static long _warpWaitLastTipMs;
+    private static int _warpWaitStepTries;
+    private static int _warpWaitTeamChecks;
+    private static int _warpWaitRound;
+    private static string _warpWaitNote = "";
+
     private static bool _wildExActive;
     private static int _wildExPhase;
     private static long _wildExDelayUntilMs;
@@ -532,8 +611,6 @@ public static class SeqChapterTestUi
     private static bool _escortPrevInBattle;
     /// <summary>洗礼预备：本场战斗中是否见过 forceQuitBattle（战败/踢出/逃跑类）。</summary>
     private static bool _baptismSawForceQuit;
-    /// <summary>半山预备：本场战斗中是否见过 forceQuitBattle（战败/踢出/逃跑类）。</summary>
-    private static bool _banshanSawForceQuit;
     /// <summary>洗礼4完成后、洗礼5开始前：等道具#651022（无则暂停）。</summary>
     private static bool _baptismNeedItemBefore5;
     /// <summary>洗礼4后法兰治疗失败：点继续时重跑治疗。</summary>
@@ -983,33 +1060,6 @@ public static class SeqChapterTestUi
     private static readonly int[] BaptismPrepMissionIds =
         { Baptism1MissionId, Baptism2MissionId, Baptism4MissionId, Baptism5MissionId };
 
-    // ----- 半山预备（护航页）：半山9已完成→重置13689+查#15210×2→入队未完成1368；否则中途续做；不做5/其余；战败暂停 -----
-    private static bool _banshanPrepActive;
-    /// <summary>0=未运行 1=重置后等待 2=护航中。</summary>
-    private static int _banshanPrepPhase;
-    private static long _banshanPrepPhaseAtMs;
-    private const int BanshanPhaseResetWait = 1;
-    private const int BanshanPhaseEscort = 2;
-    private const long BanshanResetDelayMs = 2500;
-    private const int Banshan1MissionId = 75;
-    private const int Banshan3MissionId = 77;
-    private const int Banshan6MissionId = 80;
-    private const int Banshan8MissionId = 82;
-    private const int Banshan9MissionId = 83;
-    /// <summary>重置起点需每人背包至少此数量的道具。</summary>
-    private const int BanshanResetItemId = 15210;
-    private const int BanshanResetItemMin = 2;
-    /// <summary>半山可重置：1/3/6/8/9（不管 2/4/5/7）。</summary>
-    private static readonly int[] BanshanResetMissionIds =
-    {
-        Banshan1MissionId, Banshan3MissionId, Banshan6MissionId,
-        Banshan8MissionId, Banshan9MissionId
-    };
-    /// <summary>半山预备护航队列：仅 1/3/6/8（不做 5/9 及其余）。</summary>
-    private static readonly int[] BanshanEscortMissionIds =
-    {
-        Banshan1MissionId, Banshan3MissionId, Banshan6MissionId, Banshan8MissionId
-    };
 
     private const int StorePetLevel = 1;
     private const int PetStatusRest = 0;
@@ -1075,6 +1125,8 @@ public static class SeqChapterTestUi
     private static int _junkDropFailStreak;
     private static string _junkDropNote = "";
     private static object _junkDropStatusText;
+    /// <summary>脚本页底部统一运行状态（仅显示当前正在跑的脚本提示语）。</summary>
+    private static object _scriptRunStatusText;
     /// <summary>已发包、等待确认是否真正从背包消失。</summary>
     private static bool _junkDropPending;
     private static string _junkDropPendUid = "";
@@ -1487,6 +1539,7 @@ public static class SeqChapterTestUi
             else
             {
                 _minimized = false;
+                _pendingAutoMinimizeMs = 0;
                 SetPanelActive(false);
             }
 
@@ -1501,9 +1554,51 @@ public static class SeqChapterTestUi
         }
     }
 
+    /// <summary>
+    /// 多开器：打开助手并约 3 秒后缩到右上角。已手动打开（含最小化）则忽略。
+    /// </summary>
+    public static string OpenAndMinimizeFromLauncher()
+    {
+        try
+        {
+            if (_visible)
+            {
+                WriteLog("OpenAndMinimizeFromLauncher skip already visible minimized=" + _minimized);
+                return "already open";
+            }
+
+            EnsureHost();
+            EnsurePanel();
+            _visible = true;
+            _lastToggleMs = NowMs();
+            ApplyBattleMode(_battleMode);
+            SetPanelActive(true);
+            SetMinimized(false);
+            ShowTab(_tab);
+            RefreshOverview(true);
+            _pendingAutoMinimizeMs = NowMs() + 3000;
+            WriteLog("OpenAndMinimizeFromLauncher scheduled minimize");
+            return "opening";
+        }
+        catch (Exception ex)
+        {
+            WriteLog("OpenAndMinimizeFromLauncher EX: " + RootMessage(ex));
+            return "error: " + RootMessage(ex);
+        }
+    }
+
     public static void Tick()
     {
         _updateCalls++;
+
+        if (_pendingAutoMinimizeMs > 0 && NowMs() >= _pendingAutoMinimizeMs)
+        {
+            _pendingAutoMinimizeMs = 0;
+            if (_visible && !_minimized)
+            {
+                SetMinimized(true);
+            }
+        }
 
         // 窗口标题统一协调：各功能后缀（计数挂机/自动提取等）合并刷新。
         // 放 _visible 判断之前：面板隐藏时挂机也保持标题提示。
@@ -1536,7 +1631,8 @@ public static class SeqChapterTestUi
             TickScriptWingTest();
             TickFloraHeal();
             TickFullAutoScript();
-            TickWildExchange();
+            TickWarpWait();
+            TickBanshanTest();
             TickZhongyuanAll();
             TickZhongyuanCatch();
             TickZhongyuanTransfer();
@@ -1590,34 +1686,9 @@ public static class SeqChapterTestUi
             SetText(_escortStatusText, FormatEscortStatus(), 13);
         }
 
-        if (_tab == TabScript && _lingTangStatusText != null && !IsUnityNull(_lingTangStatusText))
+        if (_tab == TabScript)
         {
-            SetText(_lingTangStatusText, FormatLingTangStatus(), 12);
-        }
-
-        if (_tab == TabScript && _petNamerStatusText != null && !IsUnityNull(_petNamerStatusText))
-        {
-            SetText(_petNamerStatusText, FormatPetNamerStatus(), 12);
-        }
-
-        if (_tab == TabScript && _junkDropStatusText != null && !IsUnityNull(_junkDropStatusText))
-        {
-            SetText(_junkDropStatusText, FormatJunkDropStatus(), 11);
-        }
-
-        if (_tab == TabScript && _zyStatusText != null && !IsUnityNull(_zyStatusText))
-        {
-            SetText(_zyStatusText, FormatWildExchangeStatus(), 12);
-        }
-
-        if (_tab == TabScript && _floraHealStatusText != null && !IsUnityNull(_floraHealStatusText))
-        {
-            SetText(_floraHealStatusText, FormatFloraHealStatus(), 12);
-        }
-
-        if (_tab == TabScript && _fullScriptStatusText != null && !IsUnityNull(_fullScriptStatusText))
-        {
-            SetText(_fullScriptStatusText, FormatFullAutoScriptStatus(), 12);
+            RefreshScriptRunStatus();
         }
 
         if (_tab == TabSuperAi && _superAiActive)
@@ -2205,6 +2276,76 @@ public static class SeqChapterTestUi
         {
             WriteLog("RunAutoPoint EX: " + RootMessage(ex));
             Tip("一键加点失败: " + RootMessage(ex));
+        }
+    }
+
+    /// <summary>脚本页：主动断线，等同官方单回合超时 NetworkManager.Client.Close(CloseReason=4)。</summary>
+    private static void RunForceDisconnectClose4()
+    {
+        try
+        {
+            WriteLog("RunForceDisconnectClose4");
+            var nmType = FindType("NetworkManager") ?? FindTypeBySimpleName("NetworkManager");
+            if (nmType == null)
+            {
+                Tip("一键断线失败：找不到 NetworkManager");
+                return;
+            }
+
+            object client = null;
+            var clientProp = nmType.GetProperty(
+                "Client", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            if (clientProp != null)
+            {
+                client = clientProp.GetValue(null, null);
+            }
+
+            if (client == null)
+            {
+                var clientField = nmType.GetField(
+                    "Client", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+                client = clientField?.GetValue(null);
+            }
+
+            if (client == null)
+            {
+                Tip("一键断线失败：NetworkManager.Client 为空");
+                return;
+            }
+
+            MethodInfo closeWithReason = null;
+            foreach (var m in client.GetType().GetMethods(
+                         BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+            {
+                if (m.Name != "Close")
+                {
+                    continue;
+                }
+
+                var ps = m.GetParameters();
+                if (ps.Length == 1 && ps[0].ParameterType.IsEnum)
+                {
+                    closeWithReason = m;
+                    break;
+                }
+            }
+
+            if (closeWithReason == null)
+            {
+                Tip("一键断线失败：找不到 Close(CloseReason)");
+                return;
+            }
+
+            var reasonType = closeWithReason.GetParameters()[0].ParameterType;
+            var reason = Enum.ToObject(reasonType, 4);
+            Tip("一键断线：Close(4)");
+            WriteLog("force-close CloseReason=4 type=" + reasonType.FullName);
+            closeWithReason.Invoke(client, new object[] { reason });
+        }
+        catch (Exception ex)
+        {
+            WriteLog("RunForceDisconnectClose4 EX: " + RootMessage(ex));
+            Tip("一键断线失败: " + RootMessage(ex));
         }
     }
 
@@ -4498,6 +4639,7 @@ public static class SeqChapterTestUi
         {
             _visible = false;
             _minimized = false;
+            _pendingAutoMinimizeMs = 0;
             SetPanelActive(false);
         });
 
@@ -4578,7 +4720,9 @@ public static class SeqChapterTestUi
         _junkDropStatusText = null;
         _floraHealStatusText = null;
         _zyStatusText = null;
+        _banshanTestStatusText = null;
         _fullScriptStatusText = null;
+        _scriptRunStatusText = null;
         _superAiStatusText = null;
         _superAiBattleRoot = null;
         _appearStatusText = null;
@@ -15492,8 +15636,9 @@ public static class SeqChapterTestUi
 
         AddScriptColButton(rtType, "AutoPoint", "apb", leftX, row0 - rowStep * 2,
             0.55f, 0.35f, 0.65f, "一键加点", RunAutoPoint);
-        AddScriptColButton(rtType, "PetNamer", "pnb", rightX, row0 - rowStep * 2,
-            0.20f, 0.45f, 0.60f, "一键命名（开/停）", RunPetNamer);
+        AddScriptColButton(rtType, "ForceClose4", "fc4", rightX, row0 - rowStep * 2,
+            0.55f, 0.22f, 0.22f, "一键断线", RunForceDisconnectClose4);
+        // 一键命名：入口隐藏（逻辑保留）
 
         AddScriptColButton(
             rtType, "JunkDrop", "jdb", leftX, row0 - rowStep * 3,
@@ -15508,39 +15653,821 @@ public static class SeqChapterTestUi
             ToggleFloraHeal);
 
         AddScriptColButton(
-            rtType, "WildExchange", "wex", leftX, row0 - rowStep * 4,
+            rtType, "WarpWait", "wex", leftX, row0 - rowStep * 4,
             0.42f, 0.28f, 0.18f,
-            _wildExActive ? "兑换野生宠（停止）" : "兑换野生宠",
-            ToggleWildExchange);
+            _warpWaitActive ? "循环等待传送（停止）" : "循环等待传送",
+            ToggleWarpWait);
+
+
 
         AddScriptColButton(
-            rtType, "ResetBanshan", "rbs", rightX, row0 - rowStep * 4,
+            rtType, "BanshanTest", "bts", rightX, row0 - rowStep * 4,
             0.35f, 0.40f, 0.28f,
-            "重置半山",
-            RunResetBanshan);
+            _banshanTestActive ? "半山测试（停止）" : "半山测试",
+            ToggleBanshanTest);
 
-        var wildY = row0 - rowStep * 5;
-        var junkStatus = CreateUiChild(_bodyRoot, "JunkDropStatus", rtType);
-        SetAnchoredTop(RequireRect(junkStatus, "jds"), 0f, wildY, 540f, 56f);
-        _junkDropStatusText = AddText(junkStatus);
-        SetText(_junkDropStatusText, FormatJunkDropStatus(), 11);
-        wildY -= 60f;
-
-        var zyStatus = CreateUiChild(_bodyRoot, "ZhongyuanStatus", rtType);
-        SetAnchoredTop(RequireRect(zyStatus, "zys"), 0f, wildY, 540f, 88f);
-        _zyStatusText = AddText(zyStatus);
-        SetText(_zyStatusText, FormatWildExchangeStatus(), 12);
-        wildY -= 92f;
-
-        var fhStatus = CreateUiChild(_bodyRoot, "FloraHealStatus", rtType);
-        SetAnchoredTop(RequireRect(fhStatus, "fhs"), 0f, wildY, 540f, 48f);
-        _floraHealStatusText = AddText(fhStatus);
-        SetText(_floraHealStatusText, FormatFloraHealStatus(), 12);
-
-        // 自动全套脚本 / 一键上架 / 刷熊男 / 一键命名说明 / 测试铃声 / 刷灵堂：入口隐藏（逻辑保留）
         _fullScriptStatusText = null;
         _petNamerStatusText = null;
         _lingTangStatusText = null;
+        _junkDropStatusText = null;
+        _floraHealStatusText = null;
+        _zyStatusText = null;
+        _banshanTestStatusText = null;
+
+        var runBox = CreateUiChild(_bodyRoot, "ScriptRunStatus", rtType);
+        SetAnchoredBottom(RequireRect(runBox, "srs"), 0f, 8f, 540f, 92f);
+        var runBg = AddComp(runBox, "UnityEngine.UI.Image");
+        SetColor(runBg, 0.08f, 0.10f, 0.14f, 0.72f);
+
+        var runTitle = CreateUiChild(runBox, "T", rtType);
+        SetAnchoredTop(RequireRect(runTitle, "srst"), 0f, -4f, 520f, 20f);
+        var runTitleTxt = AddText(runTitle);
+        try
+        {
+            SetProp(runTitleTxt, "alignment", EnumValue("UnityEngine.TextAnchor", "MiddleLeft", 3));
+        }
+        catch
+        {
+            // ignore
+        }
+
+        SetText(runTitleTxt, "脚本运行状态", 12);
+
+        var runBody = CreateUiChild(runBox, "B", rtType);
+        SetAnchoredTop(RequireRect(runBody, "srsb"), 0f, -24f, 520f, 64f);
+        _scriptRunStatusText = AddText(runBody);
+        try
+        {
+            SetProp(_scriptRunStatusText, "alignment", EnumValue("UnityEngine.TextAnchor", "UpperLeft", 0));
+        }
+        catch
+        {
+            // ignore
+        }
+
+        SetText(_scriptRunStatusText, FormatActiveScriptRunStatus(), 11);
+    }
+
+    /// <summary>仅显示当前正在跑、且原本就有提示语的脚本；没有就不显示。</summary>
+    private static string FormatActiveScriptRunStatus()
+    {
+        if (_junkDropActive)
+        {
+            return FormatJunkDropStatus();
+        }
+
+        if (_warpWaitActive)
+        {
+            return FormatWarpWaitStatus();
+        }
+
+        if (_floraHealActive)
+        {
+            return FormatFloraHealStatus();
+        }
+
+        if (_banshanTestActive)
+        {
+            return FormatBanshanTestStatus();
+        }
+
+        if (_fullScriptActive)
+        {
+            return FormatFullAutoScriptStatus();
+        }
+
+        if (_lingTangActive)
+        {
+            return FormatLingTangStatus();
+        }
+
+        if (_petNamerActive)
+        {
+            return FormatPetNamerStatus();
+        }
+
+        return "";
+    }
+
+    private static void RefreshScriptRunStatus()
+    {
+        if (_scriptRunStatusText == null || IsUnityNull(_scriptRunStatusText))
+        {
+            return;
+        }
+
+        try
+        {
+            SetText(_scriptRunStatusText, FormatActiveScriptRunStatus(), 11);
+        }
+        catch
+        {
+            // ignore
+        }
+    }
+
+
+    private static string FormatBanshanTestStatus()
+    {
+        if (!_banshanTestActive)
+        {
+            return "半山测试: 未启动  卵→60275(20,19) 荷特普(21,19) →1530 循环";
+        }
+
+        return "半山测试: 第" + _banshanTestRound + "轮 "
+               + BanshanTestPhaseName(_banshanTestPhase) + "  " + (_banshanTestNote ?? "")
+               + " 雨格=" + _banshanTestRainBagSlot;
+    }
+
+    private static string BanshanTestPhaseName(int phase)
+    {
+        switch (phase)
+        {
+            case BanshanTestPhaseUseEgg: return "用卵";
+            case BanshanTestPhaseWaitMapEgg: return "等进图";
+            case BanshanTestPhaseWaitAfterMap: return "进图后等1秒";
+            case BanshanTestPhaseMove: return "走路点";
+            case BanshanTestPhaseRainEnsure: return "查冥界之雨";
+            case BanshanTestPhaseRainBankWait: return "个人仓取雨";
+            case BanshanTestPhaseRainBankDelay: return "取出后0.5秒";
+            case BanshanTestPhaseTalk: return "点NPC";
+            case BanshanTestPhaseStoreRain: return "对话中盲存雨";
+            case BanshanTestPhaseStoreDelay: return "存入后0.5秒";
+            case BanshanTestPhaseConfirm: return "点确定收尾";
+            case BanshanTestPhaseWaitMapTalk: return "等传送图1530";
+            case BanshanTestPhaseLoopWait: return "一轮结束等1秒";
+            default: return "准备";
+        }
+    }
+
+    private static void ToggleBanshanTest()
+    {
+        if (_banshanTestActive)
+        {
+            StopBanshanTest("已手动停止");
+            return;
+        }
+
+        StartBanshanTest();
+    }
+
+    private static void StartBanshanTest()
+    {
+        if (!BanshanTestCheckTeamEggsOrTip())
+        {
+            return;
+        }
+
+        _banshanTestActive = true;
+        _banshanTestRound = 1;
+        _banshanTestPhase = BanshanTestPhaseUseEgg;
+        _banshanTestDelayUntilMs = 0;
+        _banshanTestLastNavMs = 0;
+        _banshanTestLastLookMs = 0;
+        _banshanTestStepTries = 0;
+        _banshanTestRainBagSlot = -1;
+        _banshanTestNote = "第1轮：全队有卵，队长使用…";
+        Tip("半山测试已开启");
+        WriteLog("banshan-test start");
+        RefreshScriptTabIfVisible();
+    }
+
+    /// <summary>全队背包须有饥饿的死神之卵；不足 Tip「测试脚本条件不足」。</summary>
+    private static bool BanshanTestCheckTeamEggsOrTip()
+    {
+        var uids = CollectTeamOrMultiUids();
+        if (uids.Count == 0)
+        {
+            var cap = GetCaptainUid();
+            if (!string.IsNullOrEmpty(cap))
+            {
+                uids.Add(cap);
+            }
+        }
+
+        if (uids.Count == 0)
+        {
+            Tip("测试脚本条件不足");
+            WriteLog("banshan-test no team uid");
+            return false;
+        }
+
+        var fails = new List<string>();
+        foreach (var uid in uids)
+        {
+            if (CountBagItemByKeyword(uid, BanshanTestEggKeyword) <= 0)
+            {
+                fails.Add(FormatBaptismPlayerShort(uid));
+            }
+        }
+
+        if (fails.Count > 0)
+        {
+            Tip("测试脚本条件不足");
+            WriteLog("banshan-test egg missing: " + string.Join(",", fails.ToArray()));
+            return false;
+        }
+
+        return true;
+    }
+
+    private static void StopBanshanTest(string reason)
+    {
+        if (!_banshanTestActive)
+        {
+            Tip("半山测试：未在运行");
+            return;
+        }
+
+        _banshanTestActive = false;
+        _banshanTestPhase = BanshanTestPhaseIdle;
+        _banshanTestNote = reason ?? "";
+        WriteLog("banshan-test stop reason=" + reason);
+        Tip("半山测试：" + (string.IsNullOrEmpty(reason) ? "已停止" : reason));
+        RefreshScriptTabIfVisible();
+    }
+
+    private static void TickBanshanTest()
+    {
+        if (!_banshanTestActive)
+        {
+            return;
+        }
+
+        var now = NowMs();
+        if (_banshanTestDelayUntilMs > 0 && now < _banshanTestDelayUntilMs)
+        {
+            return;
+        }
+
+        var uid = GetCaptainUid();
+        if (string.IsNullOrEmpty(uid))
+        {
+            uid = GetMainPlayerUidSafe();
+        }
+
+        if (string.IsNullOrEmpty(uid))
+        {
+            StopBanshanTest("无队长/主控");
+            return;
+        }
+
+        int floor;
+        string floorName;
+        int mapRes;
+        TryGetCurrentMapInfo(out floor, out floorName, out mapRes);
+        int x;
+        int y;
+        TryGetPlayerXY(out x, out y);
+
+        switch (_banshanTestPhase)
+        {
+            case BanshanTestPhaseUseEgg:
+                if (!TryUseBagItemByKeyword(uid, BanshanTestEggKeyword))
+                {
+                    StopBanshanTest("队长使用卵失败");
+                    return;
+                }
+
+                _banshanTestPhase = BanshanTestPhaseWaitMapEgg;
+                _banshanTestNote = "已用卵，等进图" + BanshanTestMapAfterEgg;
+                _banshanTestStepTries = 0;
+                WriteLog("banshan-test used egg");
+                break;
+
+            case BanshanTestPhaseWaitMapEgg:
+                if (floor == BanshanTestMapAfterEgg)
+                {
+                    _banshanTestPhase = BanshanTestPhaseWaitAfterMap;
+                    _banshanTestDelayUntilMs = now + BanshanTestMapWaitMs;
+                    _banshanTestNote = "已进图，等1秒";
+                    WriteLog("banshan-test entered map " + floor);
+                    return;
+                }
+
+                _banshanTestStepTries++;
+                if (_banshanTestStepTries > 40)
+                {
+                    StopBanshanTest("等进图超时 现图" + floor);
+                    return;
+                }
+
+                _banshanTestNote = "等进图" + BanshanTestMapAfterEgg + " 现" + floor;
+                _banshanTestDelayUntilMs = now + 400;
+                break;
+
+            case BanshanTestPhaseWaitAfterMap:
+                _banshanTestPhase = BanshanTestPhaseMove;
+                _banshanTestLastNavMs = 0;
+                _banshanTestNote = "去(" + BanshanTestMoveX + "," + BanshanTestMoveY + ")";
+                break;
+
+            case BanshanTestPhaseMove:
+                if (floor != BanshanTestMapAfterEgg)
+                {
+                    _banshanTestPhase = BanshanTestPhaseWaitMapEgg;
+                    _banshanTestNote = "掉图了，再等进图";
+                    break;
+                }
+
+                if (Math.Abs(x - BanshanTestMoveX) <= 1 && Math.Abs(y - BanshanTestMoveY) <= 1)
+                {
+                    _banshanTestPhase = BanshanTestPhaseRainEnsure;
+                    _banshanTestStepTries = 0;
+                    _banshanTestNote = "已到点，查冥界之雨";
+                    break;
+                }
+
+                if (_banshanTestLastNavMs <= 0 || now - _banshanTestLastNavMs >= BanshanTestNavRetryMs)
+                {
+                    string how;
+                    if (TryNavigateTo(BanshanTestMapAfterEgg, BanshanTestMoveX, BanshanTestMoveY, out how)
+                        || TryWalkTo(BanshanTestMoveX, BanshanTestMoveY))
+                    {
+                        _banshanTestLastNavMs = now;
+                        _banshanTestNote = "走路 " + how + " 现" + x + "," + y;
+                    }
+                    else
+                    {
+                        _banshanTestLastNavMs = now;
+                        _banshanTestNote = "导航失败 现" + x + "," + y;
+                    }
+                }
+                else
+                {
+                    _banshanTestNote = "走路中 现" + x + "," + y;
+                }
+
+                break;
+
+            case BanshanTestPhaseRainEnsure:
+                if (CountBagItemByKeyword(uid, BanshanTestRainKeyword) > 0)
+                {
+                    _banshanTestRainBagSlot = FindBagItemSlotByKeyword(uid, BanshanTestRainKeyword);
+                    _banshanTestPhase = BanshanTestPhaseTalk;
+                    _banshanTestLastLookMs = 0;
+                    _banshanTestStepTries = 0;
+                    _banshanTestNote = "背包已有雨，记格=" + _banshanTestRainBagSlot + "，点NPC";
+                    WriteLog("banshan-test rain in bag slot=" + _banshanTestRainBagSlot);
+                    break;
+                }
+
+                ClearPersonalBankItemCache(uid);
+                TryOpenRemotePersonalItemBank(uid);
+                _banshanTestPhase = BanshanTestPhaseRainBankWait;
+                _banshanTestStepTries = 0;
+                _banshanTestDelayUntilMs = now + 400;
+                _banshanTestNote = "背包无雨，开个人仓库…";
+                break;
+
+            case BanshanTestPhaseRainBankWait:
+                {
+                    var bank = CountPersonalBankItemByKeyword(uid, BanshanTestRainKeyword);
+                    if (bank < 0)
+                    {
+                        _banshanTestStepTries++;
+                        if (_banshanTestStepTries > 25)
+                        {
+                            TryDismissItemBankAfterStore(uid);
+                            StopBanshanTest("读个人仓库超时");
+                            return;
+                        }
+
+                        if (_banshanTestStepTries % 5 == 0)
+                        {
+                            TryOpenRemotePersonalItemBank(uid);
+                        }
+
+                        _banshanTestNote = "等个人仓库列表…";
+                        _banshanTestDelayUntilMs = now + 300;
+                        return;
+                    }
+
+                    if (bank <= 0)
+                    {
+                        TryDismissItemBankAfterStore(uid);
+                        StopBanshanTest("个人仓库也没有冥界之雨");
+                        return;
+                    }
+
+                    int bankIdx;
+                    if (!TryFindPersonalBankIndexByKeyword(uid, BanshanTestRainKeyword, out bankIdx)
+                        || !TrySendPersonalBankTakeNum(uid, bankIdx, 1))
+                    {
+                        TryDismissItemBankAfterStore(uid);
+                        StopBanshanTest("个人仓取出冥界之雨失败");
+                        return;
+                    }
+
+                    TryDismissItemBankAfterStore(uid);
+                    _banshanTestPhase = BanshanTestPhaseRainBankDelay;
+                    _banshanTestDelayUntilMs = now + BanshanTestBankOpDelayMs;
+                    _banshanTestNote = "已从个人仓取雨，等0.5秒";
+                    WriteLog("banshan-test personal bank take rain idx=" + bankIdx);
+                    return;
+                }
+
+            case BanshanTestPhaseRainBankDelay:
+                _banshanTestRainBagSlot = FindBagItemSlotByKeyword(uid, BanshanTestRainKeyword);
+                if (_banshanTestRainBagSlot < 0 || CountBagItemByKeyword(uid, BanshanTestRainKeyword) <= 0)
+                {
+                    StopBanshanTest("取出后背包仍无冥界之雨");
+                    return;
+                }
+
+                _banshanTestPhase = BanshanTestPhaseTalk;
+                _banshanTestLastLookMs = 0;
+                _banshanTestStepTries = 0;
+                _banshanTestNote = "雨已入包 slot=" + _banshanTestRainBagSlot + "，点NPC";
+                WriteLog("banshan-test rain bag slot=" + _banshanTestRainBagSlot);
+                break;
+
+            case BanshanTestPhaseTalk:
+                if (IsDialoguePanelOpen())
+                {
+                    _banshanTestPhase = BanshanTestPhaseStoreRain;
+                    _banshanTestNote = "对话已开，盲存冥界之雨";
+                    break;
+                }
+
+                if (_banshanTestLastLookMs > 0 && now - _banshanTestLastLookMs < BanshanTestNpcLookRetryMs)
+                {
+                    return;
+                }
+
+                _banshanTestLastLookMs = now;
+                _banshanTestStepTries++;
+                if (_banshanTestStepTries > 20)
+                {
+                    StopBanshanTest("点NPC失败");
+                    return;
+                }
+
+                if (TryLookNpcAt(BanshanTestNpcX, BanshanTestNpcY)
+                    || TryLookNpcByNameNear(BanshanTestNpcName, BanshanTestNpcX, BanshanTestNpcY))
+                {
+                    _banshanTestNote = "已点NPC，等对话";
+                }
+                else
+                {
+                    _banshanTestNote = "未找到NPC " + BanshanTestNpcName + " @"
+                                       + BanshanTestNpcX + "," + BanshanTestNpcY;
+                }
+
+                break;
+
+            case BanshanTestPhaseStoreRain:
+                if (!IsDialoguePanelOpen())
+                {
+                    _banshanTestPhase = BanshanTestPhaseTalk;
+                    _banshanTestNote = "对话关了，再点NPC";
+                    break;
+                }
+
+                if (CountBagItemByKeyword(uid, BanshanTestRainKeyword) > 0)
+                {
+                    if (!StoreBagItemsToPersonalBank(uid, BanshanTestRainKeyword))
+                    {
+                        StopBanshanTest("盲存冥界之雨失败");
+                        return;
+                    }
+
+                    _banshanTestPhase = BanshanTestPhaseStoreDelay;
+                    _banshanTestDelayUntilMs = now + BanshanTestBankOpDelayMs;
+                    _banshanTestNote = "已盲存，等0.5秒";
+                    WriteLog("banshan-test blind stored rain");
+                    return;
+                }
+
+                // 已无雨（可能上次存过）→ 直接点确定
+                _banshanTestPhase = BanshanTestPhaseConfirm;
+                _banshanTestNote = "包里已无雨，点确定";
+                break;
+
+            case BanshanTestPhaseStoreDelay:
+                _banshanTestPhase = BanshanTestPhaseConfirm;
+                _banshanTestNote = "开始点确定直到对话结束";
+                break;
+
+            case BanshanTestPhaseConfirm:
+                if (!IsDialoguePanelOpen())
+                {
+                    _banshanTestPhase = BanshanTestPhaseWaitMapTalk;
+                    _banshanTestStepTries = 0;
+                    _banshanTestNote = "对话结束，等进图" + BanshanTestMapAfterTalk;
+                    WriteLog("banshan-test dialogue closed");
+                    break;
+                }
+
+                TryAutoPickDialogue();
+                _banshanTestNote = "点确定中…";
+                break;
+
+            case BanshanTestPhaseWaitMapTalk:
+                if (floor == BanshanTestMapAfterTalk)
+                {
+                    _banshanTestPhase = BanshanTestPhaseLoopWait;
+                    _banshanTestDelayUntilMs = now + BanshanTestRoundGapMs;
+                    _banshanTestNote = "第" + _banshanTestRound + "轮完成→1530，等1秒再开";
+                    Tip("半山测试：第" + _banshanTestRound + "轮结束，1秒后继续");
+                    WriteLog("banshan-test round done n=" + _banshanTestRound + " map=" + floor);
+                    return;
+                }
+
+                _banshanTestStepTries++;
+                if (_banshanTestStepTries > 50)
+                {
+                    StopBanshanTest("等传送图超时 现图" + floor);
+                    return;
+                }
+
+                _banshanTestNote = "等图" + BanshanTestMapAfterTalk + " 现" + floor;
+                _banshanTestDelayUntilMs = now + 400;
+                break;
+
+            case BanshanTestPhaseLoopWait:
+                if (!BanshanTestCheckTeamEggsOrTip())
+                {
+                    _banshanTestActive = false;
+                    _banshanTestPhase = BanshanTestPhaseIdle;
+                    _banshanTestNote = "测试脚本条件不足";
+                    WriteLog("banshan-test stop: eggs missing between rounds");
+                    RefreshScriptTabIfVisible();
+                    return;
+                }
+
+                _banshanTestRound++;
+                _banshanTestRainBagSlot = -1;
+                _banshanTestStepTries = 0;
+                _banshanTestLastNavMs = 0;
+                _banshanTestLastLookMs = 0;
+                _banshanTestDelayUntilMs = 0;
+                _banshanTestPhase = BanshanTestPhaseUseEgg;
+                _banshanTestNote = "第" + _banshanTestRound + "轮：队长用卵…";
+                WriteLog("banshan-test next round=" + _banshanTestRound);
+                break;
+        }
+    }
+
+    private static bool TryUseBagItemByKeyword(string uid, string keyword)
+    {
+        if (string.IsNullOrEmpty(uid) || string.IsNullOrEmpty(keyword))
+        {
+            return false;
+        }
+
+        try
+        {
+            var items = FindType("PlayerDataHolder")?.GetMethod(
+                "GetItemDatasFromUid", BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic)
+                ?.Invoke(null, new object[] { uid }) as IList;
+            if (items == null)
+            {
+                return false;
+            }
+
+            var itemMgr = GetManagerInstance("ItemManager");
+            if (itemMgr == null)
+            {
+                return false;
+            }
+
+            MethodInfo use = null;
+            foreach (var m in itemMgr.GetType().GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+            {
+                if (m.Name != "SendUseItem")
+                {
+                    continue;
+                }
+
+                var ps = m.GetParameters();
+                if (ps.Length >= 4 && ps[0].ParameterType == typeof(int) && ps[3].ParameterType == typeof(string))
+                {
+                    use = m;
+                    break;
+                }
+            }
+
+            if (use == null)
+            {
+                return false;
+            }
+
+            for (var i = 0; i < items.Count; i++)
+            {
+                var item = items[i];
+                if (item == null || Convert.ToInt32(GetMember(item, "useFlag") ?? 0) != 1)
+                {
+                    continue;
+                }
+
+                var data = GetMember(item, "data");
+                if (!ItemDataMatchesKeyword(data, keyword))
+                {
+                    continue;
+                }
+
+                var px = 0;
+                var py = 0;
+                TryGetPlayerXY(out px, out py);
+                var ps = use.GetParameters();
+                if (ps.Length >= 7)
+                {
+                    use.Invoke(itemMgr, new object[] { px, py, i, uid, 0, -1, 1 });
+                }
+                else if (ps.Length >= 4)
+                {
+                    use.Invoke(itemMgr, new object[] { px, py, i, uid });
+                }
+
+                WriteLog("use bag item-by-kw uid=" + uid + " kw=" + keyword + " slot=" + i);
+                return true;
+            }
+
+            return false;
+        }
+        catch (Exception ex)
+        {
+            WriteLog("TryUseBagItemByKeyword EX " + RootMessage(ex));
+            return false;
+        }
+    }
+
+    private static int FindBagItemSlotByKeyword(string uid, string keyword)
+    {
+        if (string.IsNullOrEmpty(uid) || string.IsNullOrEmpty(keyword))
+        {
+            return -1;
+        }
+
+        try
+        {
+            var items = FindType("PlayerDataHolder")?.GetMethod(
+                "GetItemDatasFromUid", BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic)
+                ?.Invoke(null, new object[] { uid }) as IList;
+            if (items == null)
+            {
+                return -1;
+            }
+
+            for (var i = 0; i < items.Count; i++)
+            {
+                var item = items[i];
+                if (item == null || Convert.ToInt32(GetMember(item, "useFlag") ?? 0) != 1)
+                {
+                    continue;
+                }
+
+                if (ItemDataMatchesKeyword(GetMember(item, "data"), keyword))
+                {
+                    return i;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            WriteLog("FindBagItemSlotByKeyword EX " + RootMessage(ex));
+        }
+
+        return -1;
+    }
+
+    private static bool TryFindAccountBankIndexByKeyword(string keyword, out int bankIndex)
+    {
+        bankIndex = -1;
+        if (string.IsNullOrEmpty(keyword))
+        {
+            return false;
+        }
+
+        try
+        {
+            IList update;
+            if (!TryGetAccountBankUpdateItems(out update) || update == null)
+            {
+                return false;
+            }
+
+            for (var i = 0; i < update.Count; i++)
+            {
+                var row = update[i];
+                if (row == null)
+                {
+                    continue;
+                }
+
+                var itemId = Convert.ToInt32(GetMember(row, "Itemid") ?? GetProp(row, "Itemid") ?? 0);
+                if (itemId <= 0)
+                {
+                    continue;
+                }
+
+                var cfg = TryGetItemConfigById(itemId);
+                if (cfg == null || !ItemDataMatchesKeyword(cfg, keyword))
+                {
+                    continue;
+                }
+
+                bankIndex = Convert.ToInt32(GetMember(row, "Index") ?? GetProp(row, "Index") ?? -1);
+                if (bankIndex >= 0)
+                {
+                    return true;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            WriteLog("TryFindAccountBankIndexByKeyword EX " + RootMessage(ex));
+        }
+
+        return false;
+    }
+
+    private static bool TryLookNpcByNameNear(string npcName, int preferX, int preferY)
+    {
+        if (string.IsNullOrEmpty(npcName))
+        {
+            return false;
+        }
+
+        try
+        {
+            var holder = FindType("EntityDataHolder");
+            object dictObj = holder?.GetProperty(
+                "characterDatas",
+                BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic)?.GetValue(null, null);
+            if (dictObj == null)
+            {
+                dictObj = GetStaticMember("EntityDataHolder", "characterDatas");
+            }
+
+            var dict = dictObj as System.Collections.IDictionary;
+            if (dict == null)
+            {
+                return false;
+            }
+
+            var best = -1;
+            var bestDist = int.MaxValue;
+            foreach (System.Collections.DictionaryEntry e in dict)
+            {
+                var ent = e.Value;
+                if (ent == null)
+                {
+                    continue;
+                }
+
+                var npcindex = Convert.ToInt32(GetMember(ent, "npcindex") ?? GetProp(ent, "npcindex") ?? -1);
+                if (npcindex == -1)
+                {
+                    continue;
+                }
+
+                var nm = (Convert.ToString(GetMember(ent, "name") ?? GetProp(ent, "name") ?? "") ?? "").Trim();
+                if (nm.IndexOf(npcName, StringComparison.Ordinal) < 0)
+                {
+                    continue;
+                }
+
+                var nx = Convert.ToInt32(GetMember(ent, "x") ?? GetProp(ent, "x") ?? -1);
+                var ny = Convert.ToInt32(GetMember(ent, "y") ?? GetProp(ent, "y") ?? -1);
+                var d = Math.Abs(nx - preferX) + Math.Abs(ny - preferY);
+                var objindex = Convert.ToInt32(GetMember(ent, "objindex") ?? GetProp(ent, "objindex") ?? -1);
+                if (objindex < 0)
+                {
+                    continue;
+                }
+
+                if (d < bestDist)
+                {
+                    bestDist = d;
+                    best = objindex;
+                }
+            }
+
+            if (best < 0)
+            {
+                return false;
+            }
+
+            var npcMgr = GetManagerInstance("NpcManager");
+            var look = npcMgr?.GetType().GetMethod(
+                "SendLookNpc",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            if (look == null)
+            {
+                return false;
+            }
+
+            look.Invoke(npcMgr, new object[] { 0, best });
+            WriteLog("banshan-test LookNpcByName obj=" + best + " name=" + npcName);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            WriteLog("TryLookNpcByNameNear EX " + RootMessage(ex));
+            return false;
+        }
     }
 
     private static string FormatSkCNavStatus()
@@ -18210,7 +19137,7 @@ public static class SeqChapterTestUi
             hintText,
             "队列护航：可塞未接；完成一项后等 5 秒再下一项。\n"
             + "手动暂停不清铃；自动暂停约每2秒响铃。静止5秒恢复；本步骤连续20次失败自动暂停。\n"
-            + "洗礼/半山预备并排；半山：9完成则重置13689并查#15210×2，再护航未完成1368；战败暂停。\n"
+            + "洗礼预备带战败暂停（forceQuit）。\n"
             + "战后队伍不足5人：自动暂停，组好后点「继续护航」。",
             11);
 
@@ -18275,11 +19202,8 @@ public static class SeqChapterTestUi
         }
 
         y -= 50f;
-        // 洗礼预备 | 半山预备（并排缩小）
-        const float prepBtnW = 200f;
-        const float prepBtnH = 34f;
         var baptismBtn = CreateUiChild(_bodyRoot, "BaptismPrepBtn", rtType);
-        SetAnchoredTop(RequireRect(baptismBtn, "bpb"), -110f, y, prepBtnW, prepBtnH);
+        SetAnchoredTop(RequireRect(baptismBtn, "bpb"), 0f, y, 420f, 40f);
         var baptismImg = AddComp(baptismBtn, "UnityEngine.UI.Image");
         SetColor(
             baptismImg,
@@ -18289,23 +19213,9 @@ public static class SeqChapterTestUi
             1f);
         var baptismLab = CreateUiChild(baptismBtn, "L", rtType);
         StretchFull(RequireRect(baptismLab, "bpl"));
-        SetText(AddText(baptismLab), _baptismPrepActive ? "洗礼预备（停）" : "洗礼预备", 13);
+        SetText(AddText(baptismLab), _baptismPrepActive ? "洗礼预备（停）" : "洗礼预备", 14);
         BindButton(baptismBtn, baptismImg, ToggleBaptismPrep);
-
-        var banshanBtn = CreateUiChild(_bodyRoot, "BanshanPrepBtn", rtType);
-        SetAnchoredTop(RequireRect(banshanBtn, "bspb"), 110f, y, prepBtnW, prepBtnH);
-        var banshanImg = AddComp(banshanBtn, "UnityEngine.UI.Image");
-        SetColor(
-            banshanImg,
-            _banshanPrepActive ? 0.42f : 0.28f,
-            _banshanPrepActive ? 0.38f : 0.40f,
-            _banshanPrepActive ? 0.18f : 0.32f,
-            1f);
-        var banshanLab = CreateUiChild(banshanBtn, "L", rtType);
-        StretchFull(RequireRect(banshanLab, "bspl"));
-        SetText(AddText(banshanLab), _banshanPrepActive ? "半山预备（停）" : "半山预备", 13);
-        BindButton(banshanBtn, banshanImg, ToggleBanshanPrep);
-        y -= 42f;
+        y -= 48f;
 
         if (_escortAlertRinging)
         {
@@ -19315,13 +20225,6 @@ public static class SeqChapterTestUi
                 CancelEscort(true, "已切换到洗礼预备");
             }
 
-            if (_banshanPrepActive)
-            {
-                _banshanPrepActive = false;
-                _banshanPrepPhase = 0;
-                _banshanSawForceQuit = false;
-                WriteLog("baptism prep: cleared banshan prep flag");
-            }
 
             if (_floraHealActive)
             {
@@ -19858,326 +20761,6 @@ public static class SeqChapterTestUi
             {
                 WriteLog("baptism reset EX uid=" + uid + " " + RootMessage(ex));
             }
-        }
-    }
-
-    /// <summary>脚本页：全队重置半山 1/3/6/8/9（#75/#77/#80/#82/#83）。</summary>
-    private static void RunResetBanshan()
-    {
-        var sent = ResetBanshan13689ForAll();
-        if (sent <= 0)
-        {
-            Tip("重置半山：未发出（无队员或反射失败）");
-            return;
-        }
-
-        Tip("已重置半山13689（全队，" + sent + " 条）");
-    }
-
-    /// <summary>对所有队员发送重置半山 1/3/6/8/9；返回成功发包数。</summary>
-    private static int ResetBanshan13689ForAll()
-    {
-        var uids = CollectTeamOrMultiUids();
-        if (uids.Count == 0)
-        {
-            var cap = GetCaptainUid();
-            if (!string.IsNullOrEmpty(cap))
-            {
-                uids.Add(cap);
-            }
-        }
-
-        if (uids.Count == 0)
-        {
-            WriteLog("banshan reset: 无 uid");
-            return 0;
-        }
-
-        var resetType = FindType("Proto_CS_ResetTask");
-        var lss = FindType("LSSPROTO");
-        var opcodeField = lss?.GetField("LSSPROTO_RESET_TASK_FUNC", BindingFlags.Public | BindingFlags.Static);
-        var net = GetManagerInstance("NetManager");
-        var send = net?.GetType().GetMethod("SendMessage", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-        if (resetType == null || opcodeField == null || net == null || send == null)
-        {
-            WriteLog("banshan reset: 反射缺失 resetType=" + (resetType != null)
-                     + " opcode=" + (opcodeField != null) + " net=" + (net != null) + " send=" + (send != null));
-            return 0;
-        }
-
-        var opcode = opcodeField.GetValue(null);
-        var sent = 0;
-        foreach (var uid in uids)
-        {
-            foreach (var missionId in BanshanResetMissionIds)
-            {
-                var mission = GetMissionDataById(missionId);
-                var resetId = mission != null ? Convert.ToInt32(GetMember(mission, "resetId") ?? -1) : -1;
-                if (resetId < 0)
-                {
-                    WriteLog("banshan reset: uid=" + uid + " mission=" + missionId + " resetId 无效，跳过");
-                    continue;
-                }
-
-                try
-                {
-                    var msg = Activator.CreateInstance(resetType);
-                    SetMember(msg, "Type", "重置任务");
-                    SetMember(msg, "Id", resetId.ToString());
-                    SetMember(msg, "KUid", uid);
-                    send.Invoke(net, new object[] { opcode, msg });
-                    sent++;
-                    WriteLog("banshan reset: uid=" + uid + " mission=" + missionId + " resetId=" + resetId);
-                }
-                catch (Exception ex)
-                {
-                    WriteLog("banshan reset EX uid=" + uid + " mission=" + missionId + " " + RootMessage(ex));
-                }
-            }
-        }
-
-        return sent;
-    }
-
-    /// <summary>任务是否已完成（Ended / "2"）。</summary>
-    private static bool IsMissionEndedStatus(object mission)
-    {
-        if (mission == null)
-        {
-            return false;
-        }
-
-        var st = GetMissionStatusStr(mission);
-        return st.EndsWith("Ended", StringComparison.Ordinal) || st == "2";
-    }
-
-    private static bool IsMissionEndedById(int missionId)
-    {
-        return IsMissionEndedStatus(GetMissionDataById(missionId));
-    }
-
-    /// <summary>护航页：半山预备开关。9完成→重置13689+查道具→护航未完成1368；否则中途续做；战败暂停。</summary>
-    private static void ToggleBanshanPrep()
-    {
-        if (_banshanPrepActive)
-        {
-            StopBanshanPrep("已手动停止");
-            return;
-        }
-
-        StartBanshanPrep();
-    }
-
-    private static void StopBanshanPrep(string reason)
-    {
-        if (!_banshanPrepActive && !_escortActive)
-        {
-            Tip("半山预备：未在运行");
-            return;
-        }
-
-        _banshanPrepActive = false;
-        _banshanPrepPhase = 0;
-        _banshanSawForceQuit = false;
-        WriteLog("banshan prep stop reason=" + reason);
-        if (_escortActive || _escortPicking || _escortQueue.Count > 0)
-        {
-            CancelEscort(true, "半山预备已停止");
-        }
-        else
-        {
-            Tip("半山预备：已关闭");
-        }
-
-        TryRebuildEscortTab();
-    }
-
-    private static void StartBanshanPrep()
-    {
-        try
-        {
-            if (_baptismPrepActive)
-            {
-                StopBaptismPrep("已切换到半山预备");
-            }
-
-            if (_dragonLoopActive || _midAutumnLoopActive || _escortActive || _escortPicking)
-            {
-                CancelEscort(true, "已切换到半山预备");
-            }
-
-            _banshanPrepActive = true;
-            _banshanSawForceQuit = false;
-            _banshanPrepPhaseAtMs = NowMs();
-
-            var nineEnded = IsMissionEndedById(Banshan9MissionId);
-            WriteLog("banshan prep start nineEnded=" + nineEnded);
-
-            if (nineEnded)
-            {
-                var sent = ResetBanshan13689ForAll();
-                _banshanPrepPhase = BanshanPhaseResetWait;
-                _banshanPrepPhaseAtMs = NowMs();
-                Tip("半山预备：半山9已完成，重置13689（" + sent + " 条）…");
-                WriteLog("banshan prep reset sent=" + sent + " wait item check");
-                TryRebuildEscortTab();
-                return;
-            }
-
-            // 中途恢复：按 1368 未完成状态入队；全完成则启动即完成（不做5/9）
-            if (!BeginBanshanEscortFromUnfinished(false))
-            {
-                _banshanPrepActive = false;
-                _banshanPrepPhase = 0;
-                TryRebuildEscortTab();
-            }
-        }
-        catch (Exception ex)
-        {
-            WriteLog("StartBanshanPrep EX: " + RootMessage(ex));
-            Tip("半山预备：启动失败");
-            _banshanPrepActive = false;
-            _banshanPrepPhase = 0;
-            _banshanSawForceQuit = false;
-            TryRebuildEscortTab();
-        }
-    }
-
-    /// <summary>
-    /// 收集半山 1/3/6/8 中未完成项入队并开护航。
-    /// afterReset=true 时先查全队 #15210≥2。
-    /// 队列为空：Tip 启动即完成并返回 false。
-    /// </summary>
-    private static bool BeginBanshanEscortFromUnfinished(bool afterReset)
-    {
-        if (afterReset)
-        {
-            if (!CheckBanshanResetItemOrTip())
-            {
-                _banshanPrepActive = false;
-                _banshanPrepPhase = 0;
-                _banshanSawForceQuit = false;
-                return false;
-            }
-        }
-
-        var pending = new List<int>();
-        foreach (var id in BanshanEscortMissionIds)
-        {
-            if (!IsMissionEndedById(id))
-            {
-                pending.Add(id);
-            }
-        }
-
-        if (pending.Count == 0)
-        {
-            WriteLog("banshan prep done: 1368 all ended (skip 5/9)");
-            Tip("半山预备：1368 已完成，启动即完成");
-            _banshanPrepActive = false;
-            _banshanPrepPhase = 0;
-            _banshanSawForceQuit = false;
-            return false;
-        }
-
-        _escortQueue.Clear();
-        foreach (var id in pending)
-        {
-            var mission = GetMissionDataById(id);
-            var title = mission != null
-                ? (Convert.ToString(GetMember(mission, "title") ?? "") ?? "")
-                : "";
-            _escortQueue.Add(new EscortCandidate
-            {
-                Id = id,
-                Title = string.IsNullOrEmpty(title) ? ("半山#" + id) : title,
-                Status = "排队"
-            });
-        }
-
-        var now = NowMs();
-        _banshanPrepPhase = BanshanPhaseEscort;
-        _escortPicking = false;
-        _escortActive = true;
-        _escortPaused = false;
-        _escortPauseReason = "";
-        _escortLastDiag = "";
-        StopEscortAlertRing();
-        _escortQueueIndex = 0;
-        _escortBetweenTasksWaitMs = 0;
-        _escortAwaitingReadyMs = 0;
-        _escortRecoverAttempts = 0;
-        ResetEscortStuckState();
-        _escortFinishWaitMs = 0;
-        _escortLastStepNum = -1;
-        _lastActivityMs = now;
-        _prevRunTaskId = GetRunTaskId();
-        WriteLog("banshan prep run queue=" + _escortQueue.Count + " afterReset=" + afterReset);
-        Tip("半山预备：已入队 " + _escortQueue.Count + " 项（1368，战败将暂停）");
-        TryRebuildEscortTab();
-        return true;
-    }
-
-    /// <summary>重置开局：全队每人背包 #15210 至少 2 个。</summary>
-    private static bool CheckBanshanResetItemOrTip()
-    {
-        var uids = CollectTeamOrMultiUids();
-        if (uids.Count == 0)
-        {
-            var cap = GetCaptainUid();
-            if (!string.IsNullOrEmpty(cap))
-            {
-                uids.Add(cap);
-            }
-        }
-
-        if (uids.Count == 0)
-        {
-            Tip("半山预备：无队员，无法检查道具#" + BanshanResetItemId);
-            return false;
-        }
-
-        var fails = new List<string>();
-        foreach (var uid in uids)
-        {
-            var n = CountBagItemById(uid, BanshanResetItemId);
-            if (n < BanshanResetItemMin)
-            {
-                fails.Add(FormatBaptismPlayerShort(uid) + "×" + n);
-            }
-        }
-
-        if (fails.Count > 0)
-        {
-            var msg = "半山预备：道具#" + BanshanResetItemId + "不足"
-                      + BanshanResetItemMin + "：" + string.Join("，", fails.ToArray());
-            Tip(msg);
-            WriteLog("banshan item check fail " + msg);
-            return false;
-        }
-
-        WriteLog("banshan item check ok uids=" + uids.Count + " id=" + BanshanResetItemId
-                 + " min=" + BanshanResetItemMin);
-        return true;
-    }
-
-    /// <summary>半山预备 phase1：等重置回包后查道具并入队未完成 1368。</summary>
-    private static void TickBanshanPrepPrepare()
-    {
-        if (!_banshanPrepActive || _banshanPrepPhase != BanshanPhaseResetWait)
-        {
-            return;
-        }
-
-        var now = NowMs();
-        if (now - _banshanPrepPhaseAtMs < BanshanResetDelayMs)
-        {
-            return;
-        }
-
-        if (!BeginBanshanEscortFromUnfinished(true))
-        {
-            TryRebuildEscortTab();
         }
     }
 
@@ -20823,6 +21406,427 @@ public static class SeqChapterTestUi
         }
 
         return "";
+    }
+
+    private static string FormatWarpWaitStatus()
+    {
+        if (!_warpWaitActive)
+        {
+            return "循环等待传送: 未启动\n无队→回城点2→(67,79)→建队→冥界之雨→满员确定→60273→解散";
+        }
+
+        return "循环等待传送: 第" + _warpWaitRound + "轮 "
+               + WarpWaitPhaseName(_warpWaitPhase)
+               + " 查队" + _warpWaitTeamChecks
+               + "\n" + (_warpWaitNote ?? "");
+    }
+
+    private static string WarpWaitPhaseName(int phase)
+    {
+        switch (phase)
+        {
+            case WarpWaitReturn: return "回城点2";
+            case WarpWaitWalk: return "走到(67,79)";
+            case WarpWaitCreateTeam: return "创建队伍";
+            case WarpWaitUseRain: return "用冥界之雨";
+            case WarpWaitWaitConfirm: return "等队点确定";
+            case WarpWaitDismiss: return "解散队伍";
+            default: return "准备";
+        }
+    }
+
+    private static void WarpWaitSay(string msg, bool tip)
+    {
+        _warpWaitNote = msg ?? "";
+        WriteLog("warp-wait " + (msg ?? ""));
+        if (!tip)
+        {
+            return;
+        }
+
+        Tip("循环等待传送：" + msg);
+        _warpWaitLastTipMs = NowMs();
+    }
+
+    private static void WarpWaitSayWait(string msg, long now)
+    {
+        _warpWaitNote = msg ?? "";
+        if (_warpWaitLastTipMs <= 0 || now - _warpWaitLastTipMs >= 2500)
+        {
+            WarpWaitSay(msg, true);
+        }
+    }
+
+    private static void ToggleWarpWait()
+    {
+        if (_warpWaitActive)
+        {
+            StopWarpWait("已手动停止");
+            Tip("循环等待传送已关闭");
+            return;
+        }
+
+        StartWarpWait();
+    }
+
+    private static void StartWarpWait()
+    {
+        if (_floraHealActive || _banshanTestActive || _wildExActive)
+        {
+            Tip("请先停其它脚本");
+            return;
+        }
+
+        if (IsInBattleNow())
+        {
+            Tip("战斗中不能启动循环等待传送");
+            return;
+        }
+
+        var uid = GetMainPlayerUidSafe();
+        if (string.IsNullOrEmpty(uid))
+        {
+            Tip("未找到角色");
+            return;
+        }
+
+        var teamNum = GetEscortTeamNum();
+        if (teamNum > 0)
+        {
+            Tip("当前已有队伍（" + teamNum + "人），循环等待传送启动失败");
+            return;
+        }
+
+        TrySendLocalAutoBattle("停止挂机");
+        StopTaskNavigation(false);
+        _warpWaitActive = true;
+        _warpWaitPhase = WarpWaitReturn;
+        _warpWaitDelayUntilMs = 0;
+        _warpWaitActionAtMs = 0;
+        _warpWaitLastNavMs = 0;
+        _warpWaitLastTipMs = 0;
+        _warpWaitStepTries = 0;
+        _warpWaitTeamChecks = 0;
+        _warpWaitRound = 1;
+        WarpWaitSay("回城点2", true);
+        WriteLog("warp-wait start");
+        RefreshScriptTabIfVisible();
+    }
+
+    private static void StopWarpWait(string reason)
+    {
+        if (!_warpWaitActive && _warpWaitPhase == WarpWaitIdle)
+        {
+            return;
+        }
+
+        _warpWaitActive = false;
+        _warpWaitPhase = WarpWaitIdle;
+        _warpWaitDelayUntilMs = 0;
+        _warpWaitNote = reason ?? "";
+        WriteLog("warp-wait stop " + reason);
+        RefreshScriptTabIfVisible();
+    }
+
+    private static void TickWarpWait()
+    {
+        if (!_warpWaitActive)
+        {
+            return;
+        }
+
+        var now = NowMs();
+        if (_warpWaitDelayUntilMs > 0 && now < _warpWaitDelayUntilMs)
+        {
+            return;
+        }
+
+        _warpWaitDelayUntilMs = 0;
+        if (IsInBattleNow())
+        {
+            WarpWaitSayWait("暂停：战斗中", now);
+            return;
+        }
+
+        if (IsMapLoading())
+        {
+            WarpWaitSayWait("暂停：过图中", now);
+            return;
+        }
+
+        var uid = GetMainPlayerUidSafe();
+        if (string.IsNullOrEmpty(uid))
+        {
+            StopWarpWait("no-uid");
+            Tip("未找到角色");
+            return;
+        }
+
+        int floor;
+        string floorName;
+        int mapRes;
+        TryGetCurrentMapInfo(out floor, out floorName, out mapRes);
+        int x;
+        int y;
+        TryGetPlayerXY(out x, out y);
+
+        switch (_warpWaitPhase)
+        {
+            case WarpWaitReturn:
+                TickWarpWaitReturn(now, floor);
+                break;
+            case WarpWaitWalk:
+                TickWarpWaitWalk(now, floor, x, y);
+                break;
+            case WarpWaitCreateTeam:
+                TickWarpWaitCreateTeam(now, uid);
+                break;
+            case WarpWaitUseRain:
+                TickWarpWaitUseRain(now, uid);
+                break;
+            case WarpWaitWaitConfirm:
+                TickWarpWaitWaitConfirm(now, floor);
+                break;
+            case WarpWaitDismiss:
+                TickWarpWaitDismiss(now, uid);
+                break;
+        }
+    }
+
+    private static void TickWarpWaitReturn(long now, int floor)
+    {
+        if (floor == FloraHealReturnFloor)
+        {
+            _warpWaitStepTries = 0;
+            _warpWaitActionAtMs = 0;
+            _warpWaitLastNavMs = 0;
+            _warpWaitPhase = WarpWaitWalk;
+            WarpWaitSay("已回城，走到 (67,79)", true);
+            _warpWaitDelayUntilMs = now + 1000;
+            return;
+        }
+
+        if (_warpWaitActionAtMs > 0 && now - _warpWaitActionAtMs < WarpWaitReturnWaitMs)
+        {
+            WarpWaitSayWait("等待回城点2 " + _warpWaitStepTries + "/" + WarpWaitMaxReturnTries, now);
+            return;
+        }
+
+        if (_warpWaitStepTries >= WarpWaitMaxReturnTries)
+        {
+            StopWarpWait("return-fail");
+            Tip("回城点2未到位");
+            return;
+        }
+
+        _warpWaitStepTries++;
+        _warpWaitActionAtMs = now;
+        if (!FloraHealSendReturnCity())
+        {
+            WarpWaitSay("回城发包失败 " + _warpWaitStepTries + "/" + WarpWaitMaxReturnTries, true);
+            return;
+        }
+
+        WarpWaitSay("已发回城点2 " + _warpWaitStepTries + "/" + WarpWaitMaxReturnTries, true);
+    }
+
+    private static void TickWarpWaitWalk(long now, int floor, int x, int y)
+    {
+        if (floor != WarpWaitStandFloor)
+        {
+            _warpWaitPhase = WarpWaitReturn;
+            _warpWaitStepTries = 0;
+            _warpWaitActionAtMs = 0;
+            WarpWaitSay("不在法兰，再回城", true);
+            return;
+        }
+
+        if (Math.Abs(x - WarpWaitStandX) <= 1 && Math.Abs(y - WarpWaitStandY) <= 1)
+        {
+            _warpWaitPhase = WarpWaitCreateTeam;
+            _warpWaitStepTries = 0;
+            WarpWaitSay("已到 (67,79)，创建队伍", true);
+            return;
+        }
+
+        if (_warpWaitLastNavMs > 0 && now - _warpWaitLastNavMs < WarpWaitNavRetryMs)
+        {
+            WarpWaitSayWait("走路中 现" + x + "," + y, now);
+            return;
+        }
+
+        _warpWaitLastNavMs = now;
+        string how;
+        if (TryNavigateTo(WarpWaitStandFloor, WarpWaitStandX, WarpWaitStandY, out how)
+            || TryWalkTo(WarpWaitStandX, WarpWaitStandY))
+        {
+            WarpWaitSay("走路 " + how + " 现" + x + "," + y, false);
+        }
+        else
+        {
+            WarpWaitSay("导航失败 现" + x + "," + y, true);
+        }
+    }
+
+    private static void TickWarpWaitCreateTeam(long now, string uid)
+    {
+        var teamNum = GetEscortTeamNum();
+        if (teamNum > 0)
+        {
+            _warpWaitStepTries = 0;
+            _warpWaitPhase = WarpWaitUseRain;
+            WarpWaitSay("已有队伍(" + teamNum + ")，用冥界之雨", true);
+            _warpWaitDelayUntilMs = now + 500;
+            return;
+        }
+
+        if (_warpWaitStepTries >= 3)
+        {
+            StopWarpWait("create-team-fail");
+            Tip("创建队伍失败");
+            return;
+        }
+
+        if (!TrySendTeamOperation("创建队伍", ""))
+        {
+            StopWarpWait("create-team-fail");
+            Tip("创建队伍发包失败");
+            return;
+        }
+
+        _warpWaitStepTries++;
+        WarpWaitSay("已发创建队伍 " + _warpWaitStepTries + "/3", true);
+        _warpWaitDelayUntilMs = now + 1000;
+    }
+
+    private static void TickWarpWaitUseRain(long now, string uid)
+    {
+        if (CountBagItemByKeyword(uid, WarpWaitRainKeyword) <= 0)
+        {
+            StopWarpWait("no-rain");
+            Tip("背包没有冥界之雨");
+            return;
+        }
+
+        if (!TryUseBagItemByKeyword(uid, WarpWaitRainKeyword))
+        {
+            StopWarpWait("use-rain-fail");
+            Tip("使用冥界之雨失败");
+            return;
+        }
+
+        _warpWaitTeamChecks = 0;
+        _warpWaitPhase = WarpWaitWaitConfirm;
+        WarpWaitSay("已用冥界之雨，等队伍后点确定", true);
+        _warpWaitDelayUntilMs = now + WarpWaitPollMs;
+    }
+
+    private static void TickWarpWaitWaitConfirm(long now, int floor)
+    {
+        if (floor == WarpWaitTargetFloor)
+        {
+            _warpWaitPhase = WarpWaitDismiss;
+            WarpWaitSay("已到图" + WarpWaitTargetFloor + "，解散队伍", true);
+            return;
+        }
+
+        _warpWaitTeamChecks++;
+        var teamNum = GetEscortTeamNum();
+            var shouldConfirm = teamNum >= WarpWaitTeamFull
+                            || (teamNum >= WarpWaitTeamMinEarly
+                                && _warpWaitTeamChecks >= WarpWaitEarlyAfterChecks);
+        if (shouldConfirm)
+        {
+            if (TryConfirmWarpWaitDialog())
+            {
+                WarpWaitSay("已点确定 队" + teamNum + " 查" + _warpWaitTeamChecks
+                            + " 现图" + floor, true);
+            }
+            else
+            {
+                WarpWaitSayWait("等确定框 队" + teamNum + " 查" + _warpWaitTeamChecks
+                                + " 现图" + floor, now);
+            }
+        }
+        else
+        {
+            WarpWaitSayWait("等满员 队" + teamNum + "/" + WarpWaitTeamFull
+                            + " 查" + _warpWaitTeamChecks + " 现图" + floor, now);
+        }
+
+        _warpWaitDelayUntilMs = now + WarpWaitPollMs;
+    }
+
+    private static void TickWarpWaitDismiss(long now, string uid)
+    {
+        var teamNum = GetEscortTeamNum();
+        if (teamNum <= 0)
+        {
+            _warpWaitRound++;
+            _warpWaitStepTries = 0;
+            _warpWaitActionAtMs = 0;
+            _warpWaitTeamChecks = 0;
+            _warpWaitPhase = WarpWaitReturn;
+            WarpWaitSay("已解散，第" + _warpWaitRound + "轮回城", true);
+            _warpWaitDelayUntilMs = now + 1000;
+            return;
+        }
+
+        if (!TrySendTeamOperation("解散队伍", uid))
+        {
+            StopWarpWait("dismiss-fail");
+            Tip("解散队伍失败");
+            return;
+        }
+
+        WarpWaitSay("已发解散队伍 现" + teamNum + "人", true);
+        _warpWaitDelayUntilMs = now + 1000;
+    }
+
+    private static bool TrySendTeamOperation(string op, string uid)
+    {
+        try
+        {
+            var tm = GetManagerInstance("TeamManager");
+            if (tm == null)
+            {
+                return false;
+            }
+
+            var send = tm.GetType().GetMethod(
+                "SendOperation",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            if (send == null)
+            {
+                return false;
+            }
+
+            send.Invoke(tm, new object[] { op, uid ?? "" });
+            WriteLog("warp-wait SendOperation " + op);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            WriteLog("warp-wait SendOperation EX " + RootMessage(ex));
+            return false;
+        }
+    }
+
+    private static bool TryConfirmWarpWaitDialog()
+    {
+        if (TryConfirmMessageBoxPanel())
+        {
+            WriteLog("warp-wait confirm MessageBoxPanel");
+            return true;
+        }
+
+        if (TryClickWindowsMessageOkOnly())
+        {
+            WriteLog("warp-wait confirm UI_WindowsMessage");
+            return true;
+        }
+
+        return false;
     }
 
     private static string FormatWildExchangeStatus()
@@ -27407,11 +28411,6 @@ public static class SeqChapterTestUi
         {
             state = "洗礼预备：重置洗礼5中…（随后入队1/2/4/5）";
         }
-        else if (_banshanPrepActive && _banshanPrepPhase == BanshanPhaseResetWait)
-        {
-            state = "半山预备：重置13689中…（查#" + BanshanResetItemId + "×"
-                    + BanshanResetItemMin + "后入队未完成1368）";
-        }
         else if (_baptismPrepActive && _floraHealBaptismStage == FloraBaptismBefore5 && _floraHealActive)
         {
             state = "洗礼预备：洗礼4后法兰治疗…（" + FloraHealPhaseName(_floraHealPhase) + "）";
@@ -27573,7 +28572,6 @@ public static class SeqChapterTestUi
                + (_dragonLoopActive ? "\n龙族循环: 已循环 " + _dragonLoopCount + " 轮" : "")
                + (_midAutumnLoopActive ? "\n七夕循环: 已完成 " + _midAutumnLoopCount + " 轮（存券后计）" : "")
                + (_baptismPrepActive ? "\n洗礼预备: 运行中（战败暂停；#99前治疗+道具；60305手动Boss）" : "")
-               + (_banshanPrepActive ? "\n半山预备: 运行中（1368；战败暂停）" : "")
                + (_escortStuckAbortResumePending ? "\n卡位：清路径后点任务…" : "")
                + (_stuckResumePending ? "\n卡楼梯：挪格后点任务…" : "");
     }
@@ -28491,14 +29489,6 @@ public static class SeqChapterTestUi
             TryRebuildEscortTab();
         }
 
-        if (_banshanPrepActive)
-        {
-            WriteLog("banshan prep queue finish");
-            _banshanPrepActive = false;
-            _banshanPrepPhase = 0;
-            _banshanSawForceQuit = false;
-            TryRebuildEscortTab();
-        }
 
         _escortPicking = false;
         _escortActive = false;
@@ -28577,13 +29567,6 @@ public static class SeqChapterTestUi
             ClearBaptism5BridgeFlags();
         }
 
-        if (_banshanPrepActive)
-        {
-            WriteLog("banshan prep stop via cancel");
-            _banshanPrepActive = false;
-            _banshanPrepPhase = 0;
-            _banshanSawForceQuit = false;
-        }
 
         // 用记忆等待标志无条件清理（普通护航龙3/4 也可能置位）
         _dragonUseMemoryPending = false;
@@ -29031,7 +30014,7 @@ public static class SeqChapterTestUi
         }
 
         if (IsEscapeDown() && (_escortPicking || _escortActive || _escortPaused
-            || _dragonLoopActive || _midAutumnLoopActive || _baptismPrepActive || _banshanPrepActive))
+            || _dragonLoopActive || _midAutumnLoopActive || _baptismPrepActive))
         {
             if (_dragonLoopActive)
             {
@@ -29051,11 +30034,6 @@ public static class SeqChapterTestUi
                 return;
             }
 
-            if (_banshanPrepActive)
-            {
-                StopBanshanPrep("已按 ESC 停止");
-                return;
-            }
 
             // 护航中（含暂停）编辑队列时：ESC 只关编辑，不清队列
             if (_escortPicking && _escortActive)
@@ -29095,11 +30073,6 @@ public static class SeqChapterTestUi
             return;
         }
 
-        if (_banshanPrepActive && _banshanPrepPhase == BanshanPhaseResetWait)
-        {
-            TickBanshanPrepPrepare();
-            return;
-        }
 
         if (_skCNavActive && _skCNavOwnsEscort)
         {
@@ -30245,7 +31218,7 @@ public static class SeqChapterTestUi
     }
 
     /// <summary>
-    /// 护航战斗边沿：出战刷新静止计时；洗礼/半山预备见 forceQuit 则暂停；队伍解散或不足 5 人则暂停。
+    /// 护航战斗边沿：出战刷新静止计时；洗礼预备见 forceQuit 则暂停；队伍解散或不足 5 人则暂停。
     /// </summary>
     private static void TickEscortBattleExitTeamGuard()
     {
@@ -30256,11 +31229,6 @@ public static class SeqChapterTestUi
             {
                 _baptismSawForceQuit = true;
             }
-
-            if (_banshanPrepActive)
-            {
-                _banshanSawForceQuit = true;
-            }
         }
 
         if (_escortPrevInBattle && !inBattle)
@@ -30268,21 +31236,14 @@ public static class SeqChapterTestUi
             _lastActivityMs = NowMs();
             WriteLog("escort battle exit idle reset id=" + _escortMissionId
                      + " dragon=" + _dragonLoopActive + " qixi=" + _midAutumnLoopActive
-                     + " baptism=" + _baptismPrepActive + " banshan=" + _banshanPrepActive
-                     + " forceQuitSawBap=" + _baptismSawForceQuit
-                     + " forceQuitSawBan=" + _banshanSawForceQuit);
+                     + " baptism=" + _baptismPrepActive
+                     + " forceQuitSawBap=" + _baptismSawForceQuit);
             if (!_escortPaused)
             {
                 if (_baptismPrepActive && _baptismSawForceQuit)
                 {
                     _baptismSawForceQuit = false;
-                    _banshanSawForceQuit = false;
                     PauseEscort("洗礼预备：战斗失败已暂停，请手动处理后点继续", true);
-                }
-                else if (_banshanPrepActive && _banshanSawForceQuit)
-                {
-                    _banshanSawForceQuit = false;
-                    PauseEscort("半山预备：战斗失败已暂停，请手动处理后点继续", true);
                 }
                 else
                 {
@@ -30291,7 +31252,6 @@ public static class SeqChapterTestUi
             }
 
             _baptismSawForceQuit = false;
-            _banshanSawForceQuit = false;
         }
 
         _escortPrevInBattle = inBattle;
@@ -33188,6 +34148,388 @@ public static class SeqChapterTestUi
         catch (Exception ex)
         {
             WriteLog("119 store tickets EX uid=" + uid + " " + RootMessage(ex));
+            return false;
+        }
+    }
+
+    /// <summary>打开远程个人道具仓库（BANK_TYPE.PERSONAL_BANK / LSSPROTO_BANK_FUNC）。</summary>
+    private static void TryOpenRemotePersonalItemBank(string uid)
+    {
+        try
+        {
+            var roleMgr = GetManagerInstance("RoleManager");
+            if (roleMgr != null)
+            {
+                SetMember(roleMgr, "OpenBankFromBag", true);
+            }
+
+            if (!TrySendActivity("远程个人道具仓库", uid, 0, 19))
+            {
+                WriteLog("open personal item bank send fail uid尾" + TailUid(uid));
+            }
+        }
+        catch (Exception ex)
+        {
+            WriteLog("open personal item bank EX " + RootMessage(ex));
+        }
+    }
+
+    private static IDictionary TryGetPersonalBankTypeDict(string uid)
+    {
+        if (string.IsNullOrEmpty(uid))
+        {
+            return null;
+        }
+
+        try
+        {
+            var roleMgr = GetManagerInstance("RoleManager");
+            if (roleMgr == null)
+            {
+                return null;
+            }
+
+            var get = roleMgr.GetType().GetMethod(
+                "GetBankDataByUid",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            if (get != null)
+            {
+                return get.Invoke(roleMgr, new object[] { uid }) as IDictionary;
+            }
+
+            var bankData = GetMember(roleMgr, "bankData") as IDictionary
+                           ?? GetProp(roleMgr, "bankData") as IDictionary;
+            if (bankData != null && bankData.Contains(uid))
+            {
+                return bankData[uid] as IDictionary;
+            }
+        }
+        catch (Exception ex)
+        {
+            WriteLog("TryGetPersonalBankTypeDict EX " + RootMessage(ex));
+        }
+
+        return null;
+    }
+
+    private static void ClearPersonalBankItemCache(string uid)
+    {
+        try
+        {
+            var dict = TryGetPersonalBankTypeDict(uid);
+            if (dict != null && dict.Contains("更新道具"))
+            {
+                dict.Remove("更新道具");
+            }
+        }
+        catch
+        {
+            // ignore
+        }
+    }
+
+    private static bool TryGetPersonalBankUpdateItems(string uid, out IList updateItems)
+    {
+        updateItems = null;
+        try
+        {
+            var dict = TryGetPersonalBankTypeDict(uid);
+            if (dict == null || !dict.Contains("更新道具"))
+            {
+                return false;
+            }
+
+            var sc = dict["更新道具"];
+            updateItems = GetMember(sc, "UpdateItem") as IList ?? GetProp(sc, "UpdateItem") as IList;
+            return updateItems != null;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// 读个人仓「更新道具」；无缓存 -1；有列表返回张数合计（含 0）。
+    /// </summary>
+    private static int CountPersonalBankItemByKeyword(string uid, string keyword)
+    {
+        if (string.IsNullOrEmpty(keyword))
+        {
+            return -1;
+        }
+
+        try
+        {
+            IList update;
+            if (!TryGetPersonalBankUpdateItems(uid, out update) || update == null)
+            {
+                return -1;
+            }
+
+            var n = 0;
+            for (var i = 0; i < update.Count; i++)
+            {
+                var row = update[i];
+                if (row == null)
+                {
+                    continue;
+                }
+
+                var itemId = Convert.ToInt32(GetMember(row, "Itemid") ?? GetProp(row, "Itemid") ?? 0);
+                if (itemId <= 0)
+                {
+                    continue;
+                }
+
+                var cfg = TryGetItemConfigById(itemId);
+                if (cfg == null || !ItemDataMatchesKeyword(cfg, keyword))
+                {
+                    continue;
+                }
+
+                var pile = Convert.ToInt32(GetMember(row, "Pile") ?? GetProp(row, "Pile") ?? 1);
+                if (pile < 1)
+                {
+                    pile = 1;
+                }
+
+                n += pile;
+            }
+
+            return n;
+        }
+        catch (Exception ex)
+        {
+            WriteLog("CountPersonalBankItem EX " + RootMessage(ex));
+            return -1;
+        }
+    }
+
+    private static bool TryFindPersonalBankIndexByKeyword(string uid, string keyword, out int bankIndex)
+    {
+        bankIndex = -1;
+        if (string.IsNullOrEmpty(keyword))
+        {
+            return false;
+        }
+
+        try
+        {
+            IList update;
+            if (!TryGetPersonalBankUpdateItems(uid, out update) || update == null)
+            {
+                return false;
+            }
+
+            for (var i = 0; i < update.Count; i++)
+            {
+                var row = update[i];
+                if (row == null)
+                {
+                    continue;
+                }
+
+                var itemId = Convert.ToInt32(GetMember(row, "Itemid") ?? GetProp(row, "Itemid") ?? 0);
+                if (itemId <= 0)
+                {
+                    continue;
+                }
+
+                var cfg = TryGetItemConfigById(itemId);
+                if (cfg == null || !ItemDataMatchesKeyword(cfg, keyword))
+                {
+                    continue;
+                }
+
+                bankIndex = Convert.ToInt32(GetMember(row, "Index") ?? GetProp(row, "Index") ?? -1);
+                if (bankIndex >= 0)
+                {
+                    return true;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            WriteLog("TryFindPersonalBankIndexByKeyword EX " + RootMessage(ex));
+        }
+
+        return false;
+    }
+
+    private static bool TrySendPersonalBankTakeNum(string uid, int indexOrItemId, int num)
+    {
+        return TrySendPersonalBankTakeNum(uid, new List<int> { indexOrItemId }, num);
+    }
+
+    private static bool TrySendPersonalBankTakeNum(string uid, List<int> indexList, int num)
+    {
+        var roleMgr = GetManagerInstance("RoleManager");
+        var bankType = ResolvePersonalBankType();
+        if (roleMgr == null || bankType == null || indexList == null || indexList.Count == 0)
+        {
+            return false;
+        }
+
+        MethodInfo sendBank = null;
+        foreach (var m in roleMgr.GetType().GetMethods(
+                     BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+        {
+            if (m.Name != "SendBankMessage")
+            {
+                continue;
+            }
+
+            var ps = m.GetParameters();
+            if (ps.Length >= 4 && ps.Length <= 6)
+            {
+                sendBank = m;
+                break;
+            }
+        }
+
+        if (sendBank == null)
+        {
+            WriteLog("personal take SendBankMessage miss");
+            return false;
+        }
+
+        var ps2 = sendBank.GetParameters();
+        object[] args;
+        if (ps2.Length >= 6)
+        {
+            args = new object[] { bankType, uid, "取道具", 0, num, indexList };
+        }
+        else if (ps2.Length == 5)
+        {
+            args = new object[] { bankType, uid, "取道具", 0, num };
+        }
+        else
+        {
+            args = new object[] { bankType, uid, "取道具" };
+        }
+
+        sendBank.Invoke(roleMgr, args);
+        WriteLog("personal bank 取道具 nList=" + indexList.Count + " num=" + num);
+        return true;
+    }
+
+    private static bool TrySendPersonalBankPutItems(string uid, List<int> indexList)
+    {
+        var roleMgr = GetManagerInstance("RoleManager");
+        var bankType = ResolvePersonalBankType();
+        if (roleMgr == null || bankType == null || indexList == null || indexList.Count == 0)
+        {
+            return false;
+        }
+
+        MethodInfo sendBank = null;
+        foreach (var m in roleMgr.GetType().GetMethods(
+                     BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+        {
+            if (m.Name != "SendBankMessage")
+            {
+                continue;
+            }
+
+            var ps = m.GetParameters();
+            if (ps.Length >= 4 && ps.Length <= 6)
+            {
+                sendBank = m;
+                break;
+            }
+        }
+
+        if (sendBank == null)
+        {
+            WriteLog("personal put SendBankMessage miss");
+            return false;
+        }
+
+        var ps2 = sendBank.GetParameters();
+        object[] args;
+        if (ps2.Length >= 6)
+        {
+            args = new object[] { bankType, uid, "存道具", 0, 0, indexList };
+        }
+        else if (ps2.Length == 5)
+        {
+            args = new object[] { bankType, uid, "存道具", 0, 0 };
+        }
+        else
+        {
+            args = new object[] { bankType, uid, "存道具" };
+        }
+
+        sendBank.Invoke(roleMgr, args);
+        return true;
+    }
+
+    /// <summary>把背包中匹配关键字的道具存入个人仓库。</summary>
+    private static bool StoreBagItemsToPersonalBank(string uid, string keyword)
+    {
+        if (string.IsNullOrEmpty(uid) || string.IsNullOrEmpty(keyword))
+        {
+            return false;
+        }
+
+        StopTaskNavigation(false);
+        try
+        {
+            var getItems = FindType("PlayerDataHolder")?.GetMethod(
+                "GetItemDatasFromUid", BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic);
+            var items = getItems?.Invoke(null, new object[] { uid }) as IList;
+            if (items == null)
+            {
+                return false;
+            }
+
+            var indexes = new List<int>();
+            for (var i = 8; i < items.Count; i++)
+            {
+                var item = items[i];
+                if (item == null || Convert.ToInt32(GetMember(item, "useFlag") ?? 0) != 1)
+                {
+                    continue;
+                }
+
+                var data = GetMember(item, "data");
+                if (!ItemDataMatchesKeyword(data, keyword))
+                {
+                    continue;
+                }
+
+                var idx = Convert.ToInt32(GetMember(data, "Index") ?? i);
+                if (!indexes.Contains(idx))
+                {
+                    indexes.Add(idx);
+                }
+            }
+
+            if (indexes.Count == 0)
+            {
+                return false;
+            }
+
+            TryOpenRemotePersonalItemBank(uid);
+            try
+            {
+                if (!TrySendPersonalBankPutItems(uid, indexes))
+                {
+                    return false;
+                }
+
+                WriteLog("personal store items uid=" + uid + " n=" + indexes.Count + " kw=" + keyword);
+                return true;
+            }
+            finally
+            {
+                TryDismissItemBankAfterStore(uid);
+            }
+        }
+        catch (Exception ex)
+        {
+            WriteLog("StoreBagItemsToPersonalBank EX uid=" + uid + " " + RootMessage(ex));
             return false;
         }
     }
@@ -37623,6 +38965,15 @@ public static class SeqChapterTestUi
         SetProp(rt, "anchoredPosition", Vec2(x, y));
     }
 
+    private static void SetAnchoredBottom(object rt, float x, float y, float w, float h)
+    {
+        SetProp(rt, "anchorMin", Vec2(0.5f, 0f));
+        SetProp(rt, "anchorMax", Vec2(0.5f, 0f));
+        SetProp(rt, "pivot", Vec2(0.5f, 0f));
+        SetProp(rt, "sizeDelta", Vec2(w, h));
+        SetProp(rt, "anchoredPosition", Vec2(x, y));
+    }
+
     private static object Vec2(float x, float y)
     {
         return Activator.CreateInstance(RequireType("UnityEngine.Vector2"), new object[] { x, y });
@@ -38020,6 +39371,48 @@ public static class SeqChapterTestUi
         {
             return null;
         }
+    }
+
+    private static Type FindTypeBySimpleName(string simpleName)
+    {
+        if (string.IsNullOrEmpty(simpleName))
+        {
+            return null;
+        }
+
+        foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+        {
+            Type[] types;
+            try
+            {
+                types = asm.GetTypes();
+            }
+            catch (ReflectionTypeLoadException)
+            {
+                // 目标 mscorlib 桩可能无 Types 属性；该程序集跳过即可
+                continue;
+            }
+            catch
+            {
+                continue;
+            }
+
+            if (types == null)
+            {
+                continue;
+            }
+
+            for (var i = 0; i < types.Length; i++)
+            {
+                var t = types[i];
+                if (t != null && t.Name == simpleName)
+                {
+                    return t;
+                }
+            }
+        }
+
+        return null;
     }
 
     private static object GetManagerInstance(string typeName)

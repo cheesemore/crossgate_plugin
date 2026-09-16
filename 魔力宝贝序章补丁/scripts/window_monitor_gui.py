@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""窗口监视：右下角置顶，刷新 cg37 标题；卡死/卡循环 Bark 推送。
-中元券等统计逻辑保留作参考（面板中元循环已卸）。
+"""窗口监视：右下角置顶，刷新 cg37 标题；卡死 / 护航战斗异常 Bark 推送。
+
+护航战斗（金色）：
+- 日志出现「escort-battle 停战」→ Bark
+- 护航战斗运行中 180 秒未出现「escort-battle 战斗结束」→ 视为卡住 Bark
 """
 from __future__ import annotations
 
@@ -29,69 +32,16 @@ WIN_MIN_W, WIN_MIN_H = 780, 320
 BARK_TITLE = "序章监控"
 BARK_MIN_INTERVAL_SEC = 600
 SETTINGS_PATH = Path.home() / ".seqchapter_helper" / "window_monitor.json"
-STATS_PATH = Path.home() / ".seqchapter_helper" / "window_monitor_stats.json"
 STAGE_STALE_SEC = 180
 LOG_NAME = "SeqChapterTestUi.log"
 
-ZY_PHASE = (
-    "zy-loop 开始",
-    "zy-loop scan done",
-    "zy-loop stop",
-    "zy-catch start",
-    "zy-catch stop",
-    "zy-xfer start",
-    "zy-xfer stop",
-    "zy-xfer resume-captain",
-    "zy-xfer remote-pull",
-    "zy bank ",
-    "zy-all start",
-    "zy-all stop",
-    "zy-all quota",
-    "zy-all return",
-    "zy-all skip",
-    "skc start",
-    "skc stop",
-    "skc floor change",
-    "skc handoff",
-    "skc nav",
-    "skc after-wall",
-    "wild-ex start",
-    "wild-ex stop",
-    "wild-ex 存",
-    "wild-ex 开超银",
-    "wild-ex 个人仓",
-    "凑不齐一套",
-    "zy seal remain=",
-    "zy seal empty",
-    "zy battle exit",
-    "zy ticket ",
-    "zy exchange ok",
-    "轮兑换完成",
-)
-ZY_START = (
-    "zy-loop 开始",
-    "zy-catch start",
-    "zy-xfer start",
-    "zy-all start",
-    "skc start",
-    "wild-ex start",
-)
-ZY_STOP_OK = ("zy-loop stop 已手动停止",)
-ZY_STOP_ALERT = (
-    "zy-loop stop 兑换中断",
-    "zy-loop stop 仓检不通过",
-    "zy-loop stop 抓齐未完成",
-    "zy-loop stop 未能开始兑换",
-    "zy-loop stop 封印卡已用尽",
-    "zy seal empty STOP",
-)
-
-UID_TAIL_RE = re.compile(r"uid尾(\d+)")
-# 账号银张数（仅展示，不再用于券速率）
-TICKET_BANK_RE = re.compile(r"\bbank=(-?\d+)")
-SEAL_RE = re.compile(r"zy seal remain=(\d+)")
-# 兑换成功：DLL zy exchange ok round=N，或文案「第N轮兑换完成」
-EXCHANGE_OK_RE = re.compile(r"(?:zy exchange ok round=(\d+)|第(\d+)轮兑换完成)")
+# 护航战斗日志（SeqChapterTestUi）
+EB_BATTLE_END = "escort-battle 战斗结束"
+EB_STOP_MARK = "escort-battle 停战"
+EB_MODE_LINE = "SelectBattleMode "
+EB_MODE_ON = "SelectBattleMode escort_battle"
+EB_ABORT_OFF = "escort-battle abort 模式已关"
+EB_COLOR = "#c9a227"  # 金色
 
 user32 = ctypes.WinDLL("user32", use_last_error=True)
 kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
@@ -284,27 +234,89 @@ def _default_log_paths() -> list[Path]:
     return out
 
 
-def load_bark_url() -> str:
+def load_settings() -> dict:
     try:
         data = json.loads(SETTINGS_PATH.read_text(encoding="utf-8"))
-        return str(data.get("bark_url") or "").strip()
+        return data if isinstance(data, dict) else {}
     except (OSError, ValueError, TypeError):
-        return ""
+        return {}
 
 
-def save_bark_url(url: str) -> None:
+def save_settings(patch: dict) -> None:
     SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    payload: dict = {"bark_url": (url or "").strip()}
-    try:
-        old = json.loads(SETTINGS_PATH.read_text(encoding="utf-8"))
-        if isinstance(old, dict):
-            payload = {**old, **payload}
-    except (OSError, ValueError, TypeError):
-        pass
+    payload = {**load_settings(), **patch}
     SETTINGS_PATH.write_text(
         json.dumps(payload, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
+
+
+def load_bark_url() -> str:
+    return str(load_settings().get("bark_url") or "").strip()
+
+
+def save_bark_url(url: str) -> None:
+    save_settings({"bark_url": (url or "").strip()})
+
+
+def _title_key(title: str) -> str:
+    """稳定身份：产品 + 服务器 + 角色名。
+
+    窗口标题含 Lv / ★战斗护航★ / 魔池数字会一直变；旧逻辑把魔池写进 key，
+    魔池一变就匹配失败，表现为「莫名其妙退出监控」。
+    """
+    t = (title or "").strip()
+    if not t:
+        return ""
+    if t.startswith("pid:"):
+        return t
+    m = re.match(r"^(.+?)\s+Lv\.\d+\b", t)
+    if m:
+        t = m.group(1)
+    else:
+        for junk in (
+            "★自动中★",
+            "自动中",
+            "★自动烧卡中★",
+            "★战斗护航★",
+            "护航战斗",
+        ):
+            t = t.replace(junk, "")
+        t = re.sub(r"魔池\s*-?\d*", "", t)
+        t = re.sub(r"采集\d+\s*/\s*\d+", "", t)
+    t = re.sub(r"\s+", " ", t).strip()
+    return t[:80] if t else ""
+
+
+def _title_looks_escort_battle(title: str) -> bool:
+    s = title or ""
+    return "战斗护航" in s or "护航战斗" in s
+
+
+def _watch_key(pid: int, title: str) -> str:
+    tk = _title_key(title)
+    return tk if tk else f"pid:{pid}"
+
+
+def load_eb_watch_keys() -> list[str]:
+    raw = load_settings().get("eb_watch_keys")
+    if not isinstance(raw, list):
+        return []
+    out: list[str] = []
+    for item in raw:
+        s = _title_key(str(item or ""))
+        if s and s not in out:
+            out.append(s)
+    return out
+
+
+def save_eb_watch_keys(keys: list[str]) -> None:
+    cleaned: list[str] = []
+    for k in keys:
+        s = _title_key(str(k or ""))
+        if s and s not in cleaned:
+            cleaned.append(s)
+    save_settings({"eb_watch_keys": cleaned})
 
 
 def bark_request_url(base: str, title: str, body: str) -> str:
@@ -328,7 +340,7 @@ def bark_request_url(base: str, title: str, body: str) -> str:
 def send_bark(title: str, body: str, base: str | None = None) -> str | None:
     raw = (base if base is not None else load_bark_url()) or ""
     if not raw.strip():
-        return None  # 未配置则跳过，不算失败
+        return None
     try:
         url = bark_request_url(raw, title, body)
     except ValueError as exc:
@@ -341,204 +353,71 @@ def send_bark(title: str, body: str, base: str | None = None) -> str | None:
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
         return str(exc)
 
-
-def _fmt_dur(sec: float) -> str:
-    if sec < 0:
-        sec = 0
-    m = int(sec // 60)
-    s = int(sec % 60)
-    if m >= 60:
-        h = m // 60
-        m = m % 60
-        return f"{h}时{m}分"
-    return f"{m}分{s}秒"
-
-
-def _title_key(title: str) -> str:
-    t = (title or "").strip()
-    for junk in ("★自动中★", "自动中", "★自动烧卡中★"):
-        t = t.replace(junk, "")
-    t = re.sub(r"\s+", " ", t).strip()
-    return t[:48] if t else ""
-
-
-class AccountStats:
-    """按账号：本监视会话兑换成功次数=券数；速率÷锚点起时长。封印卡仍跟日志。"""
-
-    __slots__ = (
-        "key",
-        "label",
-        "seal_remain",
-        "ticket_est",
-        "rate_start_ts",
-        "rate_start_src",
-        "first_seal",
-        "last_exchange_ts",
-        "last_seal_at_ticket",
-        "round_count",
-        "sum_round_sec",
-        "last_round_sec",
-        "tickets_gained",
-        "seal_spent",
-        "bank_tickets",
-        "cached_seal_per_hour",
-        "cached_ticket_per_hour",
-    )
-
-    def __init__(self, key: str) -> None:
-        self.key = key
-        self.label = key
-        self.seal_remain = -1
-        self.ticket_est = 0  # 本会话兑换成功次数
-        self.rate_start_ts = 0.0
-        self.rate_start_src = ""  # script | monitor | exchange
-        self.first_seal = -1
-        self.last_exchange_ts = 0.0
-        self.last_seal_at_ticket = -1
-        self.round_count = 0
-        self.sum_round_sec = 0.0
-        self.last_round_sec = 0.0
-        self.tickets_gained = 0
-        self.seal_spent = 0
-        self.bank_tickets = -1
-        self.cached_seal_per_hour = 0.0
-        self.cached_ticket_per_hour = 0.0
-
-    def to_dict(self) -> dict:
-        return {k: getattr(self, k) for k in self.__slots__}
-
-    @classmethod
-    def from_dict(cls, data: dict) -> "AccountStats":
-        st = cls(str(data.get("key") or "unknown"))
-        for k in cls.__slots__:
-            if k in data and data[k] is not None:
-                setattr(st, k, data[k])
-        # 兼容旧字段
-        if st.rate_start_ts <= 0 and data.get("first_ticket_ts"):
-            try:
-                st.rate_start_ts = float(data["first_ticket_ts"])
-            except (TypeError, ValueError):
-                pass
-        return st
-
-    def avg_round_sec(self) -> float:
-        if self.round_count <= 0:
-            return 0.0
-        return self.sum_round_sec / self.round_count
-
-    def hours_since_start(self, now: float) -> float:
-        if self.rate_start_ts <= 0:
-            return 0.0
-        return max(0.0, (now - self.rate_start_ts) / 3600.0)
-
-    def recompute_rates(self, now: float) -> None:
-        h = self.hours_since_start(now)
-        if h <= 0.05:
-            self.cached_seal_per_hour = 0.0
-            self.cached_ticket_per_hour = 0.0
-            return
-        self.cached_seal_per_hour = self.seal_spent / h
-        self.cached_ticket_per_hour = self.tickets_gained / h
-
-    def stats_line(self, now: float) -> str:
-        seal = "?" if self.seal_remain < 0 else str(self.seal_remain)
-        if self.rate_start_ts <= 0 and self.tickets_gained <= 0:
-            return f"封印卡{seal} 中元券0（等待脚本/兑换）"
-        last_r = _fmt_dur(self.last_round_sec) if self.round_count else "-"
-        avg_r = _fmt_dur(self.avg_round_sec()) if self.round_count else "-"
-        src = {"script": "自脚本", "monitor": "自监视", "exchange": "自首兑"}.get(
-            self.rate_start_src, ""
-        )
-        src_s = f" {src}" if src else ""
-        return (
-            f"封印卡{seal} "
-            f"中元券{self.tickets_gained}（兑成功）{src_s} "
-            f"本轮{last_r} 均轮{avg_r} "
-            f"卡{self.cached_seal_per_hour:.0f}/时 "
-            f"券{self.cached_ticket_per_hour:.1f}/时"
-        )
-
-
 class PidState:
     __slots__ = (
         "last_seen",
-        "last_progress",
+        "last_battle_end",
         "last_line",
-        "zy_active",
+        "eb_active",
+        "watched",
+        "watch_key",
         "problem",
         "title",
         "alerted_kind",
-        "seal_remain",
-        "ticket_bank_est",
-        "phase_hint",
-        "uid_tail",
-        "acct_key",
+        "stop_reason",
+        "battle_ends",
     )
 
     def __init__(self) -> None:
         now = time.time()
         self.last_seen = now
-        self.last_progress = now
+        self.last_battle_end = now
         self.last_line = ""
-        self.zy_active = False
+        self.eb_active = False
+        self.watched = False
+        self.watch_key = ""
         self.problem = ""
         self.title = ""
         self.alerted_kind = ""
-        self.seal_remain = -1
-        self.ticket_bank_est = -1
-        self.phase_hint = ""
-        self.uid_tail = ""
-        self.acct_key = ""
+        self.stop_reason = ""
+        self.battle_ends = 0
 
 
-class ZhongyuanWatch:
+class EscortBattleWatch:
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._states: dict[int, PidState] = {}
-        self._accounts: dict[str, AccountStats] = {}
         self._tails: dict[str, int] = {}
         self._stop = threading.Event()
         self._paused = False
         self._pending: dict[int, tuple[str, str]] = {}
+        # 持久：稳定角色 key；会话：pid，避免标题短暂空/枚举漏窗时掉监控
+        self._watch_keys: set[str] = set(load_eb_watch_keys())
+        self._session_pids: set[int] = set()
         self._last_push = 0.0
         self._last_push_ok = ""
         self._last_push_err = ""
-        self._last_hourly_key = ""
-        self._last_save_ts = 0.0
-        self._thread = threading.Thread(target=self._loop, name="zy-watch", daemon=True)
+        self._thread = threading.Thread(target=self._loop, name="eb-watch", daemon=True)
         self._started = time.time()
         self.bark_url = load_bark_url()
-        self._load_stats()
-        # 本监视窗口：券按会话重计（封印卡余量可保留）
-        self._reset_ticket_session()
-
-    def _reset_ticket_session(self) -> None:
-        for ac in self._accounts.values():
-            ac.tickets_gained = 0
-            ac.ticket_est = 0
-            ac.rate_start_ts = 0.0
-            ac.rate_start_src = ""
-            ac.last_exchange_ts = 0.0
-            ac.round_count = 0
-            ac.sum_round_sec = 0.0
-            ac.last_round_sec = 0.0
-            ac.seal_spent = 0
-            ac.cached_ticket_per_hour = 0.0
-            ac.cached_seal_per_hour = 0.0
+        # 立刻把旧「含魔池」key 归一化写回，避免堆积重复
+        try:
+            save_eb_watch_keys(sorted(self._watch_keys))
+        except OSError:
+            pass
 
     def start(self) -> None:
         self._thread.start()
 
     def stop(self) -> None:
         self._stop.set()
-        self._save_stats()
+        self._persist_watch_keys()
 
     def set_paused(self, paused: bool) -> None:
         with self._lock:
             self._paused = bool(paused)
             if paused:
                 self._pending.clear()
-            self._save_stats_unlocked()
 
     def is_paused(self) -> bool:
         with self._lock:
@@ -554,35 +433,87 @@ class ZhongyuanWatch:
                 out[pid] = copy
             return out
 
-    def account_snapshot(self) -> dict[str, AccountStats]:
-        with self._lock:
-            out: dict[str, AccountStats] = {}
-            for key, ac in self._accounts.items():
-                out[key] = AccountStats.from_dict(ac.to_dict())
-            return out
-
-    def total_tickets(self) -> int:
-        with self._lock:
-            return sum(max(0, ac.tickets_gained) for ac in self._accounts.values())
-
     def push_status(self) -> tuple[str, str]:
         with self._lock:
             return self._last_push_ok, self._last_push_err
 
+    def watched_count(self) -> int:
+        with self._lock:
+            return sum(1 for st in self._states.values() if st.watched)
+
+    def set_watched(self, pid: int, title: str, enabled: bool) -> None:
+        with self._lock:
+            st = self._state(pid)
+            st.title = title or st.title
+            key = _watch_key(pid, st.title)
+            st.watch_key = key
+            st.watched = bool(enabled)
+            if enabled:
+                self._watch_keys.add(key)
+                self._session_pids.add(pid)
+                st.last_battle_end = time.time()
+                st.problem = ""
+                st.alerted_kind = ""
+                st.stop_reason = ""
+            else:
+                self._watch_keys.discard(key)
+                self._session_pids.discard(pid)
+                st.problem = ""
+                st.alerted_kind = ""
+                st.stop_reason = ""
+                self._pending.pop(pid, None)
+            self._persist_watch_keys_unlocked()
+
+    def toggle_watched(self, pid: int, title: str) -> bool:
+        with self._lock:
+            st = self._states.get(pid)
+            cur = bool(st.watched) if st is not None else False
+        self.set_watched(pid, title, not cur)
+        return not cur
+
+    def is_watched(self, pid: int) -> bool:
+        with self._lock:
+            st = self._states.get(pid)
+            return bool(st and st.watched)
+
+    def _persist_watch_keys(self) -> None:
+        with self._lock:
+            self._persist_watch_keys_unlocked()
+
+    def _persist_watch_keys_unlocked(self) -> None:
+        try:
+            save_eb_watch_keys(sorted(self._watch_keys))
+        except OSError:
+            pass
+
     def update_titles(self, rows: list[tuple[int, str]]) -> None:
         with self._lock:
+            live_pids = {pid for pid, _ in rows}
             for pid, title in rows:
-                st = self._states.get(pid)
-                if st is None:
-                    continue
+                st = self._state(pid)
                 st.title = title
-                if not st.uid_tail:
-                    tk = _title_key(title)
-                    if tk:
-                        st.acct_key = "t:" + tk
-                        ac = self._acct(st.acct_key)
-                        if not ac.label or ac.label.startswith("t:") or ac.label.startswith("u:"):
-                            ac.label = tk
+                key = _watch_key(pid, title)
+                st.watch_key = key
+                hit = (
+                    key in self._watch_keys
+                    or pid in self._session_pids
+                )
+                st.watched = hit
+                if hit and key and not key.startswith("pid:"):
+                    # 会话命中但 key 未入库（或旧魔池 key 已归一化）→ 补写稳定 key
+                    if key not in self._watch_keys:
+                        self._watch_keys.add(key)
+                        self._persist_watch_keys_unlocked()
+                    self._session_pids.add(pid)
+                if _title_looks_escort_battle(title) and st.watched and not st.eb_active:
+                    st.eb_active = True
+                    st.last_battle_end = time.time()
+            for pid in list(self._session_pids):
+                if pid not in live_pids:
+                    self._session_pids.discard(pid)
+            for pid, st in self._states.items():
+                if pid not in live_pids:
+                    st.watched = False
 
     def _state(self, pid: int) -> PidState:
         st = self._states.get(pid)
@@ -591,65 +522,9 @@ class ZhongyuanWatch:
             self._states[pid] = st
         return st
 
-    def _acct(self, key: str) -> AccountStats:
-        ac = self._accounts.get(key)
-        if ac is None:
-            ac = AccountStats(key)
-            self._accounts[key] = ac
-        return ac
-
-    def _resolve_acct(self, st: PidState) -> AccountStats | None:
-        if st.uid_tail:
-            key = "u:" + st.uid_tail
-            st.acct_key = key
-            ac = self._acct(key)
-            if st.title:
-                ac.label = _title_key(st.title) or ("尾" + st.uid_tail)
-            elif not ac.label or ac.label == key:
-                ac.label = "尾" + st.uid_tail
-            return ac
-        if st.acct_key:
-            return self._acct(st.acct_key)
-        tk = _title_key(st.title)
-        if tk:
-            st.acct_key = "t:" + tk
-            ac = self._acct(st.acct_key)
-            ac.label = tk
-            return ac
-        return None
-
-    def _load_stats(self) -> None:
-        try:
-            data = json.loads(STATS_PATH.read_text(encoding="utf-8"))
-        except (OSError, ValueError, TypeError):
-            return
-        accounts = data.get("accounts") if isinstance(data, dict) else None
-        if not isinstance(accounts, dict):
-            return
-        for key, raw in accounts.items():
-            if isinstance(raw, dict):
-                self._accounts[str(key)] = AccountStats.from_dict({**raw, "key": key})
-        self._last_hourly_key = str(data.get("last_hourly_key") or "")
-
-    def _save_stats(self) -> None:
-        with self._lock:
-            self._save_stats_unlocked()
-
-    def _save_stats_unlocked(self) -> None:
-        try:
-            STATS_PATH.parent.mkdir(parents=True, exist_ok=True)
-            payload = {
-                "saved_at": datetime.now().isoformat(timespec="seconds"),
-                "last_hourly_key": self._last_hourly_key,
-                "accounts": {k: v.to_dict() for k, v in self._accounts.items()},
-            }
-            STATS_PATH.write_text(
-                json.dumps(payload, ensure_ascii=False, indent=2),
-                encoding="utf-8",
-            )
-            self._last_save_ts = time.time()
-        except OSError:
-            pass
+    def _is_watched_unlocked(self, pid: int) -> bool:
+        st = self._states.get(pid)
+        return bool(st and st.watched)
 
     def _loop(self) -> None:
         while not self._stop.is_set():
@@ -658,8 +533,6 @@ class ZhongyuanWatch:
                 if not self._paused:
                     self._evaluate()
                     self._flush_push()
-                if time.time() - self._last_save_ts >= 60:
-                    self._save_stats()
             except Exception:
                 pass
             self._stop.wait(WATCH_MS / 1000.0)
@@ -726,132 +599,59 @@ class ZhongyuanWatch:
             st.last_seen = now
             st.last_line = line.strip()[-160:]
 
-            m_uid = UID_TAIL_RE.search(line)
-            if m_uid:
-                st.uid_tail = m_uid.group(1)
-
-            m_seal = SEAL_RE.search(line)
-            if m_seal:
-                try:
-                    st.seal_remain = int(m_seal.group(1))
-                    ac = self._resolve_acct(st)
-                    if ac is not None:
-                        ac.seal_remain = st.seal_remain
-                except ValueError:
-                    pass
-
-            if "zy ticket store done" in line and "bank=" in line:
-                self._on_ticket_bank_line(st, line, now)
-
-            if EXCHANGE_OK_RE.search(line):
-                self._on_exchange_ok(st, line, now)
-
-            phase_hit = next((k for k in ZY_PHASE if k in line), "")
-            if phase_hit:
-                st.last_progress = now
-                st.phase_hint = phase_hit
-
-            if any(k in line for k in ZY_START) or (
-                phase_hit and "zy-loop stop" not in line and "zy seal empty" not in line
-            ):
-                if "zy-loop stop" not in line and "zy seal empty" not in line:
-                    st.zy_active = True
-                    if any(k in line for k in ZY_START):
-                        self._on_script_start(st, now)
-            if any(k in line for k in ZY_STOP_OK):
-                st.zy_active = False
-                st.problem = ""
-                st.alerted_kind = ""
-            alert_hit = next((k for k in ZY_STOP_ALERT if k in line), "")
-            if alert_hit:
-                st.zy_active = False
-                if "zy seal empty" in line or "封印卡已用尽" in line:
-                    reason = "封印卡已用尽"
+            if EB_MODE_LINE in line:
+                if EB_MODE_ON in line:
+                    st.eb_active = True
+                    st.last_battle_end = now
+                    if st.watched:
+                        st.problem = ""
+                        st.alerted_kind = ""
+                        st.stop_reason = ""
                 else:
-                    reason = line.split("zy-loop stop", 1)[-1].strip() or alert_hit
-                if alerting:
-                    self._queue_locked(pid, f"脚本中断（{reason}）", "script")
-            elif "zy-loop stop" in line:
-                st.zy_active = False
-                st.problem = ""
-                st.alerted_kind = ""
+                    st.eb_active = False
+                    if st.watched and st.alerted_kind != "stop":
+                        st.problem = ""
+                        st.alerted_kind = ""
+                        st.stop_reason = ""
 
-    def _ensure_rate_start(self, ac: AccountStats, now: float, src: str) -> None:
-        """锚点：脚本启动优先；否则用监视窗口开启；再否则首兑时刻。"""
-        if ac.rate_start_ts > 0 and ac.rate_start_src == "script":
-            return
-        if src == "script":
-            ac.rate_start_ts = now
-            ac.rate_start_src = "script"
-            return
-        if ac.rate_start_ts > 0:
-            return
-        # 无脚本启动记录时，用监视窗口开启时刻
-        ac.rate_start_ts = self._started if self._started > 0 else now
-        ac.rate_start_src = "monitor"
+            if EB_ABORT_OFF in line:
+                st.eb_active = False
+                if st.watched and st.alerted_kind != "stop":
+                    st.problem = ""
+                    st.alerted_kind = ""
+                    st.stop_reason = ""
 
-    def _on_script_start(self, st: PidState, now: float) -> None:
-        """脚本新开：锚点=脚本启动，本会话兑换计数清零。"""
-        ac = self._resolve_acct(st)
-        if ac is None:
-            return
-        ac.rate_start_ts = now
-        ac.rate_start_src = "script"
-        ac.tickets_gained = 0
-        ac.ticket_est = 0
-        ac.last_exchange_ts = 0.0
-        ac.round_count = 0
-        ac.sum_round_sec = 0.0
-        ac.last_round_sec = 0.0
-        ac.seal_spent = 0
-        ac.first_seal = ac.seal_remain if ac.seal_remain >= 0 else -1
-        ac.recompute_rates(now)
+            if "escort-battle " in line and EB_ABORT_OFF not in line:
+                if not st.eb_active:
+                    st.eb_active = True
+                    st.last_battle_end = now
 
-    def _on_exchange_ok(self, st: PidState, line: str, now: float) -> None:
-        """兑换成功一次 = +1 张券。"""
-        ac = self._resolve_acct(st)
-        if ac is None:
-            return
-        self._ensure_rate_start(ac, now, "exchange")
-        seal = st.seal_remain if st.seal_remain >= 0 else ac.seal_remain
-        if ac.last_exchange_ts > 0:
-            round_sec = max(0.0, now - ac.last_exchange_ts)
-            if round_sec >= 30:
-                ac.round_count += 1
-                ac.sum_round_sec += round_sec
-                ac.last_round_sec = round_sec
-            if seal >= 0 and ac.last_seal_at_ticket >= 0 and ac.last_seal_at_ticket >= seal:
-                ac.seal_spent += ac.last_seal_at_ticket - seal
-        elif seal >= 0 and ac.first_seal < 0:
-            ac.first_seal = seal
+            if EB_BATTLE_END in line:
+                st.eb_active = True
+                st.last_battle_end = now
+                st.battle_ends += 1
+                if st.watched and st.alerted_kind in ("stale", "hung", "stop"):
+                    st.alerted_kind = ""
+                    st.problem = ""
+                    st.stop_reason = ""
 
-        ac.tickets_gained += 1
-        ac.ticket_est = ac.tickets_gained
-        ac.last_exchange_ts = now
-        if seal >= 0:
-            ac.seal_remain = seal
-            ac.last_seal_at_ticket = seal
-        ac.recompute_rates(now)
-
-    def _on_ticket_bank_line(self, st: PidState, line: str, now: float) -> None:
-        """账号银张数仅旁路展示，不计入券速率。"""
-        m_bank = TICKET_BANK_RE.search(line)
-        if not m_bank:
-            return
-        bank = int(m_bank.group(1))
-        if bank < 0:
-            return
-        st.ticket_bank_est = bank
-        ac = self._resolve_acct(st)
-        if ac is None:
-            return
-        ac.bank_tickets = bank
-        seal = st.seal_remain if st.seal_remain >= 0 else ac.seal_remain
-        if seal >= 0:
-            ac.seal_remain = seal
+            if EB_STOP_MARK in line:
+                st.eb_active = True
+                reason = line
+                idx = line.find(EB_STOP_MARK)
+                if idx >= 0:
+                    reason = line[idx:].strip()
+                m = re.search(r"reason=(.+?)(?:\s+wasHang=|$)", reason)
+                detail = m.group(1).strip() if m else reason
+                st.stop_reason = detail
+                st.last_battle_end = now
+                if alerting and st.watched:
+                    self._queue_locked(pid, f"护航战斗停战：{detail}", "stop")
 
     def _queue_locked(self, pid: int, detail: str, kind: str) -> None:
         st = self._state(pid)
+        if not st.watched:
+            return
         if st.alerted_kind == kind:
             return
         st.alerted_kind = kind
@@ -866,30 +666,33 @@ class ZhongyuanWatch:
         live = set(list_cg37_pids())
         hung = hung_pids(live)
         with self._lock:
-            gone = [pid for pid in self._states if pid not in live]
-            for pid in gone:
-                st = self._states[pid]
-                st.zy_active = False
-                st.problem = ""
-                # 不删账号统计、不清封印卡/中元券
-            for pid, st in self._states.items():
-                if not st.zy_active or pid not in live:
-                    if pid in live and not st.zy_active:
+            for pid in list(self._states):
+                if pid not in live:
+                    st = self._states[pid]
+                    st.eb_active = False
+                    st.watched = False
+                    if st.alerted_kind != "stop":
                         st.problem = ""
+            for pid, st in self._states.items():
+                if not st.watched or pid not in live:
                     continue
-                stale = now - st.last_progress
+                # 已勾选监控：即使尚未判为护航战斗模式，卡死也推
                 if pid in hung:
                     self._queue_locked(pid, "卡死（窗口无响应）", "hung")
-                elif stale >= STAGE_STALE_SEC:
+                    continue
+                if not st.eb_active:
+                    continue
+                if st.alerted_kind == "stop":
+                    continue
+                stale = now - st.last_battle_end
+                if stale >= STAGE_STALE_SEC:
                     self._queue_locked(
                         pid,
-                        f"阶段卡住（{int(stale)}秒无换阶段"
-                        + (f"：{st.phase_hint}" if st.phase_hint else "")
-                        + "）",
+                        f"护航战斗卡住（{int(stale)}秒未战斗结束）",
                         "stale",
                     )
                 else:
-                    if st.alerted_kind in ("hung", "stale", "silent", "openbank"):
+                    if st.alerted_kind in ("hung", "stale"):
                         st.alerted_kind = ""
                         st.problem = ""
 
@@ -920,10 +723,8 @@ class ZhongyuanWatch:
                 self._last_push_ok = datetime.now().strftime("%H:%M:%S")
                 self._last_push_err = ""
 
-    # 整点报时已去掉（原先 _hourly_ticket_push）
 
-
-WATCH = ZhongyuanWatch()
+WATCH = EscortBattleWatch()
 
 
 class WindowMonitorApp(tk.Tk):
@@ -965,36 +766,58 @@ class WindowMonitorApp(tk.Tk):
         split.add(left, weight=1)
         split.add(right, weight=1)
 
-        ttk.Label(left, text="全部窗口").pack(anchor=tk.W)
-        ttk.Label(right, text="中元监控（兑成功次数=券 · 暂停不丢封印卡）").pack(anchor=tk.W)
-
-        self.list = tk.Listbox(
-            left,
-            activestyle="none",
-            font=("Consolas", 10),
-            selectmode=tk.EXTENDED,
-        )
-        yscroll = ttk.Scrollbar(left, orient=tk.VERTICAL, command=self.list.yview)
-        self.list.configure(yscrollcommand=yscroll.set)
-        self.list.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, pady=(4, 0))
-        yscroll.pack(side=tk.RIGHT, fill=tk.Y, pady=(4, 0))
-
-        self.zy_list = tk.Listbox(
+        ttk.Label(left, text="全部窗口（选中后开关监控）").pack(anchor=tk.W)
+        ttk.Label(
             right,
+            text="已开启监控（金色 · 停战/180秒无战斗结束 → Bark）",
+        ).pack(anchor=tk.W)
+
+        left_btns = ttk.Frame(left)
+        left_btns.pack(fill=tk.X, pady=(4, 0))
+        ttk.Button(left_btns, text="开启监控", command=self._watch_on).pack(
+            side=tk.LEFT
+        )
+        ttk.Button(left_btns, text="关闭监控", command=self._watch_off).pack(
+            side=tk.LEFT, padx=(6, 0)
+        )
+        ttk.Label(left_btns, text="也可双击切换", foreground="#888").pack(
+            side=tk.LEFT, padx=(10, 0)
+        )
+
+        left_list_frm = ttk.Frame(left)
+        left_list_frm.pack(fill=tk.BOTH, expand=True, pady=(4, 0))
+        self.list = tk.Listbox(
+            left_list_frm,
             activestyle="none",
             font=("Consolas", 10),
             selectmode=tk.EXTENDED,
         )
-        zy_scroll = ttk.Scrollbar(right, orient=tk.VERTICAL, command=self.zy_list.yview)
-        self.zy_list.configure(yscrollcommand=zy_scroll.set)
-        self.zy_list.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, pady=(4, 0))
-        zy_scroll.pack(side=tk.RIGHT, fill=tk.Y, pady=(4, 0))
+        yscroll = ttk.Scrollbar(left_list_frm, orient=tk.VERTICAL, command=self.list.yview)
+        self.list.configure(yscrollcommand=yscroll.set)
+        self.list.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        yscroll.pack(side=tk.RIGHT, fill=tk.Y)
+        self.list.bind("<Double-Button-1>", self._toggle_selected)
+        self._row_pids: list[int] = []
+
+        right_list_frm = ttk.Frame(right)
+        right_list_frm.pack(fill=tk.BOTH, expand=True, pady=(4, 0))
+        self.eb_list = tk.Listbox(
+            right_list_frm,
+            activestyle="none",
+            font=("Consolas", 10),
+            selectmode=tk.EXTENDED,
+        )
+        eb_scroll = ttk.Scrollbar(
+            right_list_frm, orient=tk.VERTICAL, command=self.eb_list.yview
+        )
+        self.eb_list.configure(yscrollcommand=eb_scroll.set)
+        self.eb_list.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        eb_scroll.pack(side=tk.RIGHT, fill=tk.Y)
 
         tip = ttk.Label(
             self,
-            text="券=本监视会话内兑换成功次数 · 时长锚点优先脚本启动否则监视开启 · "
-            "卡/时、券/时均÷该时长 · 暂停报警不清除封印卡 · 统计写入 "
-            + str(STATS_PATH),
+            text="仅「已开启监控」的窗口会 Bark：停战立即推送；"
+            f"{STAGE_STALE_SEC} 秒无战斗结束视为卡住；卡死也会推送。勾选按「服+角色」记住（魔池变化不会掉监控）。",
             foreground="#666666",
             padding=(8, 0, 8, 6),
         )
@@ -1004,6 +827,38 @@ class WindowMonitorApp(tk.Tk):
         self._place_bottom_right()
         self.refresh()
         self.after(REFRESH_MS, self._tick)
+
+    def _selected_pids(self) -> list[tuple[int, str]]:
+        rows = getattr(self, "_last_rows", [])
+        out: list[tuple[int, str]] = []
+        for idx in self.list.curselection():
+            if 0 <= idx < len(self._row_pids):
+                pid = self._row_pids[idx]
+                title = ""
+                for p, t in rows:
+                    if p == pid:
+                        title = t
+                        break
+                out.append((pid, title))
+        return out
+
+    def _watch_on(self) -> None:
+        for pid, title in self._selected_pids():
+            WATCH.set_watched(pid, title, True)
+        self.refresh()
+
+    def _watch_off(self) -> None:
+        for pid, title in self._selected_pids():
+            WATCH.set_watched(pid, title, False)
+        self.refresh()
+
+    def _toggle_selected(self, _event=None) -> None:
+        sel = self._selected_pids()
+        if not sel:
+            return
+        pid, title = sel[0]
+        WATCH.toggle_watched(pid, title)
+        self.refresh()
 
     def _on_close(self) -> None:
         self._save_bark()
@@ -1045,85 +900,76 @@ class WindowMonitorApp(tk.Tk):
 
     def refresh(self) -> None:
         rows = list_cg37_windows()
+        self._last_rows = rows
         WATCH.update_titles(rows)
         snap = WATCH.snapshot()
-        accts = WATCH.account_snapshot()
         now_ts = time.time()
         paused = WATCH.is_paused()
         self.list.delete(0, tk.END)
-        zy_n = 0
+        self._row_pids = []
+        watch_n = 0
         if not rows:
             self.list.insert(tk.END, "（当前没有 cg37 进程）")
         else:
             for i, (pid, title) in enumerate(rows, 1):
                 st = snap.get(pid)
+                watched = bool(st and st.watched)
+                if watched:
+                    watch_n += 1
+                mark = "[监]" if watched else "    "
                 color = None
-                if st is not None and st.zy_active:
-                    zy_n += 1
-                    color = "#cc1f1f"
+                if watched:
+                    color = EB_COLOR
                 elif "★自动中★" in title or "自动中" in title:
                     color = "#0a7a32"
-                self.list.insert(tk.END, f"{i}. pid={pid}  {title}")
+                self.list.insert(tk.END, f"{mark} {i}. pid={pid}  {title}")
+                self._row_pids.append(pid)
                 if color:
                     self.list.itemconfig(tk.END, foreground=color)
 
-        self.zy_list.delete(0, tk.END)
-        watched = [
+        self.eb_list.delete(0, tk.END)
+        watched_rows = [
             (pid, title, snap.get(pid))
             for pid, title in rows
-            if snap.get(pid) is not None and snap[pid].zy_active
+            if snap.get(pid) is not None and snap[pid].watched
         ]
         if paused:
-            self.zy_list.insert(tk.END, "【已暂停报警】统计仍更新，封印卡/中元券不清除")
-            self.zy_list.itemconfig(tk.END, foreground="#b36b00")
-        if not watched:
-            self.zy_list.insert(tk.END, "（没有在跑中元的窗口）")
-            self.zy_list.itemconfig(tk.END, foreground="#888888")
-            # 仍展示已有账号统计（暂停/停脚本后也能看）
-            shown = 0
-            for ac in sorted(accts.values(), key=lambda a: a.label):
-                if ac.tickets_gained <= 0 and ac.seal_remain < 0 and ac.rate_start_ts <= 0:
-                    continue
-                self.zy_list.insert(tk.END, ac.label)
-                self.zy_list.itemconfig(tk.END, foreground="#333333")
-                self.zy_list.insert(tk.END, "  " + ac.stats_line(now_ts))
-                self.zy_list.itemconfig(tk.END, foreground="#555555")
-                shown += 1
-                if shown >= 12:
-                    break
+            self.eb_list.insert(tk.END, "【已暂停报警】")
+            self.eb_list.itemconfig(tk.END, foreground="#b36b00")
+        if not watched_rows:
+            self.eb_list.insert(tk.END, "（尚未开启任何窗口的护航战斗监控）")
+            self.eb_list.itemconfig(tk.END, foreground="#888888")
+            self.eb_list.insert(tk.END, "左侧选中窗口 →「开启监控」或双击切换")
+            self.eb_list.itemconfig(tk.END, foreground="#888888")
         else:
-            for pid, title, st in watched:
-                left = int(STAGE_STALE_SEC - (now_ts - st.last_progress))
+            for pid, title, st in watched_rows:
+                assert st is not None
+                mode_s = "护航战斗中" if st.eb_active else "已监控（等待护航战斗）"
+                left = int(STAGE_STALE_SEC - (now_ts - st.last_battle_end))
                 if left < 0:
                     left = 0
                 if st.problem:
                     count = st.problem
                     count_color = "#8b0000"
+                elif st.alerted_kind == "stop":
+                    count = "已停战报警，等下一场战斗结束继续监视"
+                    count_color = "#8b0000"
+                elif not st.eb_active:
+                    count = "未检测到护航战斗模式（不判卡住）"
+                    count_color = "#888888"
                 else:
-                    count = f"剩余 {left} 秒无换阶段发警报"
-                    count_color = "#cc1f1f" if left <= 30 else "#666666"
-                ac = None
-                if st.acct_key and st.acct_key in accts:
-                    ac = accts[st.acct_key]
-                elif st.uid_tail:
-                    ac = accts.get("u:" + st.uid_tail)
-                self.zy_list.insert(tk.END, title or f"pid={pid}")
-                self.zy_list.itemconfig(tk.END, foreground="#cc1f1f")
-                if ac is not None:
-                    self.zy_list.insert(tk.END, "  " + ac.stats_line(now_ts))
-                else:
-                    seal = "封印卡?" if st.seal_remain < 0 else f"封印卡{st.seal_remain}"
-                    ticket = (
-                        "中元券?"
-                        if st.ticket_bank_est < 0
-                        else f"中元券银{st.ticket_bank_est}"
-                    )
-                    self.zy_list.insert(
-                        tk.END, f"  {seal}  {ticket}  阶段:{st.phase_hint or '-'}"
-                    )
-                self.zy_list.itemconfig(tk.END, foreground="#333333")
-                self.zy_list.insert(tk.END, "  " + count)
-                self.zy_list.itemconfig(tk.END, foreground=count_color)
+                    count = f"剩余 {left} 秒无战斗结束发警报"
+                    count_color = "#8b4513" if left <= 30 else "#666666"
+                self.eb_list.insert(tk.END, f"{title or f'pid={pid}'}  · {mode_s}")
+                self.eb_list.itemconfig(tk.END, foreground=EB_COLOR)
+                self.eb_list.insert(
+                    tk.END,
+                    f"  战斗结束累计 {st.battle_ends}"
+                    + (f"  · {st.stop_reason}" if st.stop_reason else ""),
+                )
+                self.eb_list.itemconfig(tk.END, foreground="#555555")
+                self.eb_list.insert(tk.END, "  " + count)
+                self.eb_list.itemconfig(tk.END, foreground=count_color)
 
         now = datetime.now().strftime("%H:%M:%S")
         ok, err = WATCH.push_status()
@@ -1131,9 +977,8 @@ class WindowMonitorApp(tk.Tk):
         if err:
             push += f" · 推送失败 {err[:40]}"
         pause_s = " · 已暂停报警" if paused else ""
-        tickets = WATCH.total_tickets()
         self.status_var.set(
-            f"{now}  ·  {len(rows)} 个 cross  ·  中元 {zy_n}  ·  券合计{tickets}{pause_s}{push}"
+            f"{now}  ·  {len(rows)} 个 cross  ·  监控中 {watch_n}{pause_s}{push}"
         )
 
     def _tick(self) -> None:

@@ -20,6 +20,8 @@ public static class SeqChapterBattleAppear
     public const string TypeName = "SeqChapterBattleAppear";
     public const string EntryName = "OnBattleCharsReceived";
     public const string WorldEntryName = "TryApplyWorldAppear";
+    /// <summary>与 BattleAppearExternalIlPatcher.WorldSkipField 同名：形象关着时世界钩直接 ret。</summary>
+    public const string WorldSkipFieldName = "s_SeqWorldAppearSkip";
     public const string CodePrefix = "CGAP1:";
     public const string UidStoreFileName = "battle_appear_uid.json";
 
@@ -73,6 +75,10 @@ public static class SeqChapterBattleAppear
 
     private static bool _cfgLoaded;
     private static bool _enabled;
+    private static FieldInfo _worldSkipField;
+    private static bool _worldSkipFieldResolved;
+    private static bool _worldSkipPushed;
+    private static bool _lastWorldSkip;
     private static readonly SlotCfg[] Slots = new SlotCfg[5];
     private static string _loadedFrom = "";
     private static string _loadError = "";
@@ -115,11 +121,13 @@ public static class SeqChapterBattleAppear
             EnsureConfig(force: false);
             if (!_enabled)
             {
+                SyncWorldAppearSkipFlag();
                 return false;
             }
             LoadUidStore(force: false);
             if (!_enabled)
             {
+                SyncWorldAppearSkipFlag();
                 return false;
             }
 
@@ -879,6 +887,8 @@ public static class SeqChapterBattleAppear
         {
             _enabled = enabled;
         }
+
+        SyncWorldAppearSkipFlag();
     }
 
     private static SlotCfg[] SnapshotSlots()
@@ -1269,6 +1279,45 @@ public static class SeqChapterBattleAppear
         _cfgLoaded = true;
         LoadUidStore(force: true);
         // 不因存在 Uid 档而自动开启；进游戏默认关，由面板「钩子」开关控制
+    }
+
+    /// <summary>
+    /// 把形象开关同步到 EntityFactory.s_SeqWorldAppearSkip。
+    /// 关着时世界钩入口直接 ret，进图不再 Invoke TryApplyWorldAppear。
+    /// </summary>
+    private static void SyncWorldAppearSkipFlag()
+    {
+        var skip = !_enabled;
+        if (_worldSkipFieldResolved && _worldSkipPushed && skip == _lastWorldSkip)
+        {
+            return;
+        }
+
+        try
+        {
+            if (!_worldSkipFieldResolved)
+            {
+                var t = FindType("EntityFactory");
+                _worldSkipField = t == null
+                    ? null
+                    : t.GetField(
+                        WorldSkipFieldName,
+                        BindingFlags.NonPublic | BindingFlags.Static);
+                _worldSkipFieldResolved = true;
+            }
+
+            if (_worldSkipField != null)
+            {
+                _worldSkipField.SetValue(null, skip);
+            }
+
+            _lastWorldSkip = skip;
+            _worldSkipPushed = true;
+        }
+        catch
+        {
+            // 字段尚未打进 hotfix 时忽略
+        }
     }
 
     private static void LoadConfig(string path)

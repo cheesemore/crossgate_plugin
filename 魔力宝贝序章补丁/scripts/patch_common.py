@@ -25,9 +25,11 @@ PARTIALCONFIG_STREAMING_REL = Path(DATA_DIR) / "StreamingAssets" / "partialconfi
 KEEP_CHANNELS = frozenset({"1100", "1102"})
 DEFAULT_CHANNEL = "1101"
 OLD_HOTFIX_SIZE = 6_879_744
-EXPECTED_SIZE = 7_254_016
+EXPECTED_SIZE = 7_256_576
 PATCHER_TIMEOUT_SEC = 180
 KNOWN_OLD_SIZES: dict[int, str] = {
+    7_254_528: "自动标记：更新前旧版",
+    7_254_016: "自动标记：更新前旧版",
     7_251_456: "自动标记：更新前旧版",
     7_194_624: "自动标记：更新前旧版",
     7_177_216: "自动标记：更新前旧版",
@@ -580,6 +582,7 @@ _EXTERNAL_PATCH_SOURCES = (
     ("seqchapter_auto_stall", "SeqChapterAutoStall.cs"),
     ("seqchapter_bear_slayer", "SeqChapterBearSlayer.cs"),
     ("seqchapter_plugin_host", "SeqChapterPluginHost.cs"),
+    ("seqchapter_mini_bridge", "SeqChapterMiniBridge.cs"),
 )
 
 

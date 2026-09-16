@@ -498,11 +498,16 @@ def wait_for_team(instance_id: str, timeout: float = 90.0, min_members: int = 5)
 
 
 def wait_multi_ready(instance_id: str, timeout: float = 120.0) -> bool:
-    """协议判定多控上线：轮询 state.multi_ready（所有多控槽位 Online>0）。"""
+    """协议判定多控上线：轮询 state.multi_ready（所有多控槽位 Online>0）。
+
+    断线重连后若已在队伍中（team_num≥2），也视为就绪。
+    """
     deadline = time.time() + timeout
     while time.time() < deadline:
         st = read_state(instance_id) or {}
         if st.get("multi_ready"):
+            return True
+        if int(st.get("team_num") or 0) >= 2:
             return True
         if st.get("workflow_error"):
             return False
@@ -572,6 +577,11 @@ def switch_char_by_index(instance_id: str, index: int) -> str:
 
 def one_key_summon(instance_id: str) -> str:
     return send_command(instance_id, "one_key_summon")
+
+
+def open_helper_minimized(instance_id: str) -> str:
+    """打开游戏内序章助手，约 3 秒后缩到右上角；已打开则忽略。"""
+    return send_command(instance_id, "open_helper_minimized")
 
 
 def nav_general(instance_id: str, floor: int, x: int, y: int) -> str:

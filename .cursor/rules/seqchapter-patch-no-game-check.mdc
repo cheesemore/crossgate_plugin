@@ -1,0 +1,13 @@
+---
+description: 打补丁/更新不检查游戏是否关闭；用户自行区分
+alwaysApply: true
+---
+
+# 打补丁 / 更新：不查游戏开关
+
+用户已约定：
+
+1. **不要**为 `repatch` / `update` / `publish-*` / dll-only 去探测或等待 `cg37` 是否关闭。
+2. 用户要求打补丁或更新时，**直接执行**对应 `workflow.py` 命令。
+3. 游戏开着会不会写失败，由用户自己区分与处理；Agent 不必先问、不必先查进程。
+4. 仍遵守 `do-not-kill-cross-clients`：未经明确允许，不得杀/关客户端。

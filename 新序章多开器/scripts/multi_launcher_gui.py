@@ -237,7 +237,11 @@ class MultiLauncherApp:
             width=16,
         )
         self.launch_all_btn.pack(side=tk.LEFT, padx=(8, 0))
-        ttk.Button(btn_frm, text="录入账号", command=self.add_account, width=12).pack(side=tk.RIGHT)
+        ttk.Button(btn_frm, text="批量录入", command=self.import_accounts_excel, width=12).pack(side=tk.RIGHT)
+        ttk.Button(btn_frm, text="生成模板", command=self.export_accounts_excel_template, width=12).pack(
+            side=tk.RIGHT, padx=(0, 8)
+        )
+        ttk.Button(btn_frm, text="录入账号", command=self.add_account, width=12).pack(side=tk.RIGHT, padx=(0, 8))
         ttk.Button(btn_frm, text="修改账号", command=self.edit_account, width=12).pack(side=tk.RIGHT, padx=(0, 8))
         ttk.Button(btn_frm, text="删除账号", command=self.remove_account, width=12).pack(side=tk.RIGHT, padx=(0, 8))
 
@@ -252,6 +256,15 @@ class MultiLauncherApp:
             variable=self.auto_tile_var,
             command=self._persist_auto_tile,
         ).pack(anchor=tk.W)
+        self.auto_open_helper_var = tk.BooleanVar(
+            value=bool(load_settings().get("auto_open_helper", False))
+        )
+        ttk.Checkbutton(
+            tile_frm,
+            text="序章助手自动打开（登录+召唤完成，或进游戏已组队时启动；约3秒后缩到右上角；已手动打开则跳过）",
+            variable=self.auto_open_helper_var,
+            command=self._persist_auto_open_helper,
+        ).pack(anchor=tk.W, pady=(4, 0))
 
         status_bar = ttk.Frame(outer)
         status_bar.pack(fill=tk.X, pady=(8, 0))
@@ -270,6 +283,29 @@ class MultiLauncherApp:
             save_settings(cfg)
         except OSError:
             pass
+
+    def _persist_auto_open_helper(self) -> None:
+        cfg = load_settings()
+        cfg["auto_open_helper"] = bool(self.auto_open_helper_var.get())
+        try:
+            save_settings(cfg)
+        except OSError:
+            pass
+
+    def _want_auto_open_helper(self) -> bool:
+        try:
+            return bool(self.auto_open_helper_var.get())
+        except tk.TclError:
+            return bool(load_settings().get("auto_open_helper", False))
+
+    def _maybe_open_helper(self, instance_id: str, label: str) -> None:
+        if not self._want_auto_open_helper():
+            return
+        try:
+            ipc.open_helper_minimized(instance_id)
+            self._set_status(f"[{label}] 已请求打开序章助手（约3秒后缩到右上角）")
+        except Exception as exc:
+            self._set_status(f"[{label}] 打开序章助手失败: {exc}")
 
     def pick_game_dir(self) -> None:
         chosen = filedialog.askdirectory(title="选择游戏根目录（含 cg37_Data）")
@@ -318,6 +354,184 @@ class MultiLauncherApp:
             return
         upsert_account(AccountProfile.create(label, phone, password))
         self.reload_accounts()
+
+    def export_accounts_excel_template(self) -> None:
+        """生成 Excel 批量录入模板（备注 / 手机号 / 密码）。"""
+        try:
+            from openpyxl import Workbook
+            from openpyxl.styles import Alignment, Font, PatternFill
+        except ImportError:
+            messagebox.showerror(
+                "缺少依赖",
+                "需要 openpyxl 才能生成 Excel 模板。\n请先执行：pip install openpyxl",
+                parent=self.root,
+            )
+            return
+
+        path = filedialog.asksaveasfilename(
+            title="保存账号批量录入模板",
+            defaultextension=".xlsx",
+            filetypes=[("Excel 工作簿", "*.xlsx")],
+            initialfile="多开器账号批量录入模板.xlsx",
+            parent=self.root,
+        )
+        if not path:
+            return
+
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "账号"
+        headers = ("备注", "手机号", "密码")
+        ws.append(list(headers))
+        header_font = Font(name="微软雅黑", bold=True, color="FFFFFF")
+        header_fill = PatternFill("solid", fgColor="1F4E79")
+        for col, _ in enumerate(headers, start=1):
+            cell = ws.cell(row=1, column=col)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+        ws.append(["号1备注", "13800000001", "密码示例"])
+        ws.append(["号2备注", "13800000002", "密码示例"])
+        ws.column_dimensions["A"].width = 18
+        ws.column_dimensions["B"].width = 18
+        ws.column_dimensions["C"].width = 18
+
+        tip = wb.create_sheet("说明", 0)
+        tip.column_dimensions["A"].width = 72
+        tip["A1"] = "多开器账号批量录入说明"
+        tip["A1"].font = Font(name="微软雅黑", bold=True, size=14)
+        tips = [
+            "1. 在「账号」表填写：备注（可选）、手机号（必填）、密码（必填）。",
+            "2. 表头必须保留「备注 / 手机号 / 密码」三列（也可用 账号备注、账号、password 等同义列名）。",
+            "3. 手机号已存在：更新备注与密码；不存在：新增。",
+            "4. 空行、手机号或密码为空的行会跳过。",
+            "5. 填好后点多开器「批量录入」选择本文件即可。",
+        ]
+        for i, line in enumerate(tips, start=3):
+            tip[f"A{i}"] = line
+
+        try:
+            wb.save(path)
+        except OSError as exc:
+            messagebox.showerror("保存失败", str(exc), parent=self.root)
+            return
+
+        self._set_status(f"已生成模板：{path}")
+        messagebox.showinfo("完成", f"模板已保存：\n{path}", parent=self.root)
+
+    def import_accounts_excel(self) -> None:
+        """从 Excel 批量录入账号（同手机号则更新）。"""
+        try:
+            from openpyxl import load_workbook
+        except ImportError:
+            messagebox.showerror(
+                "缺少依赖",
+                "需要 openpyxl 才能批量录入。\n请先执行：pip install openpyxl",
+                parent=self.root,
+            )
+            return
+
+        path = filedialog.askopenfilename(
+            title="选择账号 Excel",
+            filetypes=[("Excel 工作簿", "*.xlsx"), ("所有文件", "*.*")],
+            parent=self.root,
+        )
+        if not path:
+            return
+
+        try:
+            added, updated, skipped, errors = self._import_accounts_from_xlsx(path)
+        except Exception as exc:
+            messagebox.showerror("录入失败", str(exc), parent=self.root)
+            return
+
+        self.reload_accounts()
+        msg = f"新增 {added}，更新 {updated}，跳过 {skipped}"
+        if errors:
+            detail = "\n".join(errors[:12])
+            if len(errors) > 12:
+                detail += f"\n…另有 {len(errors) - 12} 条"
+            messagebox.showwarning("批量录入完成（有跳过）", f"{msg}\n\n{detail}", parent=self.root)
+        else:
+            messagebox.showinfo("批量录入完成", msg, parent=self.root)
+        self._set_status(f"批量录入：{msg}")
+
+    @staticmethod
+    def _import_accounts_from_xlsx(path: str) -> tuple[int, int, int, list[str]]:
+        from openpyxl import load_workbook
+
+        wb = load_workbook(path, read_only=True, data_only=True)
+        ws = None
+        for name in ("账号", "accounts", "Accounts"):
+            if name in wb.sheetnames:
+                ws = wb[name]
+                break
+        if ws is None:
+            ws = wb[wb.sheetnames[0]]
+
+        rows = ws.iter_rows(values_only=True)
+        try:
+            header = next(rows)
+        except StopIteration:
+            wb.close()
+            raise ValueError("Excel 为空")
+
+        def norm(cell: object) -> str:
+            if cell is None:
+                return ""
+            if isinstance(cell, float) and cell.is_integer():
+                return str(int(cell))
+            if isinstance(cell, int):
+                return str(cell)
+            return str(cell).strip()
+
+        col_map: dict[str, int] = {}
+        aliases = {
+            "label": ("备注", "账号备注", "名称", "label", "name"),
+            "phone": ("手机号", "手机", "账号", "帐号", "phone", "user", "username"),
+            "password": ("密码", "password", "pwd", "pass"),
+        }
+        for idx, raw in enumerate(header or ()):
+            key = norm(raw).lower()
+            for field, names in aliases.items():
+                if key in {n.lower() for n in names} and field not in col_map:
+                    col_map[field] = idx
+        if "phone" not in col_map or "password" not in col_map:
+            wb.close()
+            raise ValueError("表头需包含「手机号」「密码」列（备注可选）")
+
+        existing = {a.phone: a for a in load_accounts() if a.phone}
+        added = updated = skipped = 0
+        errors: list[str] = []
+        for row_i, row in enumerate(rows, start=2):
+            if row is None:
+                continue
+            cells = list(row)
+            phone = norm(cells[col_map["phone"]]) if col_map["phone"] < len(cells) else ""
+            password = norm(cells[col_map["password"]]) if col_map["password"] < len(cells) else ""
+            label = ""
+            if "label" in col_map and col_map["label"] < len(cells):
+                label = norm(cells[col_map["label"]])
+            if not phone and not password and not label:
+                continue
+            if not phone or not password:
+                skipped += 1
+                errors.append(f"第{row_i}行：手机号或密码为空，已跳过")
+                continue
+            if phone in existing:
+                acc = existing[phone]
+                acc.label = label or acc.label or phone
+                acc.password = password
+                upsert_account(acc)
+                updated += 1
+            else:
+                acc = AccountProfile.create(label, phone, password)
+                upsert_account(acc)
+                existing[phone] = acc
+                added += 1
+
+        wb.close()
+        return added, updated, skipped, errors
 
     def edit_account(self) -> None:
         sel = self.acc_tree.selection()
@@ -465,6 +679,7 @@ class MultiLauncherApp:
             ok, msg = ipc.wait_workflow_done(instance_id, timeout=600)
             if ok:
                 self._set_status(f"[{label}] 流程完成")
+                self._maybe_open_helper(instance_id, label)
             else:
                 self._set_status(f"[{label}] 流程失败: {msg}")
         except Exception as exc:
@@ -518,6 +733,12 @@ class MultiLauncherApp:
             st = ipc.read_state(iid) or {}
             phase = st.get("phase", "")
             try:
+                if int(st.get("team_num") or 0) >= 2:
+                    ok_count += 1
+                    lines.append(f"[OK] {label}: 已在队伍中，跳过拉取")
+                    self._set_batch_status(f"[{label}] 已组队，视为成功")
+                    self._maybe_open_helper(iid, label)
+                    continue
                 if phase == "in_game":
                     self._set_batch_status(f"[{label}] 已进游戏，拉起离线多控…")
                     ipc.multi_login_offline_all(iid)
@@ -532,12 +753,24 @@ class MultiLauncherApp:
                             lines.append(f"[FAIL] {label}: 登录/进游戏失败 {msg}")
                             self._set_batch_status(f"[{label}] 失败")
                             continue
+                    after = ipc.read_state(iid) or {}
+                    if int(after.get("team_num") or 0) >= 2:
+                        ok_count += 1
+                        lines.append(f"[OK] {label}: 已在队伍中，跳过拉取")
+                        self._set_batch_status(f"[{label}] 已组队，视为成功")
+                        self._maybe_open_helper(iid, label)
+                        continue
                     ipc.multi_login_offline_all(iid)
                     multi_ok = ipc.wait_multi_ready(iid, timeout=120)
                 if multi_ok:
                     ok_count += 1
-                    lines.append(f"[OK] {label}: 已进游戏并拉起多控")
+                    team_n = int((ipc.read_state(iid) or {}).get("team_num") or 0)
+                    if team_n >= 2:
+                        lines.append(f"[OK] {label}: 已在队伍中")
+                    else:
+                        lines.append(f"[OK] {label}: 已进游戏并拉起多控")
                     self._set_batch_status(f"[{label}] 完成")
+                    self._maybe_open_helper(iid, label)
                 else:
                     lines.append(f"[WARN] {label}: 已进游戏但多控未全部上线（可稍后一键召唤）")
                     self._set_batch_status(f"[{label}] 多控未全上线")
@@ -562,12 +795,19 @@ class MultiLauncherApp:
         ok_count = 0
         lines: list[str] = []
         for iid in iids:
+            st = ipc.read_state(iid) or {}
+            if int(st.get("team_num") or 0) >= 2:
+                ok_count += 1
+                lines.append(f"[OK] {iid}: 已在队伍中，跳过召唤")
+                self._maybe_open_helper(iid, iid)
+                continue
             self._set_batch_status(f"[{iid}] 一键召唤…")
             ipc.one_key_summon(iid)
             ok = ipc.wait_for_team(iid, timeout=90)
             if ok:
                 ok_count += 1
                 lines.append(f"[OK] {iid}: 队伍聚齐 (team≥5)")
+                self._maybe_open_helper(iid, iid)
             else:
                 # 补一发队伍召集再试
                 ipc.team_gather(iid)
@@ -575,6 +815,7 @@ class MultiLauncherApp:
                 if ok2:
                     ok_count += 1
                     lines.append(f"[OK] {iid}: 队伍召集后聚齐")
+                    self._maybe_open_helper(iid, iid)
                 else:
                     lines.append(f"[FAIL] {iid}: 召唤/召集未聚齐")
         summary = f"一键召唤完成：成功 {ok_count}/{len(iids)}"
@@ -700,6 +941,9 @@ def cli_launch_and_login(label: str, *, login_only: bool = False) -> int:
     ok, msg = ipc.wait_workflow_done(inst.instance_id, timeout=600)
     if ok:
         print(f"[OK] [{name}] 流程完成 pid={inst.pid}", flush=True)
+        if load_settings().get("auto_open_helper"):
+            ipc.open_helper_minimized(inst.instance_id)
+            print(f"[INFO] [{name}] 已请求打开序章助手", flush=True)
         return 0
     print(f"[FAIL] [{name}] {msg} pid={inst.pid}", flush=True)
     return 3

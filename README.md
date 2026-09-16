@@ -17,7 +17,7 @@ Agent / 新会话入口：**[`AGENTS.md`](AGENTS.md)** · 改什么找哪：**[`
 | `序章助手共享/` | 助手公共逻辑 |
 | `tools/workflow.py` | `status` / `update` / `repatch` / `publish-*` 统一入口 |
 | `tools/hotfix_patcher/` | C# 补丁引擎源码 |
-| `tools/seqchapter_test_ui/` | 百科助手面板 / 护航 / 半山 / AI（dll-only 部署） |
+| `tools/seqchapter_test_ui/` | 百科助手面板 / 护航 / AI（dll-only 部署） |
 | `tools/seqchapter_*` | 日常、抓宠、烧卡等外挂 DLL |
 | `tools/seqchapter_helper_bridge/` | 助手桥接 DLL |
 | `tools/DEPRECATED.md` | 废弃模块（九动等封存，默认不打开） |

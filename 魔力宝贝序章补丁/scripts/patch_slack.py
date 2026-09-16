@@ -47,7 +47,13 @@ def slack_report(
 def format_slack_summary(data: dict[str, Any]) -> str:
     lines = [
         f".text 可用追加 usable={data.get('usable_append_bytes')} "
-        f"(va_gap={data.get('va_gap_bytes')}, raw_slack={data.get('raw_slack_bytes')})",
+        f"(va_gap={data.get('va_gap_bytes')}, raw_slack={data.get('raw_slack_bytes')}"
+        + (
+            f", expand_raw={data.get('expand_raw_bytes')}"
+            if data.get("expand_raw_bytes") is not None
+            else ""
+        )
+        + ")",
         f"测算源: {data.get('_hotfix_used', '')}",
     ]
     for p in data.get("patches") or []:
@@ -211,6 +217,19 @@ def assert_combo_slack_ok(
             hard_fail.append(
                 f"神奇九动(IL) 间隙不足（需 {p.get('growth_bytes')}B，可用 {usable}B）。"
                 f"请改用「神奇九动·DLL版」，或等客户端 .text 余量增大后再用 IL 版。"
+            )
+            continue
+        # 技能特效：与九动同理，BinaryPeWriter 可从 .reloc/.rsrc 压缩腾 raw；
+        # 本版客户端 raw_slack 仅约 16B，但 va_gap 足够，预检按 usable 会误拦「战斗加速」。
+        if pid == "skill_effect" and mode == "append":
+            if growth > 0 and va_gap >= growth:
+                warnings.append(
+                    f"技能特效加速 usable={usable}B < {growth}B，但 va_gap={va_gap}B 足够，"
+                    f"将依赖节区压缩扩 raw 后写入。"
+                )
+                continue
+            hard_fail.append(
+                f"技能特效加速间隙不足（需 {growth}B，va_gap={va_gap}B / usable={usable}B）。"
             )
             continue
         # 桥接：旧引擎误标 append+200B；实际 Cecil 轻量重写+外置 DLL，体积不变。

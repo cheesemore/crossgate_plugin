@@ -20,8 +20,8 @@
 |------|------|
 | **概况** | 队长地图号(`currentFloor`)/坐标/是否战斗；队伍血魔池；队员每日魔石 |
 | **战斗** | 圆点单选：常规 / 抓宠 / 烧卡 / 抓宠不带宠；（九动隐藏，仅有 DLL 时显示）；**AI 战斗**（常规下）：血瓶/菲尔尼等；页内开关见下 |
-| **脚本** | 「做日常」；**重置半山**（全队 13689）；部分测试入口可能隐藏 |
-| **护航** | 队列式；**洗礼预备** \| **半山预备** 并排；自动暂停响铃；静止恢复 / 连续失败暂停；战败 `forceQuitBattle` 暂停 |
+| **脚本** | 「做日常」；**循环等待传送**；**半山测试**；部分测试入口可能隐藏 |
+| **护航** | 队列式；**洗礼预备**；自动暂停响铃；静止恢复 / 连续失败暂停；战败 `forceQuitBattle` 暂停 |
 | **导航** | 地图号/坐标导航；记录点位（`%USERPROFILE%\.seqchapter_helper\waypoints.json`） |
 | **形象** | 进战宠物形象钩子 |
 | **截获** | 开超银（账号道具仓），列出道具号和数量 |
@@ -36,10 +36,9 @@
 
 约定：[`seqchapter-ai-battle-virtual.mdc`](../../.cursor/rules/seqchapter-ai-battle-virtual.mdc) · [`VIP攻击无效接管计划.md`](../VIP攻击无效接管计划.md)
 
-### 半山 / 洗礼
+### 护航约定
 
-- 半山：重置 **13689**、护航 **1368**、道具 `#15210×2` — [`seqchapter-banshan-prep.mdc`](../../.cursor/rules/seqchapter-banshan-prep.mdc)
-- 战败保护：[`seqchapter-escort-defeat-guard.mdc`](../../.cursor/rules/seqchapter-escort-defeat-guard.mdc)
+- 战败保护（洗礼等独立脚本）：[`seqchapter-escort-defeat-guard.mdc`](../../.cursor/rules/seqchapter-escort-defeat-guard.mdc)
 - 卡图清路径：[`seqchapter-official-nav-reset.mdc`](../../.cursor/rules/seqchapter-official-nav-reset.mdc)
 
 ## 实现要点

@@ -215,6 +215,7 @@ internal static class BattleAppearExternalIlPatcher
     /// <summary>
     /// 创建人物/宠物 + GetPlayerCharacterData + OnUpdateObjCallback（组装 CharacterData 后）按本地 Uid 档改写。
     /// UpdateObj 覆盖队长本机刷新与回程原地 SetData；钩内 MethodInfo 已缓存，避免旧 set_data 每帧反射崩。
+    /// 形象关着时 s_SeqWorldAppearSkip 直接 ret，进图 UpdateObj 不再 GetMethod/Invoke。
     /// </summary>
     private static void EnsureWorldAppearHooks(ModuleDefinition module)
     {
@@ -240,7 +241,7 @@ internal static class BattleAppearExternalIlPatcher
         }
         else
         {
-            Console.WriteLine("[APPEAR] 重建 " + WorldHookMethodName + " 方法体（空id快退+缓存）");
+            Console.WriteLine("[APPEAR] 重建 " + WorldHookMethodName + " 方法体（空id快退+关钩跳过Invoke+缓存）");
         }
 
         EnsureWorldAppearCacheFields(module, factory);
@@ -263,6 +264,8 @@ internal static class BattleAppearExternalIlPatcher
 
     private const string WorldMethodCacheField = "s_SeqWorldAppearMethod";
     private const string WorldResolvedField = "s_SeqWorldAppearResolved";
+    public const string WorldSkipField = "s_SeqWorldAppearSkip";
+    public const string WorldEnabledName = "IsEnabled";
 
     private static void EnsureWorldAppearCacheFields(ModuleDefinition module, TypeDefinition factory)
     {
@@ -285,6 +288,14 @@ internal static class BattleAppearExternalIlPatcher
         {
             factory.Fields.Add(new FieldDefinition(
                 WorldResolvedField,
+                FieldAttributes.Static | FieldAttributes.Private,
+                module.TypeSystem.Boolean));
+        }
+
+        if (factory.Fields.All(f => f.Name != WorldSkipField))
+        {
+            factory.Fields.Add(new FieldDefinition(
+                WorldSkipField,
                 FieldAttributes.Static | FieldAttributes.Private,
                 module.TypeSystem.Boolean));
         }
@@ -542,6 +553,7 @@ internal static class BattleAppearExternalIlPatcher
         var fCrest = charData.Fields.First(f => f.Name == "maxCrestUseId");
         var fCachedMethod = factory.Fields.First(f => f.Name == WorldMethodCacheField);
         var fResolved = factory.Fields.First(f => f.Name == WorldResolvedField);
+        var fSkip = factory.Fields.First(f => f.Name == WorldSkipField);
 
         var typeVar = new VariableDefinition(getTypeStatic.ReturnType);
         var bytesVar = new VariableDefinition(new ArrayType(module.TypeSystem.Byte));
@@ -576,6 +588,10 @@ internal static class BattleAppearExternalIlPatcher
             il.Append(il.Create(OpCodes.Leave, leaveTarget));
             il.Append(cont);
         }
+
+        // if (s_SeqWorldAppearSkip) return;  形象关着：进图 UpdateObj 零反射
+        il.Append(il.Create(OpCodes.Ldsfld, fSkip));
+        il.Append(il.Create(OpCodes.Brtrue, leaveTarget));
 
         // if (data.id == null || data.id.Length == 0) return;  （try 外，可用 br）
         il.Append(il.Create(OpCodes.Ldarg_0));
@@ -627,6 +643,28 @@ internal static class BattleAppearExternalIlPatcher
         il.Append(il.Create(OpCodes.Stsfld, fResolved));
         il.Append(il.Create(OpCodes.Ldsfld, fCachedMethod));
         LeaveIfFalse();
+
+        // 首次解析后问 IsEnabled；关着则打 skip，后续钩直接 ret
+        var hasGate = il.Create(OpCodes.Nop);
+        il.Append(il.Create(OpCodes.Ldloc, typeVar));
+        il.Append(il.Create(OpCodes.Ldstr, WorldEnabledName));
+        il.Append(il.Create(OpCodes.Callvirt, getMethod));
+        il.Append(il.Create(OpCodes.Dup));
+        il.Append(il.Create(OpCodes.Brtrue, hasGate));
+        il.Append(il.Create(OpCodes.Pop));
+        il.Append(il.Create(OpCodes.Br, doInvoke));
+
+        il.Append(hasGate);
+        il.Append(il.Create(OpCodes.Ldnull));
+        il.Append(il.Create(OpCodes.Ldnull));
+        il.Append(il.Create(OpCodes.Callvirt, invoke));
+        il.Append(il.Create(OpCodes.Dup));
+        LeaveIfFalse();
+        il.Append(il.Create(OpCodes.Unbox_Any, module.TypeSystem.Boolean));
+        il.Append(il.Create(OpCodes.Brtrue, doInvoke));
+        il.Append(il.Create(OpCodes.Ldc_I4_1));
+        il.Append(il.Create(OpCodes.Stsfld, fSkip));
+        il.Append(il.Create(OpCodes.Leave, leaveTarget));
 
         il.Append(doInvoke);
         il.Append(il.Create(OpCodes.Ldc_I4_7));

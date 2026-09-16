@@ -27,13 +27,13 @@
 
 | 做什么 | 去哪 |
 |---|---|
-| 助手面板 / 护航 / 半山 / AI 战斗 | `tools/seqchapter_test_ui/` → dll-only 部署到 **cross** |
+| 助手面板 / 护航 / AI 战斗 | `tools/seqchapter_test_ui/` → dll-only 部署到 **cross** |
 | 补丁引擎 / 组合默认 | `tools/hotfix_patcher/`、`魔力宝贝序章补丁/scripts/` |
 | 协议复用 | `tools/常用反射方法速查.md` |
 | 废弃勿开 | `tools/DEPRECATED.md` |
 | 过时备忘（勿当真） | `当前目录备忘录以及准备做的事情.MD`（已废弃） |
 
-Rules（清缓存后仍生效）：`.cursor/rules/`，尤其 work-dir、do-not-pollute-crosscopy、ai-battle、banshan-prep、escort-defeat-guard。
+Rules（清缓存后仍生效）：`.cursor/rules/`，尤其 work-dir、do-not-pollute-crosscopy、ai-battle、escort-defeat-guard。
 
 ## 铁律（详见规范文档与 `.cursor/rules/`）
 
@@ -62,4 +62,4 @@ Rules（清缓存后仍生效）：`.cursor/rules/`，尤其 work-dir、do-not-p
 
 1. 能说出：**crosscopy=干净版，cross=打补丁工作区**
 2. 在 cross 根执行：`python tools/workflow.py status`
-3. 不问历史对话也能答：半山重置 13689 / 护航 1368；攻击无效重写独立于 AI；声望集火序；护航战败暂停
+3. 不问历史对话也能答：攻击无效重写独立于 AI；声望集火序；护航/洗礼战败暂停

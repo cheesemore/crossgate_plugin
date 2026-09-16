@@ -47,9 +47,17 @@ internal static class SlackReport
         HotfixSize.Require(pe);
 
         var text = PeLayout.GetSection(pe, ".text");
+        var rsrc = PeLayout.GetSection(pe, ".rsrc");
+        var reloc = PeLayout.GetSection(pe, ".reloc");
         var vaGap = PeLayout.GetTextVaGapBytes(pe);
         var rawSlack = (int)(text.SizeOfRawData - text.VirtualSize);
-        var usable = Math.Min(vaGap, rawSlack);
+        // 与 BinaryPeWriter.GrowTextIntoTrailingSections 对齐：可压缩 .reloc 尾 / .rsrc 零填充
+        // 来扩大 .text RawSize（不改节 VA），故 usable 不能只看 raw_slack。
+        const int relocKeepRaw = 12;
+        var relocAvail = Math.Max(0, (int)reloc.SizeOfRawData - relocKeepRaw);
+        var rsrcPadAvail = Math.Max(0, (int)rsrc.SizeOfRawData - (int)rsrc.VirtualSize);
+        var expandRaw = relocAvail + rsrcPadAvail;
+        var usable = Math.Min(vaGap, rawSlack + expandRaw);
 
         var profiles = BuildProfiles(hotfix, pe);
         var selected = check.Count == 0
@@ -106,6 +114,9 @@ internal static class SlackReport
                 text_raw_size = text.SizeOfRawData,
                 va_gap_bytes = vaGap,
                 raw_slack_bytes = rawSlack,
+                reloc_avail_bytes = relocAvail,
+                rsrc_pad_avail_bytes = rsrcPadAvail,
+                expand_raw_bytes = expandRaw,
                 usable_append_bytes = usable,
                 remaining_after_check = budget,
                 all_can_apply = allOk,
@@ -126,8 +137,11 @@ internal static class SlackReport
         {
             Console.WriteLine($"[SLACK] 文件 {pe.Length:N0} 字节");
             Console.WriteLine(
-                $"[SLACK] .text VS=0x{text.VirtualSize:X} RS=0x{text.SizeOfRawData:X}  raw_slack={rawSlack}  va_gap={vaGap}  usable={usable}");
-            Console.WriteLine("[SLACK] 规则: 可执行追加 ≤ min(raw_slack, va_gap)；禁止后移 .rsrc/.reloc VA；禁止后迁邻居方法");
+                $"[SLACK] .text VS=0x{text.VirtualSize:X} RS=0x{text.SizeOfRawData:X}  raw_slack={rawSlack}  " +
+                $"expand_raw={expandRaw}(reloc={relocAvail}+rsrcPad={rsrcPadAvail})  va_gap={vaGap}  usable={usable}");
+            Console.WriteLine(
+                "[SLACK] 规则: 可执行追加 ≤ min(va_gap, raw_slack+可压缩节尾)；" +
+                "禁止后移节 VA；BinaryPeWriter 可压缩 .reloc/.rsrc 零尾扩 .text Raw");
             foreach (var (p, can, _) in evaluated)
             {
                 var mark = p.AlreadyApplied ? "已打" : can ? "可打" : (p.Mode == "external_dll" ? "需DLL版" : "不够");
