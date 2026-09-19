@@ -38,6 +38,7 @@ internal static class HelperBridgeIlPatcher
         var variantOnly = false;
         var bootstrapSiteOnly = false;
         var mini = false;
+        var dllOnly = false;
 
         for (var i = 0; i < args.Length; i++)
         {
@@ -51,6 +52,9 @@ internal static class HelperBridgeIlPatcher
                     break;
                 case "--mini":
                     mini = true;
+                    break;
+                case "--dll-only":
+                    dllOnly = true;
                     break;
                 case "--detect":
                     detectOnly = true;
@@ -91,6 +95,23 @@ internal static class HelperBridgeIlPatcher
         {
             Console.WriteLine(IsPatched(source) ? "patched" : "not_patched");
             return 0;
+        }
+
+        if (dllOnly)
+        {
+            try
+            {
+                var dllPath = BuildBridgeDll(source);
+                var assetOut = BridgeAssetPath(source);
+                File.Copy(dllPath, assetOut, overwrite: true);
+                Console.WriteLine("[OK] 已重编译并部署 " + assetOut);
+                return 0;
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine("[FAIL] " + ex.Message);
+                return 1;
+            }
         }
 
         output ??= source;

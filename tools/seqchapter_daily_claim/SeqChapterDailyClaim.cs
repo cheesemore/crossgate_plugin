@@ -1283,6 +1283,19 @@ public static class SeqChapterDailyClaim
 
                 var data = GetMember(slot, "data");
                 var itemId = data != null ? Convert.ToInt32(GetMember(data, "Id") ?? 0) : 0;
+                var itemName = data != null
+                    ? (Convert.ToString(GetMember(data, "Name") ?? "") ?? "")
+                    : "";
+                // 不做「水晶石」：日常/单独用道具都跳过
+                if (!string.IsNullOrEmpty(itemName)
+                    && itemName.IndexOf("水晶石", StringComparison.Ordinal) >= 0)
+                {
+                    _useSlot++;
+                    _useAttempt = 0;
+                    _staleUseCount = 0;
+                    continue;
+                }
+
                 if (!UseItemIds.Contains(itemId))
                 {
                     _useSlot++;

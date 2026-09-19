@@ -215,6 +215,7 @@ public static class SeqChapterMiniBridge
             }
 
             AppendMultiFields(st);
+            AppendHelperSnapshot(st);
         }
 
         st["workflow_active"] = _workflowActive;
@@ -325,9 +326,17 @@ public static class SeqChapterMiniBridge
             case "open_helper_minimized":
                 return DoOpenHelperMinimized(out msg);
             case "workflow_step1":
-                return StartWorkflowStep1(GetStr(prm, "phone"), GetStr(prm, "password"), out msg);
+                return StartWorkflowStep1(
+                    GetStr(prm, "phone"),
+                    GetStr(prm, "password"),
+                    GetBool(prm, "open_helper"),
+                    out msg);
             case "workflow_login_enter":
-                return StartWorkflowLoginEnter(GetStr(prm, "phone"), GetStr(prm, "password"), out msg);
+                return StartWorkflowLoginEnter(
+                    GetStr(prm, "phone"),
+                    GetStr(prm, "password"),
+                    GetBool(prm, "open_helper"),
+                    out msg);
             default:
                 msg = "unknown cmd: " + cmd;
                 return false;
@@ -982,7 +991,7 @@ public static class SeqChapterMiniBridge
         return true;
     }
 
-    private static bool StartWorkflowStep1(string phone, string password, out string msg)
+    private static bool StartWorkflowStep1(string phone, string password, bool openHelper, out string msg)
     {
         _workflow.Clear();
         _workflowActive = true;
@@ -996,6 +1005,7 @@ public static class SeqChapterMiniBridge
         }
 
         EnqueueLoginEnterSteps();
+        EnqueueOpenHelperIfNeeded(openHelper);
         _workflow.Enqueue("skip_if_already_teamed");
         _workflow.Enqueue("multi_login_offline_all");
         _workflow.Enqueue("until:multi_ready:90");
@@ -1011,7 +1021,7 @@ public static class SeqChapterMiniBridge
         return true;
     }
 
-    private static bool StartWorkflowLoginEnter(string phone, string password, out string msg)
+    private static bool StartWorkflowLoginEnter(string phone, string password, bool openHelper, out string msg)
     {
         _workflow.Clear();
         _workflowActive = true;
@@ -1025,6 +1035,7 @@ public static class SeqChapterMiniBridge
         }
 
         EnqueueLoginEnterSteps();
+        EnqueueOpenHelperIfNeeded(openHelper);
         msg = "login_enter workflow queued";
         return true;
     }
@@ -1036,6 +1047,18 @@ public static class SeqChapterMiniBridge
         _workflow.Enqueue("until:route_ready:90");
         _workflow.Enqueue("enter_game");
         _workflow.Enqueue("until:in_game:180");
+    }
+
+    /// <summary>进游戏后立刻开助手，再拉多控/召唤（避免流程尾部才开、看起来像没生效）。</summary>
+    private static void EnqueueOpenHelperIfNeeded(bool openHelper)
+    {
+        if (!openHelper)
+        {
+            return;
+        }
+
+        _workflow.Enqueue("open_helper_minimized");
+        _workflow.Enqueue("wait:1");
     }
 
     private static void FinishWorkflow(bool ok, string note)
@@ -1252,6 +1275,23 @@ public static class SeqChapterMiniBridge
             return;
         }
 
+        if (step == "open_helper_minimized")
+        {
+            _workflow.Dequeue();
+            _workflowUntilStarted = null;
+            if (DoOpenHelperMinimized(out var ohMsg))
+            {
+                Tip("序章助手已打开");
+            }
+            else
+            {
+                Tip("序章助手打开失败：" + (ohMsg ?? ""));
+            }
+
+            _workflowWaitUntil = Now() + 0.5;
+            return;
+        }
+
         _workflow.Dequeue();
         _workflowUntilStarted = null;
         if (step.StartsWith("click_multi_head:"))
@@ -1428,6 +1468,47 @@ public static class SeqChapterMiniBridge
         st["multi_slot0_uid"] = GetFirstMultiUid(players);
         st["team_leader_uid"] = GetTeamLeaderUid();
         st["multi_online_slots"] = string.Join(",", onlineParts.ToArray());
+    }
+
+    /// <summary>
+    /// 助手已加载时写入监视字段；未加载不主动装 DLL，避免不开助手也被拉起。
+    /// </summary>
+    private static void AppendHelperSnapshot(Dictionary<string, object> st)
+    {
+        st["helper_loaded"] = false;
+        var t = FindType("SeqChapterTestUi");
+        if (t == null)
+        {
+            return;
+        }
+
+        var method = t.GetMethod("GetMonitorSnapshot", BindingFlags.Public | BindingFlags.Static);
+        if (method == null)
+        {
+            return;
+        }
+
+        object raw;
+        try
+        {
+            raw = method.Invoke(null, null);
+        }
+        catch
+        {
+            return;
+        }
+
+        var dict = raw as Dictionary<string, object>;
+        if (dict == null)
+        {
+            return;
+        }
+
+        st["helper_loaded"] = true;
+        foreach (var kv in dict)
+        {
+            st[kv.Key] = kv.Value;
+        }
     }
 
     private static bool IsTeamOk()
@@ -2101,6 +2182,46 @@ public static class SeqChapterMiniBridge
         return int.TryParse(v?.ToString(), out var n) ? n : def;
     }
 
+    private static bool GetBool(Dictionary<string, object> d, string key, bool def = false)
+    {
+        if (d == null || !d.TryGetValue(key, out var v) || v == null)
+        {
+            return def;
+        }
+
+        if (v is bool b)
+        {
+            return b;
+        }
+
+        if (v is long l)
+        {
+            return l != 0;
+        }
+
+        if (v is int i)
+        {
+            return i != 0;
+        }
+
+        var s = v.ToString();
+        if (string.Equals(s, "1", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(s, "true", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(s, "yes", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (string.Equals(s, "0", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(s, "false", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(s, "no", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        return def;
+    }
+
     private static int ResolveCurrentProcessId()
     {
         foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
@@ -2215,7 +2336,12 @@ internal static class MiniJson
 
         if (v is string s)
         {
-            return "\"" + s.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"";
+            return "\"" + s
+                .Replace("\\", "\\\\")
+                .Replace("\"", "\\\"")
+                .Replace("\r", "\\r")
+                .Replace("\n", "\\n")
+                .Replace("\t", "\\t") + "\"";
         }
 
         if (v is Array arr)
@@ -2276,7 +2402,13 @@ internal static class MiniJson
 
         if (v.StartsWith("\""))
         {
-            return v.Trim('"');
+            var inner = v.Length >= 2 ? v.Substring(1, v.Length - 2) : "";
+            return inner
+                .Replace("\\n", "\n")
+                .Replace("\\r", "\r")
+                .Replace("\\t", "\t")
+                .Replace("\\\"", "\"")
+                .Replace("\\\\", "\\");
         }
 
         if (v.StartsWith("{"))

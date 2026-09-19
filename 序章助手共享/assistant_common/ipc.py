@@ -609,23 +609,37 @@ def nav_stop(instance_id: str) -> str:
     return send_command(instance_id, "nav_stop")
 
 
-def workflow_login_enter(instance_id: str, phone: str, password: str) -> str:
-    """登录 → 选服 → 进入游戏（不含多控/召唤）。"""
+def workflow_login_enter(
+    instance_id: str,
+    phone: str,
+    password: str,
+    *,
+    open_helper: bool = False,
+) -> str:
+    """登录 → 选服 → 进入游戏（不含多控/召唤）。可选进游戏后立刻开助手。"""
     return send_command(
         instance_id,
         "workflow_login_enter",
         phone=phone,
         password=password,
+        open_helper=bool(open_helper),
     )
 
 
-def workflow_step1_five_chars(instance_id: str, phone: str, password: str) -> str:
-    """一键流程：登录 → 进游戏 → 拉起离线多控 → 点头像选第一个 → 一键召唤 → 关分享。"""
+def workflow_step1_five_chars(
+    instance_id: str,
+    phone: str,
+    password: str,
+    *,
+    open_helper: bool = False,
+) -> str:
+    """一键流程：登录 → 进游戏 →（可选开助手）→ 拉起离线多控 → 一键召唤 → 关分享。"""
     return send_command(
         instance_id,
         "workflow_step1",
         phone=phone,
         password=password,
+        open_helper=bool(open_helper),
     )
 
 

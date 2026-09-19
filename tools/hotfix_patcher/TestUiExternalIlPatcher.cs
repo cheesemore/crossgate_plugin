@@ -82,7 +82,10 @@ internal static class TestUiExternalIlPatcher
                 var assetOut = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(source))!, AssetFileName);
                 File.Copy(dllPath, assetOut, overwrite: true);
                 Console.WriteLine("[OK] 已重编译并部署 " + assetOut);
-                // AutoSelect AI 注入已停用（会卡战斗）；dll-only 只部署 TestUi
+                // 只拆除、不注入：AutoSelect AI 锚点注入会卡/弄坏普通自动战斗
+                FocusFireAutoSelectIlPatcher.StripOnly(source, source);
+                // 攻击类目标改写：挂 SendBattleCommond，不走 focusFireIndex
+                SuperAiBattleCmdRewriteIl.EnsureOnFile(source);
                 return 0;
             }
             catch (Exception ex)
@@ -143,8 +146,12 @@ internal static class TestUiExternalIlPatcher
 
         // AI 强制出手：挂官方 AutoFight / DoVip（插在抓宠分发之前）
         InjectSuperAiBattleHooks(asm);
+        SuperAiBattleCmdRewriteIl.Ensure(asm);
 
-        // AutoSelect AI 注入暂停（会卡普通 Auto）；仅拆除残留块
+        // PVP 允许自动：Tip 拦截「PVP下不允许自动战斗哟」
+        PvpAutoAllowIl.EnsureTipHook(asm);
+
+        // 合击/随机 AI 锚点注入会卡战斗：只拆除，集火走官方 focusFireIndex
         FocusFireAutoSelectIlPatcher.InjectIfNeeded(asm, reinject: false);
 
         using var ms = new MemoryStream();
@@ -403,7 +410,24 @@ internal static class TestUiExternalIlPatcher
 
         File.WriteAllBytes(dllPath, ms.ToArray());
         Console.WriteLine($"[HELPER] 已编译助手面板 DLL（{refs.Count} 个引用，含 UnityEngine 桩）");
+        DeployDojoPriorityConfig(hotfixDataDir, srcDir);
         return dllPath;
+    }
+
+    private const string DojoPriorityConfigFileName = "super_ai_dojo_priority.json";
+
+    private static void DeployDojoPriorityConfig(string hotfixDataDir, string srcDir)
+    {
+        var src = Path.Combine(srcDir, DojoPriorityConfigFileName);
+        if (!File.Exists(src))
+        {
+            Console.WriteLine("[HELPER] 未找到 " + DojoPriorityConfigFileName + "（跳过复制）");
+            return;
+        }
+
+        var dst = Path.Combine(hotfixDataDir, DojoPriorityConfigFileName);
+        File.Copy(src, dst, overwrite: true);
+        Console.WriteLine("[HELPER] 已部署 " + dst);
     }
 
     private static string ResolveSourceDir(string hotfixPath)

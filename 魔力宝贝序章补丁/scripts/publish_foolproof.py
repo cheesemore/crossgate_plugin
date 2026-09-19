@@ -429,6 +429,9 @@ def build_exe(app_name: str = APP_NAME, dragon_loop_ui: bool = False) -> Path:
         if tools_dst.is_dir():
             shutil.rmtree(tools_dst, ignore_errors=True)
         shutil.copytree(src, tools_dst)
+        if name == "seqchapter_test_ui":
+            _disable_dojo_roster_for_foolproof(seal_dst)
+            _disable_dojo_roster_for_foolproof(tools_dst)
 
     # 超级AI 档位表 + 进战形象默认配置（运行时从游戏根/tools 或开发路径加载）
     tools_root = out_dir / "tools"
@@ -619,6 +622,20 @@ def _build_window_monitor_exe(out_dir: Path) -> None:
     nested.mkdir(parents=True, exist_ok=True)
     shutil.copy2(built, nested / f"{WINDOW_MONITOR_NAME}.exe")
     print(f"[OK] 窗口监视.exe -> {root_exe}")
+
+
+def _disable_dojo_roster_for_foolproof(folder: Path) -> None:
+    """傻瓜包不带百人怪物记录。只改包内副本，不动仓库源码。"""
+    cs = folder / "DojoRosterRecord.cs"
+    if not cs.is_file():
+        raise FileNotFoundError(f"傻瓜包缺少 {cs}")
+    text = cs.read_text(encoding="utf-8")
+    old = "private const bool EnableDojoRosterRecord = true;"
+    new = "private const bool EnableDojoRosterRecord = false;"
+    if old not in text:
+        raise RuntimeError("DojoRosterRecord.cs 缺少 EnableDojoRosterRecord = true，无法从傻瓜包剔除")
+    cs.write_text(text.replace(old, new, 1), encoding="utf-8")
+    print(f"[OK] 傻瓜包已关闭百人记录 {cs}")
 
 
 def zip_folder(folder: Path, zip_path: Path) -> None:

@@ -9,26 +9,39 @@ using System.Text;
 using UnityEngine;
 
 /// <summary>
-/// 助手面板（百科入口）：概况 / 战斗模式 / AI / 脚本 / 任务护航 / 界面 / 导航 / 形象 / 截获。
+/// 助手面板（百科入口）：设置 / 概况 / 战斗模式 / AI / 脚本 / 任务护航 / 界面 / 导航 / 形象 / 截获。
 /// 抓宠·烧卡·九动等在「战斗模式」页互斥切换。Update+UGUI（HybridCLR 无 OnGUI）。
 /// 部署 hotfixdata/SeqChapterTestUi.dll.bytes；日志 SeqChapterTestUi.log。
 /// </summary>
-public static class SeqChapterTestUi
+public static partial class SeqChapterTestUi
 {
     public const string AssetPath = "hotfixdata/SeqChapterTestUi.dll.bytes";
     public const string LogFileName = "SeqChapterTestUi.log";
     /// <summary>官方单回合 180s 超时（即将断线）单独记一笔，不跟主日志混在一起。</summary>
     public const string RoundTimeoutLogFileName = "SeqChapterTestUi.round_timeout.log";
 
-    private const int TabOverview = 0;
-    private const int TabBattle = 1;
-    private const int TabSuperAi = 2;
-    private const int TabScript = 3;
-    private const int TabEscort = 4;
-    private const int TabOpenUi = 5;
-    private const int TabNav = 6;
-    private const int TabAppear = 7;
-    private const int TabSniff = 8;
+    /// <summary>
+    /// PVP 允许自动战斗。关=原版拦截；开=点自动不再提示，并压住回合开始强制关自动。
+    /// 需 hotfix 注入 NotifyManager.Tip（wiki-test-ui-patch）；仅更新本 DLL 时开关 UI 仍可用但点自动无效果。
+    /// </summary>
+    public static bool AllowPvpAutoBattle = true;
+
+    /// <summary>PVP 下用户点开过自动后，回合开始被官方关掉时由 Tick 再打开。</summary>
+    private static bool _pvpAutoHold;
+    private static long _lastPvpAutoHoldMs;
+
+    private const string PvpAutoBlockedTip = "PVP下不允许自动战斗哟";
+
+    private const int TabSettings = 0;
+    private const int TabOverview = 1;
+    private const int TabBattle = 2;
+    private const int TabSuperAi = 3;
+    private const int TabScript = 4;
+    private const int TabEscort = 5;
+    private const int TabOpenUi = 6;
+    private const int TabNav = 7;
+    private const int TabAppear = 8;
+    private const int TabSniff = 9;
     private const int NavWaypointPageSize = 4;
 
     private const string ModeNormal = "normal";
@@ -63,6 +76,13 @@ public static class SeqChapterTestUi
     {
         get { return _escortBattleFoodMode == EscortBattleFoodNoodle ? 60 : 100; }
     }
+
+    /// <summary>血池可选，默认关。低于 5000 用 15609×100，协议「使用血池道具」（与魔池不同）。</summary>
+    private const int EscortBattleHpLow = 5000;
+    private const int EscortBattleHpItemId = 15609;
+    private const int EscortBattleHpUseNum = 100;
+    private const int EscortRefillMp = 0;
+    private const int EscortRefillHp = 1;
 
     private const int EscortBattleExtractEvery = 30;
     /// <summary>退战后再等这么久才读魔池/开仓，避免 uid 空窗和 mpPond=0 误补。</summary>
@@ -228,6 +248,9 @@ public static class SeqChapterTestUi
     private const string WildExTicketKeyword = "中元礼盒兑换券";
     private const string AccountPetBankActivity = "远程账号宠物仓库";
 
+    /// <summary>脚本页：队长背包「试炼通过证明」→个人仓库（非账号银行）。</summary>
+    private const string TrialPassProofKeyword = "试炼通过证明";
+
     // ----- 半山测试脚本（脚本页）-----
     private const string BanshanTestEggKeyword = "饥饿的死神之卵";
     private const string BanshanTestRainKeyword = "冥界之雨";
@@ -269,6 +292,171 @@ public static class SeqChapterTestUi
     private static int _banshanTestRound;
     private static string _banshanTestNote = "";
     private static object _banshanTestStatusText;
+
+    // ----- 百人道场脚本（脚本页）：不在道场则回城点6→切1154→开面板 → 进场循环；战败到1154暂停 -----
+    /// <summary>false=不进傻瓜包入口（逻辑保留）；要发百人时改 true 再 publish / dll-only。</summary>
+    private const bool EnableDojoRunScript = true;
+    private const int DojoRunIdle = 0;
+    private const int DojoRunEnter = 1;
+    private const int DojoRunWaitFloor = 2;
+    private const int DojoRunNav = 3;
+    private const int DojoRunTalk = 4;
+    private const int DojoRunWaitBattle = 5;
+    private const int DojoRunInBattle = 6;
+    private const int DojoRunAfterBattle = 7;
+    private const int DojoRunReturn = 10;
+    private const int DojoRunWaitReturn = 11;
+    private const int DojoRunNavWarp = 12;
+    private const int DojoRunWaitWarp = 13;
+    private const int DojoRunNavOpen = 14;
+    private const int DojoRunTalkOpen = 15;
+    /// <summary>低血主动退出道场（发「退出道场」）。</summary>
+    private const int DojoRunExit = 16;
+    /// <summary>等退出到 1154，再法兰治疗 → 回城点6重跑。</summary>
+    private const int DojoRunWaitExit = 17;
+    /// <summary>退出后等法兰治疗完成，再从回城点6接上。</summary>
+    private const int DojoRunWaitFloraHeal = 18;
+    /// <summary>道场内地图号固定 9201；层数看 currentFloorName「第N道场」。</summary>
+    private const int DojoBattleFloor = 9201;
+    private const int DojoStandX = 15;
+    private const int DojoStandY = 10;
+    private const int DojoNpcX = 16;
+    private const int DojoNpcY = 10;
+    private const string DojoNpcNameKey = "道场";
+    /// <summary>PathFinder 记录点6 = 法兰 1000 (233,78)。SendMenu(3,"6")。</summary>
+    private const int DojoReturnRecordIndex = 6;
+    private const int DojoReturnFloor = 1000;
+    private const int DojoReturnX = 233;
+    private const int DojoReturnY = 78;
+    private const int DojoWarpStandX = 238;
+    private const int DojoWarpStandY = 64;
+    private const int DojoWarpTargetFloor = 1154;
+    private const long DojoWarpTimeoutMs = 5000;
+    private const int DojoOpenStandX = 39;
+    private const int DojoOpenStandY = 31;
+    private const int DojoOpenNpcX = 40;
+    private const int DojoOpenNpcY = 31;
+    private const string DojoOpenNpcName = "百人道场";
+    private const long DojoAfterBattleMs = 5000;
+    private const long DojoNavRetryMs = 2500;
+    private const long DojoLookRetryMs = 1500;
+    private const long DojoEnterRetryMs = 2000;
+    private const long DojoReturnWaitMs = 8000;
+    private const long DojoExitWaitMs = 10000;
+    private const float DojoHpHealRatio = 0.50f;
+    private const int DojoDefaultTargetLayer = 31;
+    private static bool _dojoRunActive;
+    private static int _dojoRunPhase;
+    private static long _dojoRunDelayUntilMs;
+    private static long _dojoRunLastNavMs;
+    private static long _dojoRunLastLookMs;
+    private static long _dojoRunLastEnterMs;
+    private static long _dojoRunWarpWaitSinceMs;
+    private static long _dojoRunReturnSinceMs;
+    private static long _dojoRunExitSinceMs;
+    private static bool _dojoRunTalkPicked;
+    private static bool _dojoRunOpenTalkPicked;
+    private static bool _dojoRunSawForceQuit;
+    private static bool _dojoRunPrevInBattle;
+    /// <summary>主动低血退出：到 1154 后法兰治疗，再从回城点6整段重跑（不直接对话 NPC）。</summary>
+    private static bool _dojoRunExpectExitReenter;
+    /// <summary>已达或超过目标层：退出到 1154 后结束脚本，不再重进。</summary>
+    private static bool _dojoRunExitThenStop;
+    /// <summary>刚出战，地图尚未落到 9201/1154，先确认再定胜负。</summary>
+    private static bool _dojoRunAwaitPostBattleMap;
+    private static int _dojoRunFloorClear;
+    private static int _dojoRunLayer;
+    private static int _dojoRunTargetLayer = DojoDefaultTargetLayer;
+    private static string _dojoRunTargetLayerStr = "31";
+    private static object _dojoRunTargetLayerInput;
+    /// <summary>开：百人/噩梦每轮开始前，把本机每个角色的最高级宠设为出战。已是则跳过。</summary>
+    private static bool _dojoAutoHighestBattlePet;
+    private const int DojoPetStatusBattle = 2;
+    private static string _dojoRunNote = "";
+    private static int _dojoRunReturnTries;
+    private static int _dojoRunExitTries;
+
+    // ----- 噩梦百人：每轮先法兰治疗 → 回城点6 → 进1154对话 → 挑战第 N 组（默认 2）→ 十连；打完重头，战败停 -----
+    private const int DojoHellDefaultFloor = 2;
+    private const long DojoHellGapMs = 3000;
+    private const int HellIdle = 0;
+    private const int HellReturn = 1;
+    private const int HellWaitReturn = 2;
+    private const int HellNavWarp = 3;
+    private const int HellWaitWarp = 4;
+    private const int HellNavOpen = 5;
+    private const int HellTalkOpen = 6;
+    private const int HellPickFloor = 7;
+    private const int HellWaitMap = 8;
+    private const int HellNav = 9;
+    private const int HellTalk = 10;
+    private const int HellWaitBattle = 11;
+    private const int HellInBattle = 12;
+    private const int HellGap = 13;
+    private const int HellExit = 14;
+    private const int HellWaitExit = 15;
+    private const int HellWaitFlora = 16;
+    private static bool _dojoHellActive;
+
+    // ----- 大乱斗自动报名：须在地图1000、5人队、队长≥75级。回城点6→1154，再找管理员报名 -----
+    private const int BrawlIdle = 0;
+    private const int BrawlReturn = 1;
+    private const int BrawlWaitReturn = 2;
+    private const int BrawlNavWarp = 3;
+    private const int BrawlWaitWarp = 4;
+    private const int BrawlNavStand = 5;
+    private const int BrawlTalk = 6;
+    private const int BrawlSignup = 7;
+    private const int BrawlConfirm = 8;
+    private const int BrawlWaitResult = 9;
+    private const int BrawlStandX = 43;
+    private const int BrawlStandY = 29;
+    private const int BrawlNpcX = 44;
+    private const int BrawlNpcY = 29;
+    private const string BrawlNpcName = "大乱斗管理员";
+    private const int BrawlStartFloor = 1000;
+    private const int BrawlMinCaptainLevel = 75;
+    private const int BrawlTeamSize = 5;
+    private static bool _brawlSignActive;
+    private static int _brawlSignPhase;
+    private static string _brawlSignNote = "";
+    private static int _brawlReturnTries;
+    private static long _brawlReturnSinceMs;
+    private static long _brawlWarpSinceMs;
+    private static long _brawlLastNavMs;
+    private static long _brawlLastLookMs;
+    private static long _brawlDelayUntilMs;
+    private static long _brawlConfirmSinceMs;
+    private static bool _brawlClickedSignup;
+    private static int _brawlFloorAtConfirm = -1;
+    private static long _brawlResultAtMs;
+
+    private static int _dojoHellPhase;
+    private static int _dojoHellFloor = DojoHellDefaultFloor;
+    private static string _dojoHellFloorStr = "2";
+    private static object _dojoHellFloorInput;
+    private static string _dojoHellNote = "";
+    private static long _dojoHellDelayUntilMs;
+    private static long _dojoHellLastNavMs;
+    private static long _dojoHellLastLookMs;
+    private static long _dojoHellLastEnterMs;
+    private static long _dojoHellWarpWaitSinceMs;
+    private static long _dojoHellReturnSinceMs;
+    private static long _dojoHellExitSinceMs;
+    private static long _dojoHellGapSinceMs;
+    private static long _dojoHellPickSinceMs;
+    private static bool _dojoHellOpenTalkPicked;
+    private static bool _dojoHellTalkPicked;
+    private static bool _dojoHellPrevInBattle;
+    private static bool _dojoHellSawForceQuit;
+    private static int _dojoHellReturnTries;
+    private static int _dojoHellExitTries;
+    private static int _dojoHellRound;
+    private static int _dojoHellBattleCount;
+    private static int _dojoHellRemain;
+    /// <summary>本轮实际挑战层。设定层锁了会降到已解锁的最高层，最低 1。</summary>
+    private static int _dojoHellUseFloor;
+    private static int _dojoHellDroppedTo;
 
     /// <summary>
     /// 脚本页「循环等待传送」：无队 → 回城点2 → 1000(67,79) → 建队 → 冥界之雨
@@ -557,6 +745,14 @@ public static class SeqChapterTestUi
     private static long _escortBattleWaitMs;
     private static int _escortBattleBagBefore;
     private static int _escortBattleTitleMp = -1;
+    private static int _escortBattleTitleHp = -1;
+    /// <summary>血池补血开关，默认关。开了标题同时显示血池和魔池。</summary>
+    private static bool _escortBattleHpOn;
+    /// <summary>当前补池：0=魔池，1=血池。</summary>
+    private static int _escortBattleRefillKind = EscortRefillMp;
+    private static bool _escortBattlePendingMp;
+    private static bool _escortBattlePendingHp;
+    private static long _escortBattleTitleRefreshMs;
     private static bool _escortBattleExtractOn;
     private static int _escortBattleFightCount;
     private static bool _escortBattleExtractAfterRefill;
@@ -565,6 +761,8 @@ public static class SeqChapterTestUi
     private static bool _escortBattleWhTabDone;
     private static long _escortBattleLastWhOpenMs;
     private static string _escortBattleNote = "退战后魔池低于阈值会停挂机补魔（默认吃锅子）；队伍不足5人停战。";
+    private static long _escortBattleLastEndUnix;
+    private static string _escortBattleStopReason = "";
 
     // ----- 任务护航（队列） -----
     /// <summary>正在编辑/追加队列（自建列表）。</summary>
@@ -1146,6 +1344,38 @@ public static class SeqChapterTestUi
         "红凤凰的羽毛", "蓝凤凰的羽毛",
     };
 
+    // ----- 开书脚本：用抉择宝箱 → 丢「技能书」且非「追月」；丢失败右上移2格再试一次 -----
+    private static bool _openBookActive;
+    private static int _openBookPhase;
+    private static long _openBookDelayUntilMs;
+    private static string _openBookNote = "";
+    private static int _openBookUsed;
+    private static int _openBookDropped;
+    private static bool _openBookPendingDrop;
+    private static int _openBookPendIndex = -1;
+    private static int _openBookPendId;
+    private static string _openBookPendName = "";
+    private static int _openBookPendPile;
+    private static bool _openBookMovedOnce;
+    private static int _openBookMoveTx = -1;
+    private static int _openBookMoveTy = -1;
+    private static long _openBookMoveSinceMs;
+    private static long _openBookConfirmSinceMs;
+    private const int OpenBookPhaseIdle = 0;
+    private const int OpenBookPhaseUse = 1;
+    private const int OpenBookPhaseWaitUse = 2;
+    private const int OpenBookPhaseDrop = 3;
+    private const int OpenBookPhaseWaitDrop = 4;
+    private const int OpenBookPhaseMove = 5;
+    private const string OpenBookChestKw = "抉择宝箱";
+    private const string OpenBookSkillKw = "技能书";
+    private const string OpenBookKeepKw = "追月";
+    private const long OpenBookUseWaitMs = 400;
+    private const long OpenBookConfirmTimeoutMs = 8000;
+    private const long OpenBookDropWaitMs = 800;
+    private const long OpenBookMoveTimeoutMs = 8000;
+    private const int OpenBookMoveDelta = 2;
+
     // ----- 超级AI（纯提示：不改出手、不关 VIP、不发包） -----
     private static bool _superAiActive;
     private static string _superAiLastHintKey = "";
@@ -1231,7 +1461,7 @@ public static class SeqChapterTestUi
         public string Actor;
         public string Str;
         public string Label;
-        /// <summary>强制代发（血瓶/骑士之誉/战栗）；其余空 Str 交给自动/VIP。</summary>
+        /// <summary>强制代发（血瓶/战栗/宠集火）；其余空 Str 交给自动/VIP。</summary>
         public bool Forced;
     }
 
@@ -1270,6 +1500,21 @@ public static class SeqChapterTestUi
 
     /// <summary>重写攻防序：开则写 AiBattleTarget 锚点（杂兵→精英→首领 / 特殊 AI）；关则完全交给官方选目标。</summary>
     private static bool _superAiRewriteAtkDef = true;
+
+    /// <summary>AI百人：开则集火名单按配置。可与 AI战斗同时开，不另发出手。</summary>
+    private static bool _superAiDojoMode;
+
+    /// <summary>百人优先击杀关键词（顺序=优先级）；来自 super_ai_dojo_priority.json。</summary>
+    private static string[] _superAiDojoPriorityKeywords = SuperAiDojoPriorityDefaults;
+
+    private static readonly string[] SuperAiDojoPriorityDefaults =
+    {
+        "诺利", "艾汀", "盖美拉", "露比", "艾尔卡丝", "佛利", "阿卡斯"
+    };
+
+    private static bool _superAiDojoPriorityLoaded;
+    private const string SuperAiDojoPriorityAsset = "hotfixdata/super_ai_dojo_priority.json";
+    private const string SuperAiDojoPriorityFileName = "super_ai_dojo_priority.json";
 
     /// <summary>VIP「攻击无效」重写：不按血量；目标序 自己→己宠→队友人→队友宠；本客户端本场尽量不重复套。</summary>
     private static bool _superAiVipType14Rewrite = true;
@@ -1340,10 +1585,11 @@ public static class SeqChapterTestUi
     private const int SuperAiSkillIdQiankun = 3;
     /// <summary>骑士之誉（人物）。</summary>
     private const int SuperAiSkillIdKnightHonor = 1005;
-    /// <summary>B_TARGET 位：IN_ME / IN_FRIEND / IN_ENEMY。</summary>
+    /// <summary>B_TARGET 位：IN_ME / IN_FRIEND / IN_ENEMY / CHECK_WEAPON。</summary>
     private const int BtTargetInMe = 8;
     private const int BtTargetInFriend = 0x10;
     private const int BtTargetInEnemy = 0x20;
+    private const int BtTargetCheckWeapon = 1024;
     /// <summary>菲尔尼一阶段：士官长蓝绝对值低于此值即视为抽完（不是百分比）。</summary>
     private const int SuperAiFerniDrainMpThreshold = 70;
     private const string SuperAiEnemyNameFerni = "菲尔尼";
@@ -1587,6 +1833,43 @@ public static class SeqChapterTestUi
         }
     }
 
+    /// <summary>
+    /// 给精简桥接 / 序章中控读的监视快照。助手未打开也可调用。
+    /// 不写日志。
+    /// </summary>
+    public static Dictionary<string, object> GetMonitorSnapshot()
+    {
+        var d = new Dictionary<string, object>();
+        d["helper_open"] = _visible;
+        d["helper_minimized"] = _minimized;
+        d["battle_mode"] = _battleMode ?? "";
+        d["battle_mode_label"] = ModeLabel(_battleMode);
+        d["escort_battle"] = _battleMode == ModeEscortBattle;
+        d["escort_busy"] = _escortBattleBusy;
+        d["escort_note"] = _escortBattleNote ?? "";
+        d["escort_last_end_unix"] = _escortBattleLastEndUnix;
+        d["escort_stop"] = _escortBattleStopReason ?? "";
+        try
+        {
+            d["script_run"] = FormatActiveScriptRunStatus() ?? "";
+        }
+        catch
+        {
+            d["script_run"] = "";
+        }
+
+        try
+        {
+            d["overview"] = BuildOverviewText() ?? "";
+        }
+        catch
+        {
+            d["overview"] = "";
+        }
+
+        return d;
+    }
+
     public static void Tick()
     {
         _updateCalls++;
@@ -1628,11 +1911,16 @@ public static class SeqChapterTestUi
             TickSuperAiPotionBankPull();
             TickPetNamer();
             TickJunkDrop();
+            TickOpenBook();
             TickScriptWingTest();
             TickFloraHeal();
             TickFullAutoScript();
             TickWarpWait();
             TickBanshanTest();
+            TickDojoRun();
+            TickDojoHell();
+            TickBrawlSign();
+            TickDojoRoster();
             TickZhongyuanAll();
             TickZhongyuanCatch();
             TickZhongyuanTransfer();
@@ -1644,6 +1932,7 @@ public static class SeqChapterTestUi
             TickBattleUnableActFix();
             TickBattleRoundTimeoutLog();
             TickBattleAssist();
+            TickPvpAutoHold();
         }
         catch (Exception ex)
         {
@@ -1782,7 +2071,11 @@ public static class SeqChapterTestUi
         if (_battleMode == ModeEscortBattle)
         {
             var mp = _escortBattleTitleMp;
-            var line = "★战斗护航★ 魔池 " + (mp < 0 ? "-" : mp.ToString());
+            var hp = _escortBattleTitleHp;
+            var line = _escortBattleHpOn
+                ? ("★战斗护航★ 血池 " + (hp < 0 ? "-" : hp.ToString())
+                   + " 魔池 " + (mp < 0 ? "-" : mp.ToString()))
+                : ("★战斗护航★ 魔池 " + (mp < 0 ? "-" : mp.ToString()));
             if (_escortBattleExtractOn)
             {
                 line += " 采集" + _escortBattleFightCount + "/" + EscortBattleExtractEvery;
@@ -1921,6 +2214,8 @@ public static class SeqChapterTestUi
     private static void ShowTab(int tab)
     {
         CaptureWildPetNameFromUi();
+        ReadDojoTargetLayerFromUi();
+        ReadDojoHellFloorFromUi();
         _tab = tab;
         WriteLog("ShowTab " + tab);
         ClearBody();
@@ -1932,7 +2227,11 @@ public static class SeqChapterTestUi
 
         try
         {
-            if (tab == TabOverview)
+            if (tab == TabSettings)
+            {
+                BuildSettingsBody();
+            }
+            else if (tab == TabOverview)
             {
                 BuildOverviewBody();
                 RefreshOverview(true);
@@ -2006,12 +2305,15 @@ public static class SeqChapterTestUi
             _battleMode = mode;
             if (mode == ModeEscortBattle)
             {
-                _escortBattleTitleMp = ReadMpPond(GetMainPlayerUidSafe());
+                var titleUid = GetMainPlayerUidSafe();
+                _escortBattleTitleMp = ReadMpPond(titleUid);
+                _escortBattleTitleHp = ReadHpPond(titleUid);
                 SetEscortBattleNote(
                     "退战后魔池低于" + EscortBattleMpLow
                     + "会停挂机，用" + EscortBattleItemName()
                     + "(" + EscortBattleMpItemId + ")×" + EscortBattleMpUseNum + "补魔；队伍不足"
                     + EscortTeamMinMembers + "人停战。");
+                EnsureOfficialAutoBattleOn("切护航战斗");
             }
 
             if (!IsSuperAiModeAllowed(mode) && _superAiActive)
@@ -2276,6 +2578,44 @@ public static class SeqChapterTestUi
         {
             WriteLog("RunAutoPoint EX: " + RootMessage(ex));
             Tip("一键加点失败: " + RootMessage(ex));
+        }
+    }
+
+    /// <summary>脚本页：队长背包「试炼通过证明」存入个人仓库（远程个人道具仓，非账号银行）。</summary>
+    private static void RunStoreTrialPassProof()
+    {
+        try
+        {
+            WriteLog("RunStoreTrialPassProof");
+            var uid = GetCaptainUid();
+            if (string.IsNullOrEmpty(uid))
+            {
+                Tip("存入试炼通过证明：无队长/主控");
+                return;
+            }
+
+            var n = CountBagItemByKeyword(uid, TrialPassProofKeyword);
+            if (n <= 0)
+            {
+                Tip("队长背包没有「试炼通过证明」");
+                WriteLog("store-trial-proof bag empty uid尾" + TailUid(uid));
+                return;
+            }
+
+            if (!StoreBagItemsToPersonalBank(uid, TrialPassProofKeyword))
+            {
+                Tip("存入试炼通过证明失败（个人仓）");
+                WriteLog("store-trial-proof FAIL uid尾" + TailUid(uid) + " bag=" + n);
+                return;
+            }
+
+            Tip("已将「试炼通过证明」×" + n + " 存入个人仓库");
+            WriteLog("store-trial-proof OK uid尾" + TailUid(uid) + " n=" + n);
+        }
+        catch (Exception ex)
+        {
+            WriteLog("RunStoreTrialPassProof EX: " + RootMessage(ex));
+            Tip("存入试炼通过证明失败: " + RootMessage(ex));
         }
     }
 
@@ -2729,6 +3069,512 @@ public static class SeqChapterTestUi
                + " · 已丢 " + _junkDropDropped
                + " · 连败 " + _junkDropFailStreak + "/" + JunkDropMaxFails
                + "\n" + (_junkDropNote ?? "");
+    }
+
+    private static void ToggleOpenBook()
+    {
+        if (_openBookActive)
+        {
+            StopOpenBook("手动停止");
+            RefreshScriptTabIfVisible();
+            RefreshScriptRunStatus();
+            return;
+        }
+
+        if (_junkDropActive || _floraHealActive || _dojoRunActive || _dojoHellActive || _banshanTestActive
+            || _warpWaitActive || _fullScriptActive)
+        {
+            Tip("请先停其它脚本");
+            return;
+        }
+
+        if (IsInBattleNow())
+        {
+            Tip("战斗中不能开书");
+            return;
+        }
+
+        var uid = GetCaptainUid();
+        if (string.IsNullOrEmpty(uid))
+        {
+            Tip("开书：无队长");
+            return;
+        }
+
+        var main = Convert.ToString(GetStaticMember("PlayerDataHolder", "MainPlayerUid") ?? "") ?? "";
+        if (string.IsNullOrEmpty(main) || !string.Equals(main, uid, StringComparison.Ordinal))
+        {
+            Tip("开书：请在队长窗口运行");
+            return;
+        }
+
+        if (IsOpenBookBagFull(uid))
+        {
+            Tip("开书：队长背包已满，停止");
+            return;
+        }
+
+        _openBookActive = true;
+        _openBookPhase = OpenBookPhaseUse;
+        _openBookDelayUntilMs = 0;
+        _openBookUsed = 0;
+        _openBookDropped = 0;
+        _openBookPendingDrop = false;
+        _openBookMovedOnce = false;
+        _openBookPendIndex = -1;
+        _openBookPendName = "";
+        _openBookNote = "开始：队长背包找抉择宝箱";
+        Tip("开书：已启动（仅队长）");
+        WriteLog("open-book start captain=" + uid);
+        RefreshScriptTabIfVisible();
+        RefreshScriptRunStatus();
+    }
+
+    private static void StopOpenBook(string reason)
+    {
+        if (!_openBookActive && _openBookPhase == OpenBookPhaseIdle)
+        {
+            Tip("开书：未在运行");
+            return;
+        }
+
+        _openBookActive = false;
+        _openBookPhase = OpenBookPhaseIdle;
+        _openBookPendingDrop = false;
+        _openBookNote = reason ?? "";
+        Tip("开书：" + _openBookNote
+            + "（用" + _openBookUsed + "/丢" + _openBookDropped + "）");
+        WriteLog("open-book stop " + _openBookNote
+                 + " used=" + _openBookUsed + " dropped=" + _openBookDropped);
+        RefreshScriptTabIfVisible();
+        RefreshScriptRunStatus();
+    }
+
+    private static string FormatOpenBookStatus()
+    {
+        if (!_openBookActive)
+        {
+            return "开书: 未启动\n仅队长：用「抉择宝箱」→丢「技能书」且非「追月」；开前包满停；丢失败右上移2格再试；无宝箱停";
+        }
+
+        return "开书: " + OpenBookPhaseName(_openBookPhase)
+               + " 用" + _openBookUsed + " 丢" + _openBookDropped
+               + (_openBookMovedOnce ? " 已挪位" : "")
+               + "\n" + (_openBookNote ?? "");
+    }
+
+    /// <summary>开书只用队长背包；本窗必须是队长。</summary>
+    private static string GetOpenBookCaptainUidOrStop()
+    {
+        var cap = GetCaptainUid();
+        if (string.IsNullOrEmpty(cap))
+        {
+            StopOpenBook("无队长");
+            return "";
+        }
+
+        var main = Convert.ToString(GetStaticMember("PlayerDataHolder", "MainPlayerUid") ?? "") ?? "";
+        if (string.IsNullOrEmpty(main) || !string.Equals(main, cap, StringComparison.Ordinal))
+        {
+            StopOpenBook("请在队长窗口运行开书");
+            return "";
+        }
+
+        return cap;
+    }
+
+    /// <summary>队长道具栏 [8..67] 是否已无空位。</summary>
+    private static bool IsOpenBookBagFull(string uid)
+    {
+        try
+        {
+            var items = GetItemDatasFromUid(uid);
+            if (items == null)
+            {
+                return true;
+            }
+
+            var end = Math.Min(FloraHealBagEnd, items.Count);
+            for (var i = FloraHealBagStart; i < end; i++)
+            {
+                if (i >= items.Count)
+                {
+                    return false;
+                }
+
+                var item = items[i];
+                if (item == null || Convert.ToInt32(GetMember(item, "useFlag") ?? 0) != 1)
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            WriteLog("IsOpenBookBagFull EX: " + RootMessage(ex));
+            return true;
+        }
+    }
+
+    private static string OpenBookPhaseName(int phase)
+    {
+        switch (phase)
+        {
+            case OpenBookPhaseUse: return "使用抉择宝箱";
+            case OpenBookPhaseWaitUse: return "等确定弹框";
+            case OpenBookPhaseDrop: return "丢技能书";
+            case OpenBookPhaseWaitDrop: return "确认丢弃";
+            case OpenBookPhaseMove: return "右上移2格";
+            default: return "就绪";
+        }
+    }
+
+    private static void TickOpenBook()
+    {
+        if (!_openBookActive)
+        {
+            return;
+        }
+
+        try
+        {
+            var now = NowMs();
+            if (_openBookDelayUntilMs > 0 && now < _openBookDelayUntilMs)
+            {
+                return;
+            }
+
+            _openBookDelayUntilMs = 0;
+            if (IsInBattleNow())
+            {
+                _openBookNote = "战斗中，等待…";
+                return;
+            }
+
+            var uid = GetOpenBookCaptainUidOrStop();
+            if (string.IsNullOrEmpty(uid))
+            {
+                return;
+            }
+
+            switch (_openBookPhase)
+            {
+                case OpenBookPhaseUse:
+                    TickOpenBookUse(uid, now);
+                    break;
+                case OpenBookPhaseWaitUse:
+                    TickOpenBookWaitUse(uid, now);
+                    break;
+                case OpenBookPhaseDrop:
+                    TickOpenBookDrop(uid, now);
+                    break;
+                case OpenBookPhaseWaitDrop:
+                    TickOpenBookWaitDrop(uid, now);
+                    break;
+                case OpenBookPhaseMove:
+                    TickOpenBookMove(uid, now);
+                    break;
+                default:
+                    StopOpenBook("未知阶段");
+                    break;
+            }
+        }
+        catch (Exception ex)
+        {
+            WriteLog("TickOpenBook EX: " + RootMessage(ex));
+            StopOpenBook("异常: " + RootMessage(ex));
+        }
+    }
+
+    private static void TickOpenBookUse(string uid, long now)
+    {
+        if (IsOpenBookBagFull(uid))
+        {
+            StopOpenBook("队长背包已满，停止");
+            return;
+        }
+
+        if (CountBagItemByKeyword(uid, OpenBookChestKw) <= 0)
+        {
+            StopOpenBook(_openBookUsed > 0
+                ? "没有抉择宝箱，结束（用" + _openBookUsed + "/丢" + _openBookDropped + "）"
+                : "没有抉择宝箱，停止");
+            return;
+        }
+
+        if (!TryUseBagItemByKeyword(uid, OpenBookChestKw))
+        {
+            StopOpenBook("使用抉择宝箱失败");
+            return;
+        }
+
+        _openBookUsed++;
+        _openBookMovedOnce = false;
+        _openBookPhase = OpenBookPhaseWaitUse;
+        _openBookConfirmSinceMs = now;
+        _openBookDelayUntilMs = now + OpenBookUseWaitMs;
+        _openBookNote = "已用抉择宝箱×" + _openBookUsed + "，等确定弹框…";
+        WriteLog("open-book use chest #" + _openBookUsed);
+    }
+
+    private static void TickOpenBookWaitUse(string uid, long now)
+    {
+        if (TryConfirmMessageBoxPanel())
+        {
+            WriteLog("open-book confirm MessageBoxPanel");
+            _openBookPhase = OpenBookPhaseDrop;
+            _openBookDelayUntilMs = now + 600;
+            _openBookNote = "已点确定，扫背包丢书";
+            return;
+        }
+
+        if (TryPickWildExWindowsOk())
+        {
+            WriteLog("open-book confirm WindowsMessage");
+            _openBookPhase = OpenBookPhaseDrop;
+            _openBookDelayUntilMs = now + 600;
+            _openBookNote = "已点确定(窗)，扫背包丢书";
+            return;
+        }
+
+        // 弹框已关：可能点过了或无需确认，继续丢书
+        var box = GetUiPanel("MessageBoxPanel");
+        var boxOpen = box != null && IsUnityObjectActive(box);
+        if (!boxOpen && now - _openBookConfirmSinceMs >= OpenBookUseWaitMs + 1500)
+        {
+            _openBookPhase = OpenBookPhaseDrop;
+            _openBookNote = "未见弹框，继续丢书";
+            WriteLog("open-book no MessageBox, go drop");
+            return;
+        }
+
+        if (now - _openBookConfirmSinceMs >= OpenBookConfirmTimeoutMs)
+        {
+            StopOpenBook("确定弹框超时未点到");
+            return;
+        }
+
+        _openBookNote = "等确定弹框… "
+                        + ((now - _openBookConfirmSinceMs) / 1000) + "s";
+    }
+
+    private static void TickOpenBookDrop(string uid, long now)
+    {
+        int index;
+        object data;
+        string name;
+        if (!TryFindOpenBookDropTarget(uid, out index, out data, out name))
+        {
+            // 本轮书丢完，继续开下一箱
+            _openBookPhase = OpenBookPhaseUse;
+            _openBookNote = "无可丢技能书，继续找抉择宝箱";
+            _openBookDelayUntilMs = now + 300;
+            return;
+        }
+
+        if (!SendOpenBookDrop(uid, index, data, name))
+        {
+            StopOpenBook("丢弃发包失败: " + name);
+            return;
+        }
+
+        _openBookPhase = OpenBookPhaseWaitDrop;
+        _openBookDelayUntilMs = now + OpenBookDropWaitMs;
+    }
+
+    private static void TickOpenBookWaitDrop(string uid, long now)
+    {
+        var still = JunkDropSlotStillPresent(uid, _openBookPendIndex, _openBookPendId, _openBookPendName);
+        if (!still)
+        {
+            _openBookDropped++;
+            _openBookPendingDrop = false;
+            _openBookMovedOnce = false;
+            _openBookPhase = OpenBookPhaseDrop;
+            _openBookNote = "已丢[" + _openBookPendName + "] 累计" + _openBookDropped;
+            WriteLog("open-book drop ok name=" + _openBookPendName);
+            _openBookDelayUntilMs = now + 200;
+            return;
+        }
+
+        _openBookPendingDrop = false;
+        if (!_openBookMovedOnce)
+        {
+            int px;
+            int py;
+            if (!TryGetPlayerXY(out px, out py))
+            {
+                StopOpenBook("丢弃失败且读坐标失败: " + _openBookPendName);
+                return;
+            }
+
+            // 向右(+X) 向上(-Y) 两格
+            _openBookMoveTx = px + OpenBookMoveDelta;
+            _openBookMoveTy = py - OpenBookMoveDelta;
+            _openBookMovedOnce = true;
+            _openBookMoveSinceMs = now;
+            _openBookPhase = OpenBookPhaseMove;
+            _openBookNote = "丢弃失败，右上移至(" + _openBookMoveTx + "," + _openBookMoveTy + ")";
+            WriteLog("open-book drop fail → move " + px + "," + py
+                     + " → " + _openBookMoveTx + "," + _openBookMoveTy
+                     + " name=" + _openBookPendName);
+            TryWalkTo(_openBookMoveTx, _openBookMoveTy);
+            return;
+        }
+
+        StopOpenBook("挪位后仍丢弃失败: " + _openBookPendName);
+    }
+
+    private static void TickOpenBookMove(string uid, long now)
+    {
+        int px;
+        int py;
+        TryGetPlayerXY(out px, out py);
+        var near = Math.Abs(px - _openBookMoveTx) + Math.Abs(py - _openBookMoveTy) <= 1;
+        if (!near && now - _openBookMoveSinceMs < OpenBookMoveTimeoutMs)
+        {
+            if ((now - _openBookMoveSinceMs) % 2000 < 80)
+            {
+                TryWalkTo(_openBookMoveTx, _openBookMoveTy);
+            }
+
+            _openBookNote = "挪位中 现" + px + "," + py
+                            + " → " + _openBookMoveTx + "," + _openBookMoveTy;
+            return;
+        }
+
+        // 到位或超时：再丢同一本
+        object data = null;
+        var items = GetItemDatasFromUid(uid);
+        if (items != null && _openBookPendIndex >= 0 && _openBookPendIndex < items.Count)
+        {
+            var item = items[_openBookPendIndex];
+            if (item != null && Convert.ToInt32(GetMember(item, "useFlag") ?? 0) == 1)
+            {
+                data = GetMember(item, "data");
+            }
+        }
+
+        if (data == null || !IsOpenBookDropName(Convert.ToString(GetMember(data, "Name") ?? "") ?? ""))
+        {
+            // 格变了，重新找
+            _openBookPhase = OpenBookPhaseDrop;
+            _openBookNote = "挪位后重扫技能书";
+            return;
+        }
+
+        var name = Convert.ToString(GetMember(data, "Name") ?? "") ?? _openBookPendName;
+        if (!SendOpenBookDrop(uid, _openBookPendIndex, data, name))
+        {
+            StopOpenBook("挪位后重丢发包失败: " + name);
+            return;
+        }
+
+        _openBookPhase = OpenBookPhaseWaitDrop;
+        _openBookDelayUntilMs = now + OpenBookDropWaitMs;
+        _openBookNote = "挪位后再丢[" + name + "]";
+    }
+
+    private static bool IsOpenBookDropName(string name)
+    {
+        if (string.IsNullOrEmpty(name))
+        {
+            return false;
+        }
+
+        if (name.IndexOf(OpenBookSkillKw, StringComparison.Ordinal) < 0)
+        {
+            return false;
+        }
+
+        if (name.IndexOf(OpenBookKeepKw, StringComparison.Ordinal) >= 0)
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    private static bool TryFindOpenBookDropTarget(
+        string uid, out int index, out object data, out string name)
+    {
+        index = -1;
+        data = null;
+        name = "";
+        try
+        {
+            var items = GetItemDatasFromUid(uid);
+            if (items == null)
+            {
+                return false;
+            }
+
+            for (var i = 0; i < items.Count; i++)
+            {
+                var item = items[i];
+                if (item == null || Convert.ToInt32(GetMember(item, "useFlag") ?? 0) != 1)
+                {
+                    continue;
+                }
+
+                var d = GetMember(item, "data");
+                if (d == null)
+                {
+                    continue;
+                }
+
+                var n = Convert.ToString(GetMember(d, "Name") ?? "") ?? "";
+                if (!IsOpenBookDropName(n))
+                {
+                    continue;
+                }
+
+                index = i;
+                data = d;
+                name = n;
+                return true;
+            }
+        }
+        catch (Exception ex)
+        {
+            WriteLog("TryFindOpenBookDropTarget EX: " + RootMessage(ex));
+        }
+
+        return false;
+    }
+
+    private static bool SendOpenBookDrop(string uid, int index, object data, string name)
+    {
+        var itemMgr = GetManagerInstance("ItemManager");
+        var send = FindSendBackPackMessage(itemMgr);
+        if (send == null)
+        {
+            return false;
+        }
+
+        if (string.IsNullOrEmpty(name))
+        {
+            name = "#" + index;
+        }
+
+        var id = Convert.ToInt32(GetMember(data, "Id") ?? 0);
+        var pile = Convert.ToInt32(GetMember(data, "Pile") ?? 1);
+        if (pile < 1)
+        {
+            pile = 1;
+        }
+
+        send.Invoke(itemMgr, new object[] { "丢弃道具", index, pile, uid });
+        _openBookPendingDrop = true;
+        _openBookPendIndex = index;
+        _openBookPendId = id;
+        _openBookPendName = name;
+        _openBookPendPile = pile;
+        _openBookNote = "丢弃中[" + name + "]×" + pile;
+        WriteLog("open-book drop send idx=" + index + " id=" + id + " name=" + name);
+        return true;
     }
 
     private static void TickJunkDrop()
@@ -4643,17 +5489,18 @@ public static class SeqChapterTestUi
             SetPanelActive(false);
         });
 
-        // tabs：概况 / 战斗 / AI / 脚本 / 护航 / 界面 / 导航 / 形象
+        // tabs：设置 / 概况 / 战斗 / AI / 脚本 / 护航 / 界面 / 导航 / 形象 / 截获
         _tabButtons.Clear();
-        BuildTabButton(_shellGo, rtType, -278f, "概况", TabOverview, 60f);
-        BuildTabButton(_shellGo, rtType, -214f, "战斗", TabBattle, 60f);
-        BuildTabButton(_shellGo, rtType, -150f, "AI", TabSuperAi, 48f);
-        BuildTabButton(_shellGo, rtType, -98f, "脚本", TabScript, 60f);
-        BuildTabButton(_shellGo, rtType, -34f, "护航", TabEscort, 60f);
-        BuildTabButton(_shellGo, rtType, 30f, "界面", TabOpenUi, 60f);
-        BuildTabButton(_shellGo, rtType, 94f, "导航", TabNav, 60f);
-        BuildTabButton(_shellGo, rtType, 158f, "形象", TabAppear, 60f);
-        BuildTabButton(_shellGo, rtType, 222f, "截获", TabSniff, 56f);
+        BuildTabButton(_shellGo, rtType, -290f, "设置", TabSettings, 52f);
+        BuildTabButton(_shellGo, rtType, -234f, "概况", TabOverview, 52f);
+        BuildTabButton(_shellGo, rtType, -178f, "战斗", TabBattle, 52f);
+        BuildTabButton(_shellGo, rtType, -122f, "AI", TabSuperAi, 40f);
+        BuildTabButton(_shellGo, rtType, -78f, "脚本", TabScript, 52f);
+        BuildTabButton(_shellGo, rtType, -22f, "护航", TabEscort, 52f);
+        BuildTabButton(_shellGo, rtType, 34f, "界面", TabOpenUi, 52f);
+        BuildTabButton(_shellGo, rtType, 90f, "导航", TabNav, 52f);
+        BuildTabButton(_shellGo, rtType, 146f, "形象", TabAppear, 52f);
+        BuildTabButton(_shellGo, rtType, 202f, "截获", TabSniff, 52f);
 
         _bodyRoot = CreateUiChild(_shellGo, "Body", rtType);
         SetAnchoredTop(RequireRect(_bodyRoot, "body"), 0f, -88f, 580f, 500f);
@@ -4692,7 +5539,7 @@ public static class SeqChapterTestUi
 
     private static void RefreshTabButtonLabels()
     {
-        var names = new[] { "概况", "战斗", "AI", "脚本", "护航", "界面", "导航", "形象", "截获" };
+        var names = new[] { "设置", "概况", "战斗", "AI", "脚本", "护航", "界面", "导航", "形象", "截获" };
         for (var i = 0; i < _tabButtons.Count && i < names.Length; i++)
         {
             var mark = i == _tab ? "●" : "○";
@@ -4728,6 +5575,8 @@ public static class SeqChapterTestUi
         _appearStatusText = null;
         _sniffStatusText = null;
         _escortBattleStatusText = null;
+        _dojoRunTargetLayerInput = null;
+        _dojoHellFloorInput = null;
         if (_appearAnimInputs != null)
         {
             for (var i = 0; i < _appearAnimInputs.Length; i++)
@@ -4787,6 +5636,107 @@ public static class SeqChapterTestUi
         }
 
         SetText(_overviewText, "加载中…", 15);
+    }
+
+    private static void BuildSettingsBody()
+    {
+        var rtType = RequireType("UnityEngine.RectTransform");
+        float y = -8f;
+
+        var hint = CreateUiChild(_bodyRoot, "Hint", rtType);
+        SetAnchoredTop(RequireRect(hint, "sth"), 0f, y, 540f, 28f);
+        SetText(AddText(hint), "通用设置（切页即生效）", 13);
+        y -= 36f;
+
+        var pvpBtn = CreateUiChild(_bodyRoot, "PvpAuto", rtType);
+        SetAnchoredTop(RequireRect(pvpBtn, "pvp"), 0f, y, 540f, 36f);
+        var pvpImg = AddComp(pvpBtn, "UnityEngine.UI.Image");
+        SetColor(pvpImg, 0.18f, 0.28f, 0.36f, 1f);
+        var pvpLab = CreateUiChild(pvpBtn, "L", rtType);
+        StretchFull(RequireRect(pvpLab, "pvpl"));
+        var pvpText = AddText(pvpLab);
+        SetText(pvpText, (AllowPvpAutoBattle ? "● " : "○ ") + "PVP允许自动战斗（默认开）", 14);
+        BindButton(pvpBtn, pvpImg, () =>
+        {
+            AllowPvpAutoBattle = !AllowPvpAutoBattle;
+            if (!AllowPvpAutoBattle)
+            {
+                _pvpAutoHold = false;
+            }
+
+            SetText(pvpText, (AllowPvpAutoBattle ? "● " : "○ ") + "PVP允许自动战斗（默认开）", 14);
+            Tip(AllowPvpAutoBattle ? "PVP允许自动战斗：开" : "PVP允许自动战斗：关（原版拦截）");
+            WriteLog("AllowPvpAutoBattle=" + AllowPvpAutoBattle);
+        });
+        y -= 48f;
+
+        if (EnableDojoRosterRecord)
+        {
+            var recBtn = CreateUiChild(_bodyRoot, "DojoRoster", rtType);
+            SetAnchoredTop(RequireRect(recBtn, "drr"), 0f, y, 540f, 36f);
+            var recImg = AddComp(recBtn, "UnityEngine.UI.Image");
+            SetColor(recImg, 0.22f, 0.28f, 0.20f, 1f);
+            var recLab = CreateUiChild(recBtn, "L", rtType);
+            StretchFull(RequireRect(recLab, "drrl"));
+            var recText = AddText(recLab);
+            SetText(recText, (_dojoRosterOn ? "● " : "○ ") + "记录百人怪物组（默认开，傻瓜包不带）", 14);
+            BindButton(recBtn, recImg, () =>
+            {
+                _dojoRosterOn = !_dojoRosterOn;
+                SetText(recText, (_dojoRosterOn ? "● " : "○ ") + "记录百人怪物组（默认开，傻瓜包不带）", 14);
+                Tip(_dojoRosterOn ? "百人记录：开" : "百人记录：关");
+                WriteLog("dojo-roster enabled=" + _dojoRosterOn);
+                if (_dojoRosterOn)
+                {
+                    EnsureDojoRosterLoaded();
+                }
+            });
+            y -= 48f;
+        }
+
+        var dojoLab = CreateUiChild(_bodyRoot, "DojoTargetLab", rtType);
+        SetAnchoredTop(RequireRect(dojoLab, "djtl"), -120f, y, 160f, 28f);
+        SetText(AddText(dojoLab), "百人目标层", 13);
+        _dojoRunTargetLayerInput = CreateInputField(
+            _bodyRoot, rtType, "DojoTargetLayer",
+            80f, y, 100f, 32f,
+            _dojoRunTargetLayerStr, "31");
+        y -= 44f;
+
+        var hellLab = CreateUiChild(_bodyRoot, "DojoHellLab", rtType);
+        SetAnchoredTop(RequireRect(hellLab, "djhl"), -120f, y, 160f, 28f);
+        SetText(AddText(hellLab), "噩梦百人层数", 13);
+        _dojoHellFloorInput = CreateInputField(
+            _bodyRoot, rtType, "DojoHellFloor",
+            80f, y, 100f, 32f,
+            _dojoHellFloorStr, "2");
+        y -= 48f;
+
+        var petBtn = CreateUiChild(_bodyRoot, "DojoHighestPet", rtType);
+        SetAnchoredTop(RequireRect(petBtn, "djhp"), 0f, y, 540f, 36f);
+        var petImg = AddComp(petBtn, "UnityEngine.UI.Image");
+        SetColor(petImg, 0.20f, 0.26f, 0.22f, 1f);
+        var petLab = CreateUiChild(petBtn, "L", rtType);
+        StretchFull(RequireRect(petLab, "djhpl"));
+        var petText = AddText(petLab);
+        SetText(petText, (_dojoAutoHighestBattlePet ? "● " : "○ ") + "百人自动设置最高级出战宠物（默认关）", 14);
+        BindButton(petBtn, petImg, () =>
+        {
+            _dojoAutoHighestBattlePet = !_dojoAutoHighestBattlePet;
+            SetText(petText, (_dojoAutoHighestBattlePet ? "● " : "○ ") + "百人自动设置最高级出战宠物（默认关）", 14);
+            Tip(_dojoAutoHighestBattlePet
+                ? "百人出战宠：开（每轮先检查，已是最高级则不改）"
+                : "百人出战宠：关");
+            WriteLog("dojo-pet autoHighest=" + _dojoAutoHighestBattlePet);
+        });
+        y -= 48f;
+
+        var tip = CreateUiChild(_bodyRoot, "Tip", rtType);
+        SetAnchoredTop(RequireRect(tip, "stip"), 0f, y, 540f, 60f);
+        SetText(
+            AddText(tip),
+            "百人/噩梦层数改完后脚本页按钮会用新值。\nPVP开关关=点自动仍提示不允许；开=可自动且回合不强制关掉。",
+            12);
     }
 
     private static void BuildBattleBody()
@@ -4872,6 +5822,7 @@ public static class SeqChapterTestUi
         if (_battleMode == ModeEscortBattle)
         {
             AddEscortBattleFoodModeRow(rtType, ref y);
+            AddEscortBattleHpToggleRow(rtType, ref y);
         }
 
         if (_battleMode == ModeEscortBattle
@@ -5419,6 +6370,8 @@ public static class SeqChapterTestUi
             return;
         }
 
+        MaybeRefreshEscortBattleTitle();
+
         if (_escortBattleBusy)
         {
             var nowBusy = NowMs();
@@ -5447,6 +6400,8 @@ public static class SeqChapterTestUi
         {
             _escortBattlePrevInBattle = false;
             _escortBattleExitAtMs = now;
+            _escortBattleLastEndUnix = UnixNow();
+            _escortBattleStopReason = "";
             WriteLog("escort-battle 战斗结束");
             return;
         }
@@ -5487,6 +6442,7 @@ public static class SeqChapterTestUi
             }
 
             SetEscortBattleNote(reason);
+            _escortBattleStopReason = reason;
             Tip("护航战斗：" + reason);
             WriteLog("escort-battle 停战 reason=" + reason
                      + " wasHang=" + wasHang
@@ -5495,17 +6451,21 @@ public static class SeqChapterTestUi
         }
 
         var mp = ReadMpPond(uid);
-        if (mp == 0 && sinceExit < EscortBattleMpZeroRetryMs)
+        var hp = ReadHpPond(uid);
+        var pondZero = mp == 0 || (_escortBattleHpOn && hp == 0);
+        if (pondZero && sinceExit < EscortBattleMpZeroRetryMs)
         {
             return;
         }
 
         _escortBattleExitAtMs = 0;
-        WriteLog("escort-battle exit mp=" + mp + " item=" + EscortBattleMpItemId
+        WriteLog("escort-battle exit mp=" + mp + " hp=" + hp
+                 + " hpOn=" + _escortBattleHpOn
+                 + " item=" + EscortBattleMpItemId
                  + " fights=" + _escortBattleFightCount
                  + " extract=" + _escortBattleExtractOn
                  + " team=" + teamNum);
-        UpdateEscortBattleTitleMp(mp);
+        UpdateEscortBattleTitlePools(hp, mp);
         if (_escortBattleExtractOn)
         {
             _escortBattleFightCount++;
@@ -5518,10 +6478,27 @@ public static class SeqChapterTestUi
         }
 
         var needExtract = _escortBattleExtractOn && _escortBattleFightCount >= EscortBattleExtractEvery;
-        if (mp >= 0 && mp < EscortBattleMpLow)
+        var needHp = _escortBattleHpOn && hp >= 0 && hp < EscortBattleHpLow;
+        var needMp = mp >= 0 && mp < EscortBattleMpLow;
+        _escortBattlePendingHp = false;
+        _escortBattlePendingMp = false;
+        _escortBattleResumeHang = false;
+        if (needHp || needMp)
         {
             _escortBattleExtractAfterRefill = needExtract;
-            BeginEscortBattleRefill(uid, mp);
+            if (needHp && needMp)
+            {
+                _escortBattlePendingMp = true;
+            }
+
+            if (needHp)
+            {
+                BeginEscortBattleRefill(uid, hp, EscortRefillHp);
+            }
+            else
+            {
+                BeginEscortBattleRefill(uid, mp, EscortRefillMp);
+            }
         }
         else if (needExtract)
         {
@@ -5530,29 +6507,37 @@ public static class SeqChapterTestUi
         }
         else
         {
-            SetEscortBattleNote("魔池 " + mp + "，未补魔"
+            var note = _escortBattleHpOn
+                ? ("血池 " + hp + " 魔池 " + mp + "，未补")
+                : ("魔池 " + mp + "，未补魔");
+            SetEscortBattleNote(note
                                 + (_escortBattleExtractOn
                                     ? ("  采集" + _escortBattleFightCount + "/" + EscortBattleExtractEvery)
                                     : ""));
         }
     }
 
-    private static void BeginEscortBattleRefill(string uid, int mp)
+    private static void BeginEscortBattleRefill(string uid, int pond, int kind)
     {
-        _escortBattleResumeHang = GetEncounterStatus() != 0;
+        _escortBattleRefillKind = kind == EscortRefillHp ? EscortRefillHp : EscortRefillMp;
+        _escortBattleResumeHang = GetEncounterStatus() != 0 || _escortBattleResumeHang;
         _escortBattleBusy = true;
         _escortBattlePhase = 1;
         _escortBattleWaitMs = NowMs();
         _escortBattleWhTabDone = false;
         _escortBattleLastWhOpenMs = 0;
         TrySendLocalAutoBattle("停止挂机");
-        var bag = CountBagItemById(uid, EscortBattleMpItemId);
-        var name = EscortBattleItemName();
-        SetEscortBattleNote("魔池" + mp + "＜" + EscortBattleMpLow
-                            + "，停挂机。背包" + name + "(" + EscortBattleMpItemId + ")×"
-                            + bag + "/" + EscortBattleMpUseNum);
-        Tip("魔池不足" + mp + "，暂停战斗准备补魔");
-        WriteLog("escort-battle refill start mp=" + mp + " bag=" + bag
+        var itemId = CurrentEscortRefillItemId();
+        var useNum = CurrentEscortRefillUseNum();
+        var bag = CountBagItemById(uid, itemId);
+        var name = EscortBattleItemNameFor(itemId);
+        var label = CurrentEscortRefillLabel();
+        var low = _escortBattleRefillKind == EscortRefillHp ? EscortBattleHpLow : EscortBattleMpLow;
+        SetEscortBattleNote(label + pond + "＜" + low
+                            + "，停挂机。背包" + name + "(" + itemId + ")×"
+                            + bag + "/" + useNum);
+        Tip(label + "不足" + pond + "，暂停战斗准备补" + (_escortBattleRefillKind == EscortRefillHp ? "血" : "魔"));
+        WriteLog("escort-battle refill start kind=" + label + " pond=" + pond + " bag=" + bag
                  + " hang=" + _escortBattleResumeHang);
     }
 
@@ -5574,6 +6559,11 @@ public static class SeqChapterTestUi
             return;
         }
 
+        var refillId = CurrentEscortRefillItemId();
+        var useNum = CurrentEscortRefillUseNum();
+        var refillName = EscortBattleItemNameFor(refillId);
+        var useType = CurrentEscortRefillType();
+
         if (_escortBattlePhase == 1)
         {
             if (now - _escortBattleWaitMs < 400)
@@ -5581,8 +6571,8 @@ public static class SeqChapterTestUi
                 return;
             }
 
-            var bag = CountBagItemById(uid, EscortBattleMpItemId);
-            if (bag >= EscortBattleMpUseNum)
+            var bag = CountBagItemById(uid, refillId);
+            if (bag >= useNum)
             {
                 _escortBattlePhase = 5;
                 _escortBattleWaitMs = now;
@@ -5596,8 +6586,8 @@ public static class SeqChapterTestUi
             TrySwitchChildWareHouseToAccountTab(uid);
             _escortBattlePhase = 2;
             _escortBattleWaitMs = now;
-            SetEscortBattleNote("背包" + bag + "＜" + EscortBattleMpUseNum + "，开超银取"
-                                + (EscortBattleMpUseNum - bag));
+            SetEscortBattleNote("背包" + bag + "＜" + useNum + "，开超银取"
+                                + (useNum - bag));
             return;
         }
 
@@ -5648,7 +6638,7 @@ public static class SeqChapterTestUi
                 }
 
                 var itemId = Convert.ToInt32(GetMember(row, "Itemid") ?? GetProp(row, "Itemid") ?? 0);
-                if (itemId != EscortBattleMpItemId)
+                if (itemId != refillId)
                 {
                     continue;
                 }
@@ -5658,8 +6648,8 @@ public static class SeqChapterTestUi
                 break;
             }
 
-            var bag = CountBagItemById(uid, EscortBattleMpItemId);
-            var need = EscortBattleMpUseNum - bag;
+            var bag = CountBagItemById(uid, refillId);
+            var need = useNum - bag;
             if (need < 1)
             {
                 TryDismissItemBankAfterStore(uid);
@@ -5670,8 +6660,8 @@ public static class SeqChapterTestUi
 
             if (bankIndex < 0 || pile < need)
             {
-                FailEscortBattleRefill("超银" + EscortBattleItemName() + "(" + EscortBattleMpItemId
-                                       + ")不足，仓" + pile + " 包" + bag + " 需" + EscortBattleMpUseNum);
+                FailEscortBattleRefill("超银" + refillName + "(" + refillId
+                                       + ")不足，仓" + pile + " 包" + bag + " 需" + useNum);
                 return;
             }
 
@@ -5685,14 +6675,14 @@ public static class SeqChapterTestUi
             _escortBattlePhase = 3;
             _escortBattleWaitMs = now;
             SetEscortBattleNote("已请求从超银取" + need + "，等入包");
-            Tip("从超银取" + EscortBattleItemName() + "×" + need);
+            Tip("从超银取" + refillName + "×" + need);
             return;
         }
 
         if (_escortBattlePhase == 3)
         {
-            var bag = CountBagItemById(uid, EscortBattleMpItemId);
-            if (bag >= EscortBattleMpUseNum)
+            var bag = CountBagItemById(uid, refillId);
+            if (bag >= useNum)
             {
                 TryDismissItemBankAfterStore(uid);
                 _escortBattlePhase = 5;
@@ -5707,7 +6697,7 @@ public static class SeqChapterTestUi
                 return;
             }
 
-            SetEscortBattleNote("等取出入包… 现" + bag + "/" + EscortBattleMpUseNum);
+            SetEscortBattleNote("等取出入包… 现" + bag + "/" + useNum);
             return;
         }
 
@@ -5718,24 +6708,24 @@ public static class SeqChapterTestUi
                 return;
             }
 
-            var bag = CountBagItemById(uid, EscortBattleMpItemId);
-            if (bag < EscortBattleMpUseNum)
+            var bag = CountBagItemById(uid, refillId);
+            if (bag < useNum)
             {
-                FailEscortBattleRefill("使用前背包不足 " + bag + "/" + EscortBattleMpUseNum);
+                FailEscortBattleRefill("使用前背包不足 " + bag + "/" + useNum);
                 return;
             }
 
-            if (!TrySendUseMpPoolItem(uid, EscortBattleMpItemId, EscortBattleMpUseNum))
+            if (!TrySendUsePoolItem(uid, useType, refillId, useNum))
             {
-                FailEscortBattleRefill("使用魔池道具发包失败");
+                FailEscortBattleRefill(useType + "发包失败");
                 return;
             }
 
             _escortBattlePhase = 6;
             _escortBattleWaitMs = now;
-            SetEscortBattleNote("已发使用魔池道具 " + EscortBattleItemName()
-                                + "(" + EscortBattleMpItemId + ")×" + EscortBattleMpUseNum);
-            Tip("使用魔池道具 " + EscortBattleItemName() + "×" + EscortBattleMpUseNum);
+            SetEscortBattleNote("已发" + useType + " " + refillName
+                                + "(" + refillId + ")×" + useNum);
+            Tip(useType + " " + refillName + "×" + useNum);
             return;
         }
 
@@ -5754,13 +6744,32 @@ public static class SeqChapterTestUi
     {
         var uid = GetMainPlayerUidSafe();
         TryDismissItemBankAfterStore(uid);
+        var kind = _escortBattleRefillKind;
+        var hp = ReadHpPond(uid);
+        var mp = ReadMpPond(uid);
+        UpdateEscortBattleTitlePools(hp, mp);
+        var verb = kind == EscortRefillHp ? "补血" : "补魔";
+        var nowPond = kind == EscortRefillHp ? hp : mp;
+        SetEscortBattleNote(verb + "成功，" + CurrentEscortRefillLabel() + "现" + nowPond);
+        Tip(verb + "成功");
+        WriteLog("escort-battle refill ok kind=" + kind + " hp=" + hp + " mp=" + mp);
+
+        if (_escortBattlePendingHp)
+        {
+            _escortBattlePendingHp = false;
+            BeginEscortBattleRefill(uid, hp, EscortRefillHp);
+            return;
+        }
+
+        if (_escortBattlePendingMp)
+        {
+            _escortBattlePendingMp = false;
+            BeginEscortBattleRefill(uid, mp, EscortRefillMp);
+            return;
+        }
+
         _escortBattleBusy = false;
         _escortBattlePhase = 0;
-        var mp = ReadMpPond(uid);
-        UpdateEscortBattleTitleMp(mp);
-        SetEscortBattleNote("补魔成功，魔池现" + mp);
-        Tip("补魔成功，继续战斗");
-        WriteLog("escort-battle refill ok mp=" + mp);
 
         if (_escortBattleExtractAfterRefill)
         {
@@ -5785,11 +6794,22 @@ public static class SeqChapterTestUi
             TryDismissItemBankAfterStore(uid);
         }
 
+        var chainMp = _escortBattleRefillKind == EscortRefillHp && _escortBattlePendingMp;
+        _escortBattlePendingHp = false;
+        _escortBattlePendingMp = false;
+        if (chainMp && !string.IsNullOrEmpty(uid))
+        {
+            WriteLog("escort-battle hp fail, continue mp: " + reason);
+            Tip("补血失败：" + reason + "，继续补魔");
+            BeginEscortBattleRefill(uid, ReadMpPond(uid), EscortRefillMp);
+            return;
+        }
+
         _escortBattleBusy = false;
         _escortBattlePhase = 0;
         _escortBattleResumeHang = false;
-        SetEscortBattleNote("补魔失败：" + reason);
-        Tip("补魔失败：" + reason);
+        SetEscortBattleNote("补池失败：" + reason);
+        Tip("补池失败：" + reason);
         WriteLog("escort-battle fail " + reason);
         _escortBattleExtractAfterRefill = false;
     }
@@ -5936,6 +6956,8 @@ public static class SeqChapterTestUi
         _escortBattlePhase = 0;
         _escortBattleResumeHang = false;
         _escortBattleExtractAfterRefill = false;
+        _escortBattlePendingHp = false;
+        _escortBattlePendingMp = false;
         _escortBattleExitAtMs = 0;
         SetEscortBattleNote("已取消：" + reason);
         WriteLog("escort-battle abort " + reason);
@@ -5949,14 +6971,31 @@ public static class SeqChapterTestUi
         }
     }
 
-    private static void UpdateEscortBattleTitleMp(int mp)
+    private static void UpdateEscortBattleTitlePools(int hp, int mp)
     {
-        if (mp < 0)
+        var changed = false;
+        if (hp >= 0 && hp != _escortBattleTitleHp)
+        {
+            _escortBattleTitleHp = hp;
+            changed = true;
+        }
+
+        if (mp >= 0 && mp != _escortBattleTitleMp)
+        {
+            _escortBattleTitleMp = mp;
+            changed = true;
+        }
+
+        if (!changed && !_escortBattleHpOn)
         {
             return;
         }
 
-        _escortBattleTitleMp = mp;
+        if (!changed)
+        {
+            return;
+        }
+
         try
         {
             RefreshTitleFromFeature();
@@ -5964,6 +7003,42 @@ public static class SeqChapterTestUi
         catch
         {
             // ignore
+        }
+    }
+
+    private static void MaybeRefreshEscortBattleTitle()
+    {
+        var now = NowMs();
+        if (now - _escortBattleTitleRefreshMs < 2000)
+        {
+            return;
+        }
+
+        _escortBattleTitleRefreshMs = now;
+        var uid = GetMainPlayerUidSafe();
+        if (string.IsNullOrEmpty(uid))
+        {
+            return;
+        }
+
+        UpdateEscortBattleTitlePools(ReadHpPond(uid), ReadMpPond(uid));
+    }
+
+    private static int ReadHpPond(string uid)
+    {
+        try
+        {
+            var p = GetPlayer(uid);
+            if (p == null)
+            {
+                return -1;
+            }
+
+            return Convert.ToInt32(GetMember(p, "hpPond") ?? -1);
+        }
+        catch
+        {
+            return -1;
         }
     }
 
@@ -6028,16 +7103,41 @@ public static class SeqChapterTestUi
 
     private static string EscortBattleItemName()
     {
-        var name = FormatItemConfigDisplayName(TryGetItemConfigById(EscortBattleMpItemId));
-        return string.IsNullOrEmpty(name) ? ("道具" + EscortBattleMpItemId) : name;
+        return EscortBattleItemNameFor(EscortBattleMpItemId);
     }
 
-    private static bool TrySendUseMpPoolItem(string uid, int itemId, int num)
+    private static string EscortBattleItemNameFor(int itemId)
+    {
+        var name = FormatItemConfigDisplayName(TryGetItemConfigById(itemId));
+        return string.IsNullOrEmpty(name) ? ("道具" + itemId) : name;
+    }
+
+    private static int CurrentEscortRefillItemId()
+    {
+        return _escortBattleRefillKind == EscortRefillHp ? EscortBattleHpItemId : EscortBattleMpItemId;
+    }
+
+    private static int CurrentEscortRefillUseNum()
+    {
+        return _escortBattleRefillKind == EscortRefillHp ? EscortBattleHpUseNum : EscortBattleMpUseNum;
+    }
+
+    private static string CurrentEscortRefillType()
+    {
+        return _escortBattleRefillKind == EscortRefillHp ? "使用血池道具" : "使用魔池道具";
+    }
+
+    private static string CurrentEscortRefillLabel()
+    {
+        return _escortBattleRefillKind == EscortRefillHp ? "血池" : "魔池";
+    }
+
+    private static bool TrySendUsePoolItem(string uid, string type, int itemId, int num)
     {
         try
         {
             var roleMgr = GetManagerInstance("RoleManager");
-            if (roleMgr == null || string.IsNullOrEmpty(uid) || itemId <= 0 || num <= 0)
+            if (roleMgr == null || string.IsNullOrEmpty(uid) || string.IsNullOrEmpty(type) || itemId <= 0 || num <= 0)
             {
                 return false;
             }
@@ -6070,8 +7170,8 @@ public static class SeqChapterTestUi
                 return false;
             }
 
-            send.Invoke(roleMgr, new object[] { "使用魔池道具", itemId, num, 1, uid });
-            WriteLog("escort-battle 使用魔池道具 id=" + itemId + " num=" + num
+            send.Invoke(roleMgr, new object[] { type, itemId, num, 1, uid });
+            WriteLog("escort-battle " + type + " id=" + itemId + " num=" + num
                      + " uid尾" + TailUid(uid));
             return true;
         }
@@ -7898,6 +8998,69 @@ public static class SeqChapterTestUi
         return _escortBattleFoodMode == EscortBattleFoodNoodle ? "吃法面" : "吃锅子";
     }
 
+    /// <summary>护航战斗：血池补血，默认关。开了低于 5000 取 15609×100 注入血池。</summary>
+    private static void AddEscortBattleHpToggleRow(Type rtType, ref float y)
+    {
+        y -= 10f;
+        var row = CreateUiChild(_bodyRoot, "EscortHpRow", rtType);
+        SetAnchoredTop(RequireRect(row, "ehp"), 0f, y, 500f, 32f);
+        var img = AddComp(row, "UnityEngine.UI.Image");
+        SetColor(img, 0.28f, 0.16f, 0.16f, 1f);
+        var lab = CreateUiChild(row, "L", rtType);
+        StretchFull(RequireRect(lab, "ehpl"));
+        var text = AddText(lab);
+        SetText(text, (_escortBattleHpOn ? "● " : "○ ") + "血池补血（低于5000 取15609×100）", 13);
+        BindButton(row, img, ToggleEscortBattleHpFromUi);
+        y -= 34f;
+    }
+
+    private static void ToggleEscortBattleHpFromUi()
+    {
+        try
+        {
+            if (_escortBattleBusy && _escortBattleRefillKind == EscortRefillHp)
+            {
+                AbortEscortBattle("关闭血池");
+            }
+
+            _escortBattleHpOn = !_escortBattleHpOn;
+            if (!_escortBattleHpOn)
+            {
+                _escortBattlePendingHp = false;
+            }
+
+            var uid = GetMainPlayerUidSafe();
+            _escortBattleTitleHp = ReadHpPond(uid);
+            _escortBattleTitleMp = ReadMpPond(uid);
+            _escortBattleTitleRefreshMs = 0;
+            WriteLog("escort-battle hpOn=" + _escortBattleHpOn
+                     + " hp=" + _escortBattleTitleHp + " mp=" + _escortBattleTitleMp);
+            Tip(_escortBattleHpOn
+                ? "血池补血已开启（低于5000 用15609×100）"
+                : "血池补血已关闭");
+            try
+            {
+                RefreshTitleFromFeature();
+            }
+            catch
+            {
+                // ignore
+            }
+
+            if (_tab == TabBattle)
+            {
+                ClearBody();
+                BuildBattleBody();
+                RefreshTabButtonLabels();
+            }
+        }
+        catch (Exception ex)
+        {
+            WriteLog("ToggleEscortBattleHpFromUi EX: " + RootMessage(ex));
+            Tip("血池开关失败: " + RootMessage(ex));
+        }
+    }
+
     /// <summary>护航战斗模式功能区：采集自动提取。开了才每 30 场暂停提取。</summary>
     private static void AddAreaExtractToggleRow(Type rtType, ref float y)
     {
@@ -9641,6 +10804,23 @@ public static class SeqChapterTestUi
         BindButton(atkBtn, atkImg, ToggleSuperAiRewriteAtkDef);
 
         y -= 40f;
+        var dojoBtn = CreateUiChild(_bodyRoot, "SuperAiDojoMode", rtType);
+        SetAnchoredTop(RequireRect(dojoBtn, "saidojo"), 0f, y, 540f, 32f);
+        var dojoImg = AddComp(dojoBtn, "UnityEngine.UI.Image");
+        SetColor(dojoImg,
+            _superAiDojoMode ? 0.38f : 0.22f,
+            _superAiDojoMode ? 0.22f : 0.22f,
+            _superAiDojoMode ? 0.16f : 0.18f, 1f);
+        var dojoLab = CreateUiChild(dojoBtn, "L", rtType);
+        StretchFull(RequireRect(dojoLab, "saidojol"));
+        SetText(AddText(dojoLab),
+            _superAiDojoMode
+                ? "● AI百人（名单集火；可与AI战斗同时开）"
+                : "○ AI百人（关）",
+            13);
+        BindButton(dojoBtn, dojoImg, ToggleSuperAiDojoMode);
+
+        y -= 40f;
         var t14Btn = CreateUiChild(_bodyRoot, "SuperAiType14", rtType);
         SetAnchoredTop(RequireRect(t14Btn, "sait14"), 0f, y, 260f, 32f);
         var t14Img = AddComp(t14Btn, "UnityEngine.UI.Image");
@@ -9999,17 +11179,36 @@ public static class SeqChapterTestUi
                 : (_superAiPrepActive ? ("备战中: " + _superAiPrepNote + "\n") : "备战:未跑（空包取银需先备战）\n");
             return "AI战斗：关闭\n"
                    + prep
-                   + "仅「常规」可开。血瓶：先列可丢药者再配对（高压60%/低压45%）。\n"
-                   + "强制：血瓶；菲尔尼抽蓝：骑士之誉(有则每回合)/否则普攻士官长+宠战栗。其余自动/VIP。\n"
-                   + "「重写攻防序」开关控制是否写目标锚点。";
+                   + "仅「常规」可开。血瓶：先列可丢药者再配对（高压60%/低压45%），吃血不改目标。\n"
+                   + "攻击类仍由 VIP 选技能，目标改到集火；治疗/气绝回复走 VIP 自己的目标。\n"
+                   + "AI百人可与 AI战斗同时开：只换集火名单，不会各发一包。";
         }
 
         var prepLine = _superAiPrepReady ? "备战✓" : (_superAiPrepActive ? "备战中" : "备战未跑");
         var atkLine = _superAiRewriteAtkDef ? "攻防序·开" : "攻防序·关";
+        var dojoLine = _superAiDojoMode ? "AI百人·开" : "AI百人·关";
         return "AI战斗：运行中\n模式: " + ModeLabel(_battleMode)
-               + " · " + prepLine + " · " + atkLine + " · " + FormatSuperAiHandoffShort() + "\n"
+               + " · " + prepLine + " · " + atkLine + " · " + dojoLine + " · " + FormatSuperAiHandoffShort() + "\n"
                + (_superAiPotionPlanNote.Length > 0 ? _superAiPotionPlanNote + "\n" : "")
                + (_superAiLastSimLine.Length > 0 ? _superAiLastSimLine : "等待进入战斗…");
+    }
+
+    private static void ToggleSuperAiDojoMode()
+    {
+        _superAiDojoMode = !_superAiDojoMode;
+        if (_superAiDojoMode)
+        {
+            EnsureSuperAiDojoPriorityLoaded();
+        }
+
+        Tip(_superAiDojoMode ? "AI百人已开启" : "AI百人已关闭");
+        WriteLog("SuperAI dojoMode=" + _superAiDojoMode);
+        if (_tab == TabSuperAi)
+        {
+            ClearBody();
+            BuildSuperAiBody();
+            RefreshTabButtonLabels();
+        }
     }
 
     private static void ToggleSuperAi()
@@ -10082,6 +11281,7 @@ public static class SeqChapterTestUi
         _superAiLastSimLine = "已启动，等待战斗回合…";
         _superAiHintTurn = -1;
         ResetSuperAiBattleClassify();
+        EnsureSuperAiDojoPriorityLoaded();
         EnsureSuperAiHintOverlay();
         RefreshSuperAiHintOverlay("等待进入战斗…");
         Tip("AI战斗已开启");
@@ -10197,6 +11397,17 @@ public static class SeqChapterTestUi
             return "AI战斗-声望挑战";
         }
 
+        if (_superAiDojoMode)
+        {
+            string dojoKw;
+            if (TryPeekSuperAiDojoPriorityKw(out dojoKw) && !string.IsNullOrEmpty(dojoKw))
+            {
+                return "AI战斗-百人-" + dojoKw;
+            }
+
+            return "AI战斗-百人";
+        }
+
         if (_superAiSpecialRuleTitle.Length > 0)
         {
             return "AI战斗-" + _superAiSpecialRuleTitle;
@@ -10206,31 +11417,49 @@ public static class SeqChapterTestUi
     }
 
     /// <summary>
-    /// 首领战接管：写官方 VIP <c>focusFireIndex</c>（AutoSelect AI 锚点已拆除，必须写官方才生效），
-    /// 并尽力写 <c>SeqChapterAiBattleTarget.Index</c>。攻防序关 / 无目标时清 -1。
+    /// 记下集火单位，并清掉官方 <c>focusFireIndex</c>。
+    /// 官方集火会在 VIP 列表之前把出手掐成单体攻击，治疗/气绝回复排不到。
+    /// 目标改写在 <c>SendBattleCommond</c>，只动攻击类包。
     /// </summary>
     private static void SyncSuperAiVipFocusAnchor()
     {
-        // 金银角 / 声望挑战全程写锚点；其它特殊仍受「重写攻防序」开关约束
+        // 金银角 / 声望挑战 / AI百人优先名单命中：强制写锚点；其它仍受「重写攻防序」约束
+        int idx = -1;
+        string name = "";
+        string role = "";
+        var dojoPriorityHit = false;
+        if (_superAiDojoMode)
+        {
+            EnsureSuperAiDojoPriorityLoaded();
+            dojoPriorityHit = TryFindSuperAiDojoPriorityEnemy(out idx, out name, out role);
+        }
+
         var forceAnchor = _superAiSpecialRuleId == SuperAiSpecialIdGoldSilver
-                          || _superAiSpecialRuleId == SuperAiSpecialIdRepChallenge;
+                          || _superAiSpecialRuleId == SuperAiSpecialIdRepChallenge
+                          || dojoPriorityHit;
         if (!_superAiIsBossBattle || (!_superAiRewriteAtkDef && !forceAnchor))
         {
             ClearSuperAiVipFocusAnchor();
             return;
         }
 
-        int idx;
-        string name;
-        string role;
-        if (!TryFindSuperAiPriorityEnemy(out idx, out name, out role) || idx < 0)
+        if (!dojoPriorityHit)
+        {
+            if (!TryFindSuperAiPriorityEnemy(out idx, out name, out role) || idx < 0)
+            {
+                ClearSuperAiVipFocusAnchor();
+                return;
+            }
+        }
+        else if (idx < 0)
         {
             ClearSuperAiVipFocusAnchor();
             return;
         }
 
         TrySetAiBattleTargetIndex(idx);
-        TrySetOfficialFocusFireIndex(idx);
+        // 不写官方集火，否则 PlayerFocusFireAttack 会跳过治疗/气绝回复。
+        TrySetOfficialFocusFireIndex(-1);
 
         if (idx != _superAiLastFocusAnchorIdx
             || !string.Equals(_superAiLastFocusAnchorName, name ?? "", StringComparison.Ordinal))
@@ -10304,6 +11533,371 @@ public static class SeqChapterTestUi
             WriteLog("TrySetOfficialFocusFireIndex EX: " + RootMessage(ex));
             return false;
         }
+    }
+
+    /// <summary>
+    /// <c>SendBattleCommond</c> 入口。AI 战斗开着时，攻击类包的目标改成集火单位。
+    /// <c>I|</c> 吃血、防御、待机，以及治疗/气绝/洁净/护卫/祈祷/无效，目标不动。
+    /// </summary>
+    public static string RewriteSuperAiBattleCommand(string cmd)
+    {
+        if (string.IsNullOrEmpty(cmd))
+        {
+            return cmd ?? "";
+        }
+
+        try
+        {
+            if (!_superAiActive || _superAiLastFocusAnchorIdx < 0 || !_superAiIsBossBattle)
+            {
+                return cmd;
+            }
+
+            var head = cmd[0];
+            if (head == 'I' || head == 'i' || head == 'G' || head == 'g' || head == 'N' || head == 'n')
+            {
+                return cmd;
+            }
+
+            var parts = cmd.Split('|');
+            if (parts.Length < 2)
+            {
+                return cmd;
+            }
+
+            var isPet = head == 'W' || head == 'w';
+            var isSkill = head == 'S' || head == 's';
+            var isHit = head == 'H' || head == 'h';
+            if (!isPet && !isSkill && !isHit)
+            {
+                return cmd;
+            }
+
+            if (isHit && parts.Length != 2)
+            {
+                return cmd;
+            }
+
+            if (isSkill && parts.Length != 4)
+            {
+                return cmd;
+            }
+
+            if (isPet && (parts.Length != 3
+                          || string.Equals(parts[1], "FF", StringComparison.OrdinalIgnoreCase)))
+            {
+                return cmd;
+            }
+
+            var targetPos = isHit ? 1 : parts.Length - 1;
+            int oldTarget;
+            if (!TryParseSuperAiHex(parts[targetPos], out oldTarget))
+            {
+                return cmd;
+            }
+
+            var checkWeapon = isHit;
+            if (!isHit)
+            {
+                int autoType;
+                int flags;
+                var known = isPet
+                    ? TryReadPetCommandSkill(parts[1], out autoType, out flags)
+                    : TryReadPlayerCommandSkill(parts[1], parts[2], out autoType, out flags);
+                if (!known || !IsSuperAiAttackAutoType(autoType, flags))
+                {
+                    return cmd;
+                }
+
+                checkWeapon = (flags & BtTargetCheckWeapon) != 0;
+            }
+
+            var playerIdx = Convert.ToInt32(GetStaticMember("BattleDataHolder", "battlePlayerIndex") ?? -1);
+            if (playerIdx < 0)
+            {
+                return cmd;
+            }
+
+            var attacker = isPet ? ResolveSuperAiPetAttackerIndex(playerIdx) : playerIdx;
+            var finalTarget = PickSuperAiRetarget(attacker, _superAiLastFocusAnchorIdx, checkWeapon);
+            if (finalTarget < 0 || finalTarget == oldTarget)
+            {
+                return cmd;
+            }
+
+            parts[targetPos] = SuperAiHex(finalTarget);
+            var rewritten = string.Join("|", parts);
+            WriteLog("SuperAI retarget " + cmd + " -> " + rewritten
+                     + " focus=" + _superAiLastFocusAnchorIdx
+                     + (checkWeapon && finalTarget != _superAiLastFocusAnchorIdx ? " front" : ""));
+            return rewritten;
+        }
+        catch (Exception ex)
+        {
+            WriteLog("RewriteSuperAiBattleCommand EX: " + RootMessage(ex));
+            return cmd;
+        }
+    }
+
+    private static bool IsSuperAiAttackAutoType(int autoType, int targetFlags)
+    {
+        if (autoType < 1 || autoType > 4)
+        {
+            return false;
+        }
+
+        var ally = (targetFlags & (BtTargetInMe | BtTargetInFriend)) != 0;
+        var enemy = (targetFlags & BtTargetInEnemy) != 0;
+        return !ally || enemy;
+    }
+
+    private static int PickSuperAiRetarget(int attacker, int focus, bool checkWeapon)
+    {
+        if (!CanAttackSuperAiUnit(focus))
+        {
+            return -1;
+        }
+
+        if (!checkWeapon || !IsSuperAiMeleeBackBlocked(attacker, focus))
+        {
+            return focus;
+        }
+
+        var front = focus + 5;
+        if (front / 10 == focus / 10 && CanAttackSuperAiUnit(front))
+        {
+            return front;
+        }
+
+        return -1;
+    }
+
+    /// <summary>后排打后排，且双方前排都活着，近战打不到。</summary>
+    private static bool IsSuperAiMeleeBackBlocked(int attacker, int target)
+    {
+        if (attacker < 0 || target < 0)
+        {
+            return false;
+        }
+
+        if (attacker % 10 >= 5 || target % 10 >= 5)
+        {
+            return false;
+        }
+
+        return CanAttackSuperAiUnit(attacker + 5) && CanAttackSuperAiUnit(target + 5);
+    }
+
+    private static bool CanAttackSuperAiUnit(int idx)
+    {
+        for (var i = 0; i < _superAiUnits.Count; i++)
+        {
+            var u = _superAiUnits[i];
+            if (u.Idx != idx)
+            {
+                continue;
+            }
+
+            if (u.Hp <= 0 || (u.Bc & 2L) != 0)
+            {
+                return false;
+            }
+
+            return true;
+        }
+
+        return false;
+    }
+
+    private static int ResolveSuperAiPetAttackerIndex(int playerIdx)
+    {
+        for (var i = 0; i < _superAiUnits.Count; i++)
+        {
+            var u = _superAiUnits[i];
+            if (u.Mine && !u.IsPlayer && u.Idx / 10 == playerIdx / 10
+                && Math.Abs(u.Idx - playerIdx) == 5)
+            {
+                return u.Idx;
+            }
+        }
+
+        return playerIdx % 10 < 5 ? playerIdx + 5 : playerIdx - 5;
+    }
+
+    private static bool TryReadPlayerCommandSkill(
+        string skillSlotHex, string techHex, out int autoType, out int targetFlags)
+    {
+        autoType = -1;
+        targetFlags = 0;
+        int skillSlot;
+        int techToken;
+        if (!TryParseSuperAiHex(skillSlotHex, out skillSlot)
+            || !TryParseSuperAiHex(techHex, out techToken))
+        {
+            return false;
+        }
+
+        var uid = Convert.ToString(GetStaticMember("BattleDataHolder", "CurrentAccount") ?? "") ?? "";
+        if (uid.Length == 0)
+        {
+            return false;
+        }
+
+        try
+        {
+            var getMag = FindType("PlayerDataHolder")?.GetMethod(
+                "GetMagicDatasFromUid", BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic);
+            var magics = getMag?.Invoke(null, new object[] { uid }) as IList;
+            if (magics == null)
+            {
+                return false;
+            }
+
+            for (var pass = 0; pass < 2; pass++)
+            {
+                for (var si = 0; si < magics.Count; si++)
+                {
+                    var magic = magics[si];
+                    if (magic == null)
+                    {
+                        continue;
+                    }
+
+                    var magicIndex = Convert.ToInt32(GetMember(magic, "index") ?? GetMember(magic, "Index") ?? si);
+                    var slotHit = pass == 0 ? magicIndex == skillSlot : si == skillSlot;
+                    if (!slotHit)
+                    {
+                        continue;
+                    }
+
+                    var skillId = Convert.ToInt32(GetMember(magic, "skillId") ?? GetMember(magic, "SkillId") ?? 0);
+                    var techs = GetMember(magic, "techs") as IList;
+                    if (techs == null)
+                    {
+                        continue;
+                    }
+
+                    for (var tpass = 0; tpass < 2; tpass++)
+                    {
+                        for (var ti = 0; ti < techs.Count; ti++)
+                        {
+                            var tech = techs[ti];
+                            if (tech == null)
+                            {
+                                continue;
+                            }
+
+                            var techIndex = Convert.ToInt32(GetMember(tech, "Index") ?? GetMember(tech, "index") ?? ti);
+                            var techHit = tpass == 0 ? techIndex == techToken : ti == techToken;
+                            if (!techHit)
+                            {
+                                continue;
+                            }
+
+                            if (skillId <= 0)
+                            {
+                                skillId = Convert.ToInt32(GetMember(tech, "SkillId") ?? GetMember(tech, "skillId") ?? 0);
+                            }
+
+                            targetFlags = Convert.ToInt32(GetMember(tech, "Target") ?? GetMember(tech, "target") ?? 0);
+                            autoType = ReadSkillAutoType(skillId);
+                            return autoType >= 0;
+                        }
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            WriteLog("TryReadPlayerCommandSkill EX: " + RootMessage(ex));
+        }
+
+        return false;
+    }
+
+    private static bool TryReadPetCommandSkill(string tokenHex, out int autoType, out int targetFlags)
+    {
+        autoType = -1;
+        targetFlags = 0;
+        int token;
+        if (!TryParseSuperAiHex(tokenHex, out token))
+        {
+            return false;
+        }
+
+        var uid = Convert.ToString(GetStaticMember("BattleDataHolder", "CurrentAccount") ?? "") ?? "";
+        if (uid.Length == 0)
+        {
+            return false;
+        }
+
+        try
+        {
+            var getPlayer = FindType("PlayerDataHolder")?.GetMethod(
+                "GetPlayerFromUid", BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic);
+            var player = getPlayer?.Invoke(null, new object[] { uid });
+            var battlePetId = player != null ? Convert.ToInt32(GetMember(player, "battlePetID") ?? -1) : -1;
+            if (battlePetId < 0)
+            {
+                return false;
+            }
+
+            var getPets = FindType("PlayerDataHolder")?.GetMethod(
+                "GetPetDatasFromUid", BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic);
+            var pets = getPets?.Invoke(null, new object[] { uid }) as IList;
+            if (pets == null || battlePetId >= pets.Count || pets[battlePetId] == null)
+            {
+                return false;
+            }
+
+            var pd = GetMember(pets[battlePetId], "data") ?? pets[battlePetId];
+            var skills = GetMember(pd, "PetSkills") as IList;
+            if (skills == null)
+            {
+                return false;
+            }
+
+            for (var pass = 0; pass < 2; pass++)
+            {
+                for (var i = 0; i < skills.Count; i++)
+                {
+                    var tech = skills[i];
+                    if (tech == null)
+                    {
+                        continue;
+                    }
+
+                    var techIndex = Convert.ToInt32(GetMember(tech, "Index") ?? GetMember(tech, "index") ?? i);
+                    var hit = pass == 0 ? techIndex == token : i == token;
+                    if (!hit)
+                    {
+                        continue;
+                    }
+
+                    var skillId = Convert.ToInt32(GetMember(tech, "SkillId") ?? GetMember(tech, "skillId") ?? 0);
+                    if (skillId <= 0)
+                    {
+                        skillId = NormalizeSuperAiSkillFamilyId(
+                            Convert.ToInt32(GetMember(tech, "TechId") ?? GetMember(tech, "techId") ?? 0));
+                    }
+
+                    targetFlags = Convert.ToInt32(GetMember(tech, "Target") ?? GetMember(tech, "target") ?? 0);
+                    autoType = ReadSkillAutoType(skillId);
+                    return autoType >= 0;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            WriteLog("TryReadPetCommandSkill EX: " + RootMessage(ex));
+        }
+
+        return false;
+    }
+
+    private static bool TryParseSuperAiHex(string text, out int value)
+    {
+        return int.TryParse(text, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out value);
     }
 
     private static bool TrySetAiBattleTargetIndex(int index)
@@ -11008,9 +12602,14 @@ public static class SeqChapterTestUi
     /// </summary>
     public static bool TrySuperAiPlayerAuto()
     {
-        if (_superAiActive && TrySuperAiHookPlayerForce("PlayerAuto"))
+        if (_superAiActive)
         {
-            return true;
+            // 出手前再刷一次锚点，避免 Tick 与 VIP 竞态
+            SyncSuperAiVipFocusAnchor();
+            if (TrySuperAiHookPlayerForce("PlayerAuto"))
+            {
+                return true;
+            }
         }
 
         return TryVipAtkInvalidRewriteHook(true, "PlayerAuto");
@@ -11019,9 +12618,13 @@ public static class SeqChapterTestUi
     /// <summary>官方 AutoFight_PlayerAction2（无宠二动）入口钩。</summary>
     public static bool TrySuperAiPlayerAuto2()
     {
-        if (_superAiActive && TrySuperAiHookPlayerForce("PlayerAuto2"))
+        if (_superAiActive)
         {
-            return true;
+            SyncSuperAiVipFocusAnchor();
+            if (TrySuperAiHookPlayerForce("PlayerAuto2"))
+            {
+                return true;
+            }
         }
 
         return TryVipAtkInvalidRewriteHook(true, "PlayerAuto2");
@@ -11035,6 +12638,7 @@ public static class SeqChapterTestUi
     {
         if (_superAiActive)
         {
+            SyncSuperAiVipFocusAnchor();
             try
             {
                 if (EnsureSuperAiHookContext())
@@ -11074,11 +12678,10 @@ public static class SeqChapterTestUi
                         if (forceStr == null
                             && (ferniPhase == SuperAiFerniPhase.Focus
                                 || ferniPhase == SuperAiFerniPhase.Cleanup)
-                            && _superAiRewriteAtkDef
                             && TryBuildSuperAiFerniPhaseAttackCmd(
                                 player, true, ferniPhase, out forceStr, out forceLabel))
                         {
-                            // 二/三阶段宠打菲尔尼或收尾士官长
+                            // 二/三阶段宠打菲尔尼或收尾士官长；人物走 VIP（攻防序只写锚点）
                         }
 
                         if (forceStr == null
@@ -11117,7 +12720,7 @@ public static class SeqChapterTestUi
 
     /// <summary>
     /// 攻击无效重写（独立于 AI）：VIP 开着且列表有 59 时，给无攻无 buff 友方强制套；
-    /// 无人可套则 return false，其余 VIP 技能照常。菲尔尼 AI 抽蓝/集火/收尾时让路。
+    /// 无人可套则 return false，其余 VIP 技能照常。菲尔尼各阶段人物走 VIP，本钩让路。
     /// </summary>
     private static bool TryVipAtkInvalidRewriteHook(bool forPlayer, string tag)
     {
@@ -11222,14 +12825,10 @@ public static class SeqChapterTestUi
             _superAiFerniPhase = ferniPhase;
             EnsureSuperAiPotionPlan();
 
+            // 菲尔尼各阶段：人物不强制技能/普攻，交给 VIP；攻防序只写锚点。仅血瓶可强制。
             string forceStr;
             string forceLabel;
-            if (!TryBuildSuperAiPotionCmd(player, hasPet, pet, out forceStr, out forceLabel)
-                && !(ferniPhase == SuperAiFerniPhase.Drain
-                     && TryBuildSuperAiFerniDrainPlayerCmd(player, out forceStr, out forceLabel))
-                && !((ferniPhase == SuperAiFerniPhase.Focus || ferniPhase == SuperAiFerniPhase.Cleanup)
-                     && _superAiRewriteAtkDef
-                     && TryBuildSuperAiFerniPhaseAttackCmd(player, false, ferniPhase, out forceStr, out forceLabel)))
+            if (!TryBuildSuperAiPotionCmd(player, hasPet, pet, out forceStr, out forceLabel))
             {
                 return false;
             }
@@ -11312,6 +12911,198 @@ public static class SeqChapterTestUi
         catch
         {
             return false;
+        }
+    }
+
+    /// <summary>
+    /// hotfix Tip 钩：PVP 拦截提示且开关开时，改为切换官方自动战斗并吞掉提示。
+    /// </summary>
+    public static bool TryHandlePvpAutoBlockedTip()
+    {
+        if (!AllowPvpAutoBattle)
+        {
+            return false;
+        }
+
+        try
+        {
+            var on = !IsSuperAiAutoBattleOn();
+            _pvpAutoHold = on;
+            if (IsInBattleNow())
+            {
+                DispatchBattleAutoOperation(on);
+            }
+            else
+            {
+                var bm = GetManagerInstance("BattleManager");
+                if (bm != null)
+                {
+                    SetMember(bm, "IsAutoBattle", on);
+                }
+            }
+
+            WriteLog("PvpAutoBlockedTip handled allow=true -> IsAutoBattle=" + on);
+            Tip(on ? "PVP自动战斗已开启" : "PVP自动战斗已关闭");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            WriteLog("TryHandlePvpAutoBlockedTip EX: " + RootMessage(ex));
+            return false;
+        }
+    }
+
+    /// <summary>供 IL / 外部查询：是否允许 PVP 自动。</summary>
+    public static bool IsPvpAutoAllowed()
+    {
+        return AllowPvpAutoBattle;
+    }
+
+    private static void TickPvpAutoHold()
+    {
+        if (!AllowPvpAutoBattle || !_pvpAutoHold)
+        {
+            return;
+        }
+
+        if (!IsInBattleNow())
+        {
+            return;
+        }
+
+        if (GetBattleModeFlagInt() != 2)
+        {
+            return;
+        }
+
+        if (IsSuperAiAutoBattleOn())
+        {
+            return;
+        }
+
+        var now = NowMs();
+        if (now - _lastPvpAutoHoldMs < 400)
+        {
+            return;
+        }
+
+        _lastPvpAutoHoldMs = now;
+        DispatchBattleAutoOperation(true);
+        WriteLog("PvpAutoHold: re-enable after official force-off");
+    }
+
+    /// <summary>
+    /// 若官方自动战斗关着则打开。战斗外只写 IsAutoBattle（勿 Dispatch，场外 AutoFight 会立刻清掉）。
+    /// </summary>
+    private static void EnsureOfficialAutoBattleOn(string reason, string openedTip = null)
+    {
+        try
+        {
+            var bm = GetManagerInstance("BattleManager");
+            if (bm == null)
+            {
+                return;
+            }
+
+            if (Convert.ToBoolean(GetMember(bm, "IsAutoBattle") ?? false))
+            {
+                return;
+            }
+
+            if (IsInBattleNow())
+            {
+                DispatchBattleAutoOperation(true);
+            }
+            else
+            {
+                SetMember(bm, "IsAutoBattle", true);
+            }
+
+            WriteLog("EnsureOfficialAutoBattleOn: " + reason);
+            Tip(string.IsNullOrEmpty(openedTip) ? "护航战斗：已打开自动战斗" : openedTip);
+        }
+        catch (Exception ex)
+        {
+            WriteLog("EnsureOfficialAutoBattleOn EX: " + RootMessage(ex));
+        }
+    }
+
+    private static int GetBattleModeFlagInt()
+    {
+        try
+        {
+            var flag = GetStaticMember("BattleDataHolder", "battleModeFlag");
+            if (flag == null)
+            {
+                return 0;
+            }
+
+            return Convert.ToInt32(flag);
+        }
+        catch
+        {
+            return 0;
+        }
+    }
+
+    private static void DispatchBattleAutoOperation(bool enable)
+    {
+        try
+        {
+            var bm = GetManagerInstance("BattleManager");
+            if (bm == null)
+            {
+                return;
+            }
+
+            var onEvent = GetMember(bm, "OnEvent");
+            if (onEvent == null)
+            {
+                SetMember(bm, "IsAutoBattle", enable);
+                return;
+            }
+
+            MethodInfo dispatch = null;
+            foreach (var m in onEvent.GetType().GetMethods(
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+            {
+                if (m.Name != "Dispatch")
+                {
+                    continue;
+                }
+
+                var ps = m.GetParameters();
+                if (ps.Length == 2)
+                {
+                    dispatch = m;
+                    break;
+                }
+            }
+
+            if (dispatch == null)
+            {
+                SetMember(bm, "IsAutoBattle", enable);
+                return;
+            }
+
+            var evt = EnumValue("BATTLE_TYPE_EVENT", "AUTO_OPERATION", 16);
+            dispatch.Invoke(onEvent, new object[] { evt, enable });
+        }
+        catch (Exception ex)
+        {
+            WriteLog("DispatchBattleAutoOperation EX: " + RootMessage(ex));
+            try
+            {
+                var bm = GetManagerInstance("BattleManager");
+                if (bm != null)
+                {
+                    SetMember(bm, "IsAutoBattle", enable);
+                }
+            }
+            catch
+            {
+                // ignore
+            }
         }
     }
 
@@ -11969,19 +13760,6 @@ public static class SeqChapterTestUi
                 AddSuperAiPlannedCmd(playerActor, forceStr, "强制·" + forceLabel, true);
                 player.Suggest = forceStr;
             }
-            else if (ferniPhase == SuperAiFerniPhase.Drain
-                     && TryBuildSuperAiFerniDrainPlayerCmd(player, out forceStr, out forceLabel))
-            {
-                AddSuperAiPlannedCmd(playerActor, forceStr, "强制·" + forceLabel, true);
-                player.Suggest = forceStr;
-            }
-            else if ((ferniPhase == SuperAiFerniPhase.Focus || ferniPhase == SuperAiFerniPhase.Cleanup)
-                     && _superAiRewriteAtkDef
-                     && TryBuildSuperAiFerniPhaseAttackCmd(player, false, ferniPhase, out forceStr, out forceLabel))
-            {
-                AddSuperAiPlannedCmd(playerActor, forceStr, "强制·" + forceLabel, true);
-                player.Suggest = forceStr;
-            }
             else if (_superAiVipType14Rewrite
                      && ferniPhase != SuperAiFerniPhase.Drain
                      && ferniPhase != SuperAiFerniPhase.Focus
@@ -11993,9 +13771,11 @@ public static class SeqChapterTestUi
             }
             else
             {
+                var handoff = ferniPhase != SuperAiFerniPhase.None
+                    ? "VIP/自动出手"
+                    : "自动出手";
                 AddSuperAiPlannedCmd(playerActor, "",
-                    "自动出手"
-                    + (hasEnemy ? (" →#" + enemyIdx) : ""),
+                    handoff + (hasEnemy ? (" →#" + enemyIdx) : ""),
                     false);
                 player.Suggest = "auto";
             }
@@ -12031,7 +13811,6 @@ public static class SeqChapterTestUi
                 pet.Suggest = petForce;
             }
             else if ((ferniPhase == SuperAiFerniPhase.Focus || ferniPhase == SuperAiFerniPhase.Cleanup)
-                     && _superAiRewriteAtkDef
                      && TryBuildSuperAiFerniPhaseAttackCmd(player, true, ferniPhase, out petForce, out petLabel))
             {
                 AddSuperAiPlannedCmd(petActor, petForce, "强制·" + petLabel, true);
@@ -12143,6 +13922,16 @@ public static class SeqChapterTestUi
         idx = -1;
         name = "";
         roleLabel = "";
+
+        // AI百人：优先名单只改锚点（仍交给 VIP 出手）
+        if (_superAiDojoMode)
+        {
+            EnsureSuperAiDojoPriorityLoaded();
+            if (TryFindSuperAiDojoPriorityEnemy(out idx, out name, out roleLabel))
+            {
+                return true;
+            }
+        }
 
         var ferniPhase = ResolveSuperAiFerniPhase();
         _superAiFerniPhase = ferniPhase;
@@ -12471,6 +14260,195 @@ public static class SeqChapterTestUi
                && u.Name.IndexOf(keyword, StringComparison.Ordinal) >= 0;
     }
 
+    /// <summary>AI百人优先名单：按配置顺序取第一个场上存活且名含关键词的敌人。</summary>
+    private static bool TryFindSuperAiDojoPriorityEnemy(out int idx, out string name, out string roleLabel)
+    {
+        idx = -1;
+        name = "";
+        roleLabel = "";
+        if (!_superAiDojoMode || _superAiDojoPriorityKeywords == null || _superAiDojoPriorityKeywords.Length == 0)
+        {
+            return false;
+        }
+
+        var playerIdx = Convert.ToInt32(GetStaticMember("BattleDataHolder", "battlePlayerIndex") ?? -1);
+        var enemyHighSide = playerIdx < 10;
+        for (var k = 0; k < _superAiDojoPriorityKeywords.Length; k++)
+        {
+            var kw = _superAiDojoPriorityKeywords[k];
+            if (string.IsNullOrEmpty(kw))
+            {
+                continue;
+            }
+
+            var bestRank = int.MaxValue;
+            var bestIdx = -1;
+            string bestName = null;
+            for (var i = 0; i < _superAiUnits.Count; i++)
+            {
+                var u = _superAiUnits[i];
+                if (u.Mine || u.Unable || u.Hp <= 0 || !SuperAiUnitNameHas(u, kw))
+                {
+                    continue;
+                }
+
+                var rank = SuperAiEliteScanRank(u.Idx, enemyHighSide);
+                if (rank < bestRank || (rank == bestRank && (bestIdx < 0 || u.Idx < bestIdx)))
+                {
+                    bestRank = rank;
+                    bestIdx = u.Idx;
+                    bestName = u.Name ?? kw;
+                }
+            }
+
+            if (bestIdx >= 0)
+            {
+                idx = bestIdx;
+                name = bestName ?? kw;
+                roleLabel = "百人优先-" + kw;
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>当前应优先的百人关键词（仅窥探，不写锚点）。</summary>
+    private static bool TryPeekSuperAiDojoPriorityKw(out string keyword)
+    {
+        keyword = "";
+        int idx;
+        string name;
+        string role;
+        if (!TryFindSuperAiDojoPriorityEnemy(out idx, out name, out role))
+        {
+            return false;
+        }
+
+        if (!string.IsNullOrEmpty(role) && role.StartsWith("百人优先-", StringComparison.Ordinal))
+        {
+            keyword = role.Substring("百人优先-".Length);
+            return keyword.Length > 0;
+        }
+
+        keyword = name ?? "";
+        return keyword.Length > 0;
+    }
+
+    private static void EnsureSuperAiDojoPriorityLoaded()
+    {
+        if (_superAiDojoPriorityLoaded)
+        {
+            return;
+        }
+
+        _superAiDojoPriorityLoaded = true;
+        try
+        {
+            var bytes = LoadBytes(SuperAiDojoPriorityAsset);
+            if (bytes == null || bytes.Length == 0)
+            {
+                foreach (var path in EnumerateHotfixAssetPaths(
+                             SuperAiDojoPriorityFileName, SuperAiDojoPriorityAsset))
+                {
+                    if (!File.Exists(path))
+                    {
+                        continue;
+                    }
+
+                    bytes = File.ReadAllBytes(path);
+                    if (bytes != null && bytes.Length > 0)
+                    {
+                        WriteLog("SuperAI dojoPriority disk " + path);
+                        break;
+                    }
+                }
+            }
+
+            if (bytes == null || bytes.Length == 0)
+            {
+                _superAiDojoPriorityKeywords = SuperAiDojoPriorityDefaults;
+                WriteLog("SuperAI dojoPriority=defaults (no config)");
+                return;
+            }
+
+            var text = Encoding.UTF8.GetString(bytes);
+            var list = ParseSuperAiDojoPriorityJson(text);
+            if (list != null && list.Length > 0)
+            {
+                _superAiDojoPriorityKeywords = list;
+                WriteLog("SuperAI dojoPriority loaded n=" + list.Length
+                         + " [" + string.Join(",", list) + "]");
+            }
+            else
+            {
+                _superAiDojoPriorityKeywords = SuperAiDojoPriorityDefaults;
+                WriteLog("SuperAI dojoPriority=defaults (parse empty)");
+            }
+        }
+        catch (Exception ex)
+        {
+            _superAiDojoPriorityKeywords = SuperAiDojoPriorityDefaults;
+            WriteLog("SuperAI dojoPriority EX: " + RootMessage(ex));
+        }
+    }
+
+    /// <summary>解析 {"priority":["盖美拉",...]}；失败返回 null。</summary>
+    private static string[] ParseSuperAiDojoPriorityJson(string text)
+    {
+        if (string.IsNullOrEmpty(text))
+        {
+            return null;
+        }
+
+        var key = "\"priority\"";
+        var keyAt = text.IndexOf(key, StringComparison.OrdinalIgnoreCase);
+        if (keyAt < 0)
+        {
+            return null;
+        }
+
+        var bracket = text.IndexOf('[', keyAt);
+        if (bracket < 0)
+        {
+            return null;
+        }
+
+        var end = text.IndexOf(']', bracket + 1);
+        if (end < 0)
+        {
+            return null;
+        }
+
+        var inner = text.Substring(bracket + 1, end - bracket - 1);
+        var items = new List<string>();
+        var i = 0;
+        while (i < inner.Length)
+        {
+            var q1 = inner.IndexOf('"', i);
+            if (q1 < 0)
+            {
+                break;
+            }
+
+            var q2 = inner.IndexOf('"', q1 + 1);
+            if (q2 < 0)
+            {
+                break;
+            }
+
+            var s = inner.Substring(q1 + 1, q2 - q1 - 1).Trim();
+            if (s.Length > 0)
+            {
+                items.Add(s);
+            }
+
+            i = q2 + 1;
+        }
+
+        return items.Count > 0 ? items.ToArray() : null;
+    }
+
     private static bool SuperAiAnySergeant(Func<SuperAiUnitSnap, bool> pred)
     {
         for (var i = 0; i < _superAiUnits.Count; i++)
@@ -12556,35 +14534,6 @@ public static class SeqChapterTestUi
     }
 
     /// <summary>
-    /// 菲尔尼抽蓝期人物：有骑士之誉(1005)则每回合强制；否则普攻当前抽蓝士官长（不打菲尔尼）。
-    /// </summary>
-    private static bool TryBuildSuperAiFerniDrainPlayerCmd(
-        SuperAiUnitSnap player, out string str, out string label)
-    {
-        str = "";
-        label = "";
-        if (TryBuildSuperAiKnightHonorCmd(player, out str, out label))
-        {
-            return true;
-        }
-
-        int enemyIdx;
-        string enemyName;
-        string enemyRole;
-        if (!TryFindSuperAiFerniPhaseEnemy(
-                SuperAiFerniPhase.Drain, out enemyIdx, out enemyName, out enemyRole))
-        {
-            WriteLog("SuperAI Ferni drain: no knight honor & no sergeant → skip force");
-            return false;
-        }
-
-        str = "H|" + SuperAiHex(enemyIdx);
-        label = "普攻→[" + enemyRole + "] " + enemyName + "#" + enemyIdx;
-        WriteLog("SuperAI Ferni drain: no 骑士之誉 → " + label);
-        return true;
-    }
-
-    /// <summary>
     /// 金银角 / 声望挑战宠：优先乾坤一掷（任意等级，Use 才放）；否则普攻。目标跟当前锚点。
     /// </summary>
     private static bool TryBuildSuperAiQiankunPetCmd(
@@ -12630,7 +14579,7 @@ public static class SeqChapterTestUi
     }
 
     /// <summary>
-    /// 菲尔尼二阶段集火菲尔尼 / 三阶段收尾士官长：人 H|、宠攻击技打阶段目标。
+    /// 菲尔尼二阶段集火菲尔尼 / 三阶段收尾士官长：仅宠强制打阶段目标；人物走 VIP。
     /// </summary>
     private static bool TryBuildSuperAiFerniPhaseAttackCmd(
         SuperAiUnitSnap player, bool forPet, SuperAiFerniPhase phase,
@@ -12638,6 +14587,11 @@ public static class SeqChapterTestUi
     {
         str = "";
         label = "";
+        if (!forPet)
+        {
+            return false;
+        }
+
         if (phase != SuperAiFerniPhase.Focus && phase != SuperAiFerniPhase.Cleanup)
         {
             return false;
@@ -12649,13 +14603,6 @@ public static class SeqChapterTestUi
         if (!TryFindSuperAiFerniPhaseEnemy(phase, out enemyIdx, out enemyName, out enemyRole))
         {
             return false;
-        }
-
-        if (!forPet)
-        {
-            str = "H|" + SuperAiHex(enemyIdx);
-            label = "普攻→[" + enemyRole + "] " + enemyName + "#" + enemyIdx;
-            return true;
         }
 
         int slot;
@@ -15646,6 +17593,9 @@ public static class SeqChapterTestUi
             _junkDropActive ? "一键丢弃（停止）" : "一键丢弃（开/停）",
             ToggleJunkDrop);
 
+        // 开书：入口隐藏（逻辑保留）
+        // 半山测试：入口隐藏（逻辑保留）
+
         AddScriptColButton(
             rtType, "FloraHealTest", "fht", rightX, row0 - rowStep * 3,
             0.22f, 0.48f, 0.40f,
@@ -15658,13 +17608,32 @@ public static class SeqChapterTestUi
             _warpWaitActive ? "循环等待传送（停止）" : "循环等待传送",
             ToggleWarpWait);
 
-
+        if (EnableDojoRunScript)
+        {
+            AddScriptColButton(
+                rtType, "DojoRun", "djr", rightX, row0 - rowStep * 5,
+                0.40f, 0.32f, 0.22f,
+                _dojoRunActive ? "百人道场（停止）" : "百人道场",
+                ToggleDojoRun);
+        }
 
         AddScriptColButton(
-            rtType, "BanshanTest", "bts", rightX, row0 - rowStep * 4,
-            0.35f, 0.40f, 0.28f,
-            _banshanTestActive ? "半山测试（停止）" : "半山测试",
-            ToggleBanshanTest);
+            rtType, "DojoHell", "djh", leftX, row0 - rowStep * 6,
+            0.36f, 0.18f, 0.42f,
+            _dojoHellActive ? "噩梦百人（停止）" : "噩梦百人",
+            ToggleDojoHell);
+
+        AddScriptColButton(
+            rtType, "BrawlSign", "brs", rightX, row0 - rowStep * 6,
+            0.55f, 0.22f, 0.18f,
+            _brawlSignActive ? "大乱斗报名（停止）" : "大乱斗报名",
+            ToggleBrawlSign);
+
+        AddScriptColButton(
+            rtType, "StoreTrialProof", "stp", leftX, row0 - rowStep * 5,
+            0.28f, 0.45f, 0.38f,
+            "存入试炼通过证明",
+            RunStoreTrialPassProof);
 
         _fullScriptStatusText = null;
         _petNamerStatusText = null;
@@ -15716,6 +17685,11 @@ public static class SeqChapterTestUi
             return FormatJunkDropStatus();
         }
 
+        if (_openBookActive)
+        {
+            return FormatOpenBookStatus();
+        }
+
         if (_warpWaitActive)
         {
             return FormatWarpWaitStatus();
@@ -15729,6 +17703,21 @@ public static class SeqChapterTestUi
         if (_banshanTestActive)
         {
             return FormatBanshanTestStatus();
+        }
+
+        if (_dojoRunActive)
+        {
+            return FormatDojoRunStatus();
+        }
+
+        if (_dojoHellActive)
+        {
+            return FormatDojoHellStatus();
+        }
+
+        if (_brawlSignActive)
+        {
+            return "大乱斗报名: " + BrawlPhaseName(_brawlSignPhase) + "\n" + (_brawlSignNote ?? "");
         }
 
         if (_fullScriptActive)
@@ -16207,6 +18196,3048 @@ public static class SeqChapterTestUi
                 WriteLog("banshan-test next round=" + _banshanTestRound);
                 break;
         }
+    }
+
+    private static string FormatDojoRunStatus()
+    {
+        if (!_dojoRunActive)
+        {
+            return "百人道场: 未启动 目标层" + GetDojoTargetLayer()
+                   + "\n开跑先查一次血，低血先治疗再跑；切常规并开AI百人；进9201已达或超过目标则退出道场并停；战败暂停；低血退出→法兰治疗→回城点6重跑";
+        }
+
+        var layerPart = _dojoRunLayer > 0 ? ("第" + _dojoRunLayer + "道场") : "层?";
+        return "百人道场: " + DojoRunPhaseName(_dojoRunPhase)
+               + " " + layerPart + "/" + GetDojoTargetLayer()
+               + " 已过" + _dojoRunFloorClear + "层\n"
+               + (_dojoRunNote ?? "");
+    }
+
+    private static string DojoRunPhaseName(int phase)
+    {
+        switch (phase)
+        {
+            case DojoRunReturn: return "回城点6";
+            case DojoRunWaitReturn: return "等回城(233,78)";
+            case DojoRunNavWarp: return "走(238,64)切图";
+            case DojoRunWaitWarp: return "等切1154";
+            case DojoRunNavOpen: return "走(39,31)";
+            case DojoRunTalkOpen: return "对话开面板";
+            case DojoRunEnter: return "点进入道场";
+            case DojoRunWaitFloor: return "等进道场图";
+            case DojoRunNav: return "走到(15,10)";
+            case DojoRunTalk: return "对话道场NPC";
+            case DojoRunWaitBattle: return "等进战";
+            case DojoRunInBattle: return "战斗中";
+            case DojoRunAfterBattle: return "战后等5秒";
+            case DojoRunExit: return "退出道场";
+            case DojoRunWaitExit: return "等退到1154";
+            case DojoRunWaitFloraHeal: return "法兰治疗";
+            default: return "就绪";
+        }
+    }
+
+    private static int GetDojoTargetLayer()
+    {
+        return _dojoRunTargetLayer > 0 ? _dojoRunTargetLayer : DojoDefaultTargetLayer;
+    }
+
+    private static void ReadDojoTargetLayerFromUi()
+    {
+        try
+        {
+            if (_dojoRunTargetLayerInput != null)
+            {
+                var t = ReadInputFieldText(_dojoRunTargetLayerInput);
+                if (!string.IsNullOrEmpty(t))
+                {
+                    _dojoRunTargetLayerStr = t.Trim();
+                }
+            }
+        }
+        catch
+        {
+            // keep cached
+        }
+
+        int n;
+        if (int.TryParse(_dojoRunTargetLayerStr, out n) && n > 0)
+        {
+            _dojoRunTargetLayer = n;
+        }
+        else
+        {
+            _dojoRunTargetLayer = DojoDefaultTargetLayer;
+            _dojoRunTargetLayerStr = DojoDefaultTargetLayer.ToString();
+        }
+    }
+
+    private static void ToggleDojoRun()
+    {
+        if (!EnableDojoRunScript)
+        {
+            Tip("百人道场脚本未开放（傻瓜包暂不带）");
+            return;
+        }
+
+        if (_dojoRunActive)
+        {
+            StopDojoRun("手动停止");
+            return;
+        }
+
+        StartDojoRun();
+    }
+
+    private static void StartDojoRun()
+    {
+        if (!EnableDojoRunScript)
+        {
+            Tip("百人道场脚本未开放");
+            return;
+        }
+
+        if (_floraHealActive || _banshanTestActive || _warpWaitActive || _wildExActive || _fullScriptActive
+            || _dojoHellActive || _brawlSignActive)
+        {
+            Tip("请先停其它脚本");
+            return;
+        }
+
+        if (IsInBattleNow())
+        {
+            Tip("战斗中不能启动百人道场");
+            return;
+        }
+
+        var uid = GetMainPlayerUidSafe();
+        if (string.IsNullOrEmpty(uid))
+        {
+            Tip("未找到角色");
+            return;
+        }
+
+        ReadDojoTargetLayerFromUi();
+        PrepareDojoRunCombat();
+        TryEnsureDojoHighestBattlePets();
+        TrySendLocalAutoBattle("停止挂机");
+        StopTaskNavigation(false);
+        _dojoRunActive = true;
+        _dojoRunFloorClear = 0;
+        _dojoRunLayer = 0;
+        _dojoRunTalkPicked = false;
+        _dojoRunOpenTalkPicked = false;
+        _dojoRunSawForceQuit = false;
+        _dojoRunPrevInBattle = false;
+        _dojoRunExpectExitReenter = false;
+        _dojoRunExitThenStop = false;
+        _dojoRunAwaitPostBattleMap = false;
+        _dojoRunDelayUntilMs = 0;
+        _dojoRunLastNavMs = 0;
+        _dojoRunLastLookMs = 0;
+        _dojoRunLastEnterMs = 0;
+        _dojoRunWarpWaitSinceMs = 0;
+        _dojoRunReturnSinceMs = 0;
+        _dojoRunExitSinceMs = 0;
+        _dojoRunReturnTries = 0;
+        _dojoRunExitTries = 0;
+
+        int floor;
+        string floorName;
+        int mapResId;
+        TryGetCurrentMapInfo(out floor, out floorName, out mapResId);
+        RefreshDojoLayerFromName(floorName);
+        string startHp;
+        var startLowHp = DojoTeamOrPetHpBelowHalf(out startHp);
+        if (IsInsideDojoMap(floor, floorName))
+        {
+            if (_dojoRunLayer > 0 && _dojoRunLayer >= GetDojoTargetLayer())
+            {
+                DojoRunBeginExitThenStop(
+                    "第" + _dojoRunLayer + "道场已达或超过目标" + GetDojoTargetLayer() + "，退出并停止");
+            }
+            else if (startLowHp)
+            {
+                Tip("百人开跑低血，先退出治疗：" + startHp);
+                DojoRunBeginExitForHeal("开跑低血(" + startHp + ")退出道场再治疗");
+            }
+            else
+            {
+                _dojoRunPhase = DojoRunNav;
+                _dojoRunNote = "已在道场 " + FormatDojoLayerLabel() + "，去(15,10)";
+            }
+        }
+        else if (startLowHp)
+        {
+            Tip("百人开跑低血，先治疗：" + startHp);
+            DojoRunBeginFloraThenRestart("开跑低血(" + startHp + ")，先治疗再回城点6");
+        }
+        else if (floor == DojoWarpTargetFloor)
+        {
+            _dojoRunPhase = DojoRunNavOpen;
+            _dojoRunLastNavMs = 0;
+            _dojoRunNote = "已在1154，去(39,31)开面板";
+        }
+        else
+        {
+            DojoRunBeginReturn("不在道场，回城点6…");
+        }
+
+        Tip("百人道场脚本已启动（目标第" + GetDojoTargetLayer() + "层）");
+        WriteLog("dojo-run start floor=" + floor + " name=" + floorName
+                 + " layer=" + _dojoRunLayer + " target=" + GetDojoTargetLayer());
+        RefreshScriptTabIfVisible();
+        RefreshScriptRunStatus();
+    }
+
+    private static void StopDojoRun(string reason)
+    {
+        if (!_dojoRunActive && _dojoRunPhase == DojoRunIdle)
+        {
+            Tip("百人道场：未在运行");
+            return;
+        }
+
+        var stopFlora = _dojoRunPhase == DojoRunWaitFloraHeal && _floraHealActive;
+        _dojoRunActive = false;
+        _dojoRunPhase = DojoRunIdle;
+        _dojoRunExpectExitReenter = false;
+        _dojoRunExitThenStop = false;
+        _dojoRunAwaitPostBattleMap = false;
+        _dojoRunNote = string.IsNullOrEmpty(reason) ? "已停止" : reason;
+        StopTaskNavigation(false);
+        if (stopFlora)
+        {
+            StopFloraHeal("百人已停止", false);
+        }
+
+        Tip("百人道场：" + _dojoRunNote + "（过" + _dojoRunFloorClear + "层）");
+        WriteLog("dojo-run stop " + _dojoRunNote + " clears=" + _dojoRunFloorClear);
+        RefreshScriptTabIfVisible();
+        RefreshScriptRunStatus();
+    }
+
+    /// <summary>
+    /// 百人/噩梦开跑或每轮回城前：本机每个角色把最高级宠物设为出战。
+    /// 当前出战宠等级已经是最高则不发包。等级相同保留现有出战宠。
+    /// </summary>
+    private static void TryEnsureDojoHighestBattlePets()
+    {
+        if (!_dojoAutoHighestBattlePet)
+        {
+            return;
+        }
+
+        try
+        {
+            var petMgr = GetManagerInstance("PetManager");
+            var change = petMgr?.GetType().GetMethod(
+                "ChangePetStatus",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+                null,
+                new[] { typeof(string), typeof(int), typeof(int) },
+                null);
+            if (petMgr == null || change == null)
+            {
+                WriteLog("dojo-pet skip: ChangePetStatus missing");
+                return;
+            }
+
+            var uids = CollectTeamOrMultiUids();
+            var changed = 0;
+            for (var i = 0; i < uids.Count; i++)
+            {
+                var uid = uids[i];
+                int index;
+                int level;
+                string name;
+                if (!TryPickDojoHighestBattlePet(uid, out index, out level, out name))
+                {
+                    continue;
+                }
+
+                change.Invoke(petMgr, new object[] { uid, index, DojoPetStatusBattle });
+                changed++;
+                WriteLog("dojo-pet set uid=" + uid + " index=" + index
+                         + " lv=" + level + " " + name);
+            }
+
+            if (changed > 0)
+            {
+                Tip("百人出战宠：已设置 " + changed + " 个角色");
+            }
+        }
+        catch (Exception ex)
+        {
+            WriteLog("dojo-pet EX: " + RootMessage(ex));
+        }
+    }
+
+    /// <summary>返回需要改的槽位。当前出战已是最高级（含并列）则 false。</summary>
+    private static bool TryPickDojoHighestBattlePet(
+        string uid, out int index, out int level, out string name)
+    {
+        index = -1;
+        level = -1;
+        name = "";
+        if (string.IsNullOrEmpty(uid))
+        {
+            return false;
+        }
+
+        var player = GetPlayer(uid);
+        if (player == null)
+        {
+            WriteLog("dojo-pet skip no player uid=" + uid);
+            return false;
+        }
+
+        var getPets = FindType("PlayerDataHolder")?.GetMethod(
+            "GetPetDatasFromUid", BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic);
+        var pets = getPets?.Invoke(null, new object[] { uid }) as IList;
+        if (pets == null || pets.Count == 0)
+        {
+            WriteLog("dojo-pet skip no pets uid=" + uid);
+            return false;
+        }
+
+        var battleId = Convert.ToInt32(GetMember(player, "battlePetID") ?? -1);
+        var best = -1;
+        var bestLv = -1;
+        string bestName = "";
+        var battleLv = -1;
+        for (var i = 0; i < pets.Count; i++)
+        {
+            var pet = pets[i];
+            if (pet == null)
+            {
+                continue;
+            }
+
+            if (Convert.ToInt32(GetMember(pet, "useFlag") ?? 0) != 1)
+            {
+                continue;
+            }
+
+            var data = GetMember(pet, "data") ?? pet;
+            var lv = Convert.ToInt32(GetMember(data, "Level") ?? GetMember(data, "Lv") ?? 0);
+            var petName = Convert.ToString(GetMember(data, "Name") ?? GetMember(data, "FreeName") ?? "") ?? "";
+            if (i == battleId)
+            {
+                battleLv = lv;
+            }
+
+            if (lv > bestLv)
+            {
+                bestLv = lv;
+                best = i;
+                bestName = petName;
+            }
+        }
+
+        if (best < 0)
+        {
+            WriteLog("dojo-pet skip empty uid=" + uid);
+            return false;
+        }
+
+        if (battleId == best || (battleId >= 0 && battleLv >= 0 && battleLv == bestLv))
+        {
+            WriteLog("dojo-pet already uid=" + uid + " battle=" + battleId + " lv=" + battleLv);
+            return false;
+        }
+
+        index = best;
+        level = bestLv;
+        name = bestName;
+        return true;
+    }
+
+    /// <summary>开跑：战斗切常规，并打开 AI百人（未开 AI战斗则一并启动）。</summary>
+    private static void PrepareDojoRunCombat()
+    {
+        if (_battleMode != ModeNormal)
+        {
+            SelectBattleMode(ModeNormal);
+        }
+
+        if (!_superAiDojoMode)
+        {
+            _superAiDojoMode = true;
+            WriteLog("dojo-run enable AI百人");
+        }
+
+        EnsureSuperAiDojoPriorityLoaded();
+        if (!_superAiActive && IsSuperAiModeAllowed(_battleMode))
+        {
+            StartSuperAi();
+        }
+
+        if (_tab == TabSuperAi)
+        {
+            try
+            {
+                ClearBody();
+                BuildSuperAiBody();
+                RefreshTabButtonLabels();
+            }
+            catch
+            {
+                // ignore
+            }
+        }
+
+        WriteLog("dojo-run combat mode=" + _battleMode
+                 + " ai=" + _superAiActive + " dojoAi=" + _superAiDojoMode);
+    }
+
+    private static void DojoRunBeginExitThenStop(string note)
+    {
+        _dojoRunExpectExitReenter = false;
+        _dojoRunExitThenStop = true;
+        _dojoRunPhase = DojoRunExit;
+        _dojoRunExitTries = 0;
+        _dojoRunExitSinceMs = 0;
+        _dojoRunLastNavMs = 0;
+        _dojoRunOpenTalkPicked = false;
+        _dojoRunNote = note ?? ("第" + _dojoRunLayer + "道场已达或超过目标，退出并停止");
+        WriteLog("dojo-run begin-exit-stop layer=" + _dojoRunLayer
+                 + " target=" + GetDojoTargetLayer() + " " + _dojoRunNote);
+        Tip(_dojoRunNote);
+    }
+
+    private static void DojoRunBeginReturn(string note)
+    {
+        _dojoRunExpectExitReenter = false;
+        _dojoRunExitThenStop = false;
+        _dojoRunPhase = DojoRunReturn;
+        _dojoRunReturnTries = 0;
+        _dojoRunReturnSinceMs = 0;
+        _dojoRunLastNavMs = 0;
+        _dojoRunWarpWaitSinceMs = 0;
+        _dojoRunOpenTalkPicked = false;
+        _dojoRunNote = note ?? "回城点6";
+        WriteLog("dojo-run begin-return " + _dojoRunNote);
+        TryEnsureDojoHighestBattlePets();
+    }
+
+    private static void DojoRunBeginExitForHeal(string note)
+    {
+        _dojoRunExpectExitReenter = true;
+        _dojoRunExitThenStop = false;
+        _dojoRunPhase = DojoRunExit;
+        _dojoRunExitTries = 0;
+        _dojoRunExitSinceMs = 0;
+        _dojoRunLastNavMs = 0;
+        _dojoRunOpenTalkPicked = false;
+        _dojoRunNote = note ?? "低血退出道场→治疗→回城点6";
+        WriteLog("dojo-run begin-exit-heal " + _dojoRunNote);
+    }
+
+    /// <summary>退到 1154 后：启法兰治疗，治完再从回城点6重跑。</summary>
+    private static void DojoRunBeginFloraThenRestart(string note)
+    {
+        _dojoRunExpectExitReenter = false;
+        _dojoRunExitThenStop = false;
+        _dojoRunPhase = DojoRunWaitFloraHeal;
+        _dojoRunNote = note ?? "法兰治疗后再从回城点6重跑";
+        WriteLog("dojo-run begin-flora-restart " + _dojoRunNote);
+        if (_floraHealActive)
+        {
+            return;
+        }
+
+        StartFloraHeal(false);
+        if (!_floraHealActive)
+        {
+            StopDojoRun("法兰治疗未能启动");
+        }
+    }
+
+    /// <summary>仅图号 9201 算道场内；1154 大厅名也含「道场」，不能靠名字判断。</summary>
+    private static bool IsInsideDojoMap(int floor, string floorName)
+    {
+        return floor == DojoBattleFloor;
+    }
+
+    private static string FormatDojoLayerLabel()
+    {
+        return _dojoRunLayer > 0 ? ("第" + _dojoRunLayer + "道场") : "道场内";
+    }
+
+    /// <summary>从 currentFloorName 解析「第12道场」→ 12。</summary>
+    private static void RefreshDojoLayerFromName(string floorName)
+    {
+        if (string.IsNullOrEmpty(floorName))
+        {
+            return;
+        }
+
+        var idx = floorName.IndexOf('第');
+        var idx2 = floorName.IndexOf("道场", StringComparison.Ordinal);
+        if (idx < 0 || idx2 <= idx)
+        {
+            return;
+        }
+
+        var numPart = floorName.Substring(idx + 1, idx2 - idx - 1).Trim();
+        int n;
+        if (int.TryParse(numPart, out n) && n > 0)
+        {
+            _dojoRunLayer = n;
+            return;
+        }
+
+        n = ParseChineseDigits(numPart);
+        if (n > 0)
+        {
+            _dojoRunLayer = n;
+        }
+    }
+
+    private static int ParseChineseDigits(string s)
+    {
+        if (string.IsNullOrEmpty(s))
+        {
+            return 0;
+        }
+
+        // 简单：一..十、十一..九十九、十
+        if (s == "十")
+        {
+            return 10;
+        }
+
+        var map = new System.Collections.Generic.Dictionary<char, int>
+        {
+            { '零', 0 }, { '〇', 0 }, { '一', 1 }, { '二', 2 }, { '两', 2 },
+            { '三', 3 }, { '四', 4 }, { '五', 5 }, { '六', 6 }, { '七', 7 },
+            { '八', 8 }, { '九', 9 },
+        };
+        if (s.Length == 1 && map.ContainsKey(s[0]))
+        {
+            return map[s[0]];
+        }
+
+        if (s.StartsWith("十") && s.Length == 2 && map.ContainsKey(s[1]))
+        {
+            return 10 + map[s[1]];
+        }
+
+        if (s.EndsWith("十") && s.Length == 2 && map.ContainsKey(s[0]))
+        {
+            return map[s[0]] * 10;
+        }
+
+        if (s.Length == 3 && s[1] == '十' && map.ContainsKey(s[0]) && map.ContainsKey(s[2]))
+        {
+            return map[s[0]] * 10 + map[s[2]];
+        }
+
+        return 0;
+    }
+
+    private static bool DojoSendReturnCity()
+    {
+        var role = GetManagerInstance("RoleManager");
+        if (role == null)
+        {
+            return false;
+        }
+
+        try
+        {
+            var data = DojoReturnRecordIndex.ToString();
+            var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+            var send = role.GetType().GetMethod(
+                "SendMenu", flags, null, new[] { typeof(int), typeof(string) }, null);
+            if (send != null)
+            {
+                send.Invoke(role, new object[] { 3, data });
+                return true;
+            }
+
+            send = role.GetType().GetMethod(
+                "SendMenu",
+                flags,
+                null,
+                new[] { typeof(int), typeof(string), typeof(string), typeof(string) },
+                null);
+            if (send == null)
+            {
+                return false;
+            }
+
+            send.Invoke(role, new object[] { 3, data, "", "" });
+            return true;
+        }
+        catch (Exception ex)
+        {
+            WriteLog("dojo-run SendMenu EX: " + RootMessage(ex));
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// 道场内退出：与 <c>HunderMissionChildPanel.QuitDoJo</c> 一致 —
+    /// <c>SendHunderdDoJoSecEditonMsg("退出道场", uid, -1,-1,-1,-1,-1)</c> → 协议 4044。
+    /// </summary>
+    private static bool DojoSendExitDojo()
+    {
+        try
+        {
+            var uid = GetMainPlayerUidSafe();
+            if (string.IsNullOrEmpty(uid))
+            {
+                uid = Convert.ToString(GetStaticMember("PlayerDataHolder", "MainPlayerUid") ?? "") ?? "";
+            }
+
+            if (string.IsNullOrEmpty(uid))
+            {
+                return false;
+            }
+
+            var mgr = GetManagerInstance("BountyOfferedManager");
+            if (mgr == null)
+            {
+                return false;
+            }
+
+            // 新版按钮：HunderMissionChildPanel.QuitDoJo → SecEditon，其余参数全 -1
+            var sendSec = mgr.GetType().GetMethod(
+                "SendHunderdDoJoSecEditonMsg",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            if (sendSec != null && sendSec.GetParameters().Length >= 7)
+            {
+                sendSec.Invoke(mgr, new object[] { "退出道场", uid, -1, -1, -1, -1, -1 });
+                WriteLog("dojo-run SendHunderdDoJoSecEditonMsg 退出道场 uid=" + uid + " args=-1");
+                return true;
+            }
+
+            // 旧版兜底（Com_HunderDoJoPanel 已删，一般走不到）
+            var sendOld = mgr.GetType().GetMethod(
+                "SendHunderdDoJoMsg",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            if (sendOld != null)
+            {
+                var ps = sendOld.GetParameters();
+                if (ps.Length >= 5)
+                {
+                    sendOld.Invoke(mgr, new object[] { "退出道场", uid, 0, 0, 0 });
+                }
+                else if (ps.Length >= 2)
+                {
+                    sendOld.Invoke(mgr, new object[] { "退出道场", uid });
+                }
+                else
+                {
+                    return false;
+                }
+
+                WriteLog("dojo-run SendHunderdDoJoMsg 退出道场 (legacy)");
+                return true;
+            }
+
+            return false;
+        }
+        catch (Exception ex)
+        {
+            WriteLog("dojo-run exit EX: " + RootMessage(ex));
+            return false;
+        }
+    }
+
+    /// <summary>队伍任一人或出战宠 HP &lt; 50%。</summary>
+    private static bool DojoTeamOrPetHpBelowHalf(out string detail)
+    {
+        detail = "";
+        try
+        {
+            var getPlayer = FindType("PlayerDataHolder")?.GetMethod(
+                "GetPlayerFromUid", BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic);
+            var getPets = FindType("PlayerDataHolder")?.GetMethod(
+                "GetPetDatasFromUid", BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic);
+            if (getPlayer == null)
+            {
+                return false;
+            }
+
+            var checkedAny = false;
+            for (var slot = 0; slot < 5; slot++)
+            {
+                var uid = GetTeamUidBySlot(slot);
+                if (string.IsNullOrEmpty(uid))
+                {
+                    continue;
+                }
+
+                checkedAny = true;
+                var player = getPlayer.Invoke(null, new object[] { uid });
+                if (player == null)
+                {
+                    continue;
+                }
+
+                var hp = Convert.ToInt32(GetMember(player, "hp") ?? 0);
+                var maxHp = Convert.ToInt32(GetMember(player, "maxHp") ?? 0);
+                if (maxHp > 0 && hp * 1f / maxHp < DojoHpHealRatio)
+                {
+                    detail = "队" + (slot + 1) + "人 " + hp + "/" + maxHp;
+                    return true;
+                }
+
+                var battlePetId = Convert.ToInt32(GetMember(player, "battlePetID") ?? -1);
+                if (battlePetId < 0 || getPets == null)
+                {
+                    continue;
+                }
+
+                var pets = getPets.Invoke(null, new object[] { uid }) as IList;
+                if (pets == null || battlePetId >= pets.Count || pets[battlePetId] == null)
+                {
+                    continue;
+                }
+
+                var pd = GetMember(pets[battlePetId], "data") ?? pets[battlePetId];
+                var php = Convert.ToInt32(GetMember(pd, "Hp") ?? 0);
+                var pmax = Convert.ToInt32(GetMember(pd, "MaxHp") ?? 0);
+                if (pmax > 0 && php * 1f / pmax < DojoHpHealRatio)
+                {
+                    detail = "队" + (slot + 1) + "宠 " + php + "/" + pmax;
+                    return true;
+                }
+            }
+
+            if (!checkedAny)
+            {
+                var uid = GetMainPlayerUidSafe();
+                if (string.IsNullOrEmpty(uid))
+                {
+                    return false;
+                }
+
+                var player = getPlayer.Invoke(null, new object[] { uid });
+                if (player == null)
+                {
+                    return false;
+                }
+
+                var hp = Convert.ToInt32(GetMember(player, "hp") ?? 0);
+                var maxHp = Convert.ToInt32(GetMember(player, "maxHp") ?? 0);
+                if (maxHp > 0 && hp * 1f / maxHp < DojoHpHealRatio)
+                {
+                    detail = "本人 " + hp + "/" + maxHp;
+                    return true;
+                }
+
+                var battlePetId = Convert.ToInt32(GetMember(player, "battlePetID") ?? -1);
+                if (battlePetId >= 0 && getPets != null)
+                {
+                    var pets = getPets.Invoke(null, new object[] { uid }) as IList;
+                    if (pets != null && battlePetId < pets.Count && pets[battlePetId] != null)
+                    {
+                        var pd = GetMember(pets[battlePetId], "data") ?? pets[battlePetId];
+                        var php = Convert.ToInt32(GetMember(pd, "Hp") ?? 0);
+                        var pmax = Convert.ToInt32(GetMember(pd, "MaxHp") ?? 0);
+                        if (pmax > 0 && php * 1f / pmax < DojoHpHealRatio)
+                        {
+                            detail = "本人宠 " + php + "/" + pmax;
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            WriteLog("dojo-run hp-check EX: " + RootMessage(ex));
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// 战后：先按战斗结果判定；战败→暂停；胜利→确认在 9201 再进 AfterBattle（血量在那里检）。
+    /// 返回 true 表示本 tick 已处理完（含暂停），调用方应 return。
+    /// </summary>
+    private static bool TryDojoHandleBattleEnded(int floor, string floorName, long now)
+    {
+        if (_dojoRunExpectExitReenter)
+        {
+            _dojoRunAwaitPostBattleMap = false;
+            return false;
+        }
+
+        // 1) 战斗结果：forceQuitBattle = 战败（随后会被踢到 1154）
+        if (_dojoRunSawForceQuit)
+        {
+            _dojoRunAwaitPostBattleMap = false;
+            StopDojoRun("战败（" + FormatDojoLayerLabel()
+                        + (floor == DojoWarpTargetFloor ? "→1154" : "")
+                        + "），脚本暂停");
+            return true;
+        }
+
+        // 2) 胜利：必须确认在 9201，再等 5 秒检血续打
+        if (IsInsideDojoMap(floor, floorName))
+        {
+            if (!_dojoRunAwaitPostBattleMap || _dojoRunPhase != DojoRunAfterBattle)
+            {
+                _dojoRunFloorClear++;
+            }
+
+            _dojoRunAwaitPostBattleMap = false;
+            _dojoRunPhase = DojoRunAfterBattle;
+            _dojoRunDelayUntilMs = now + DojoAfterBattleMs;
+            _dojoRunTalkPicked = false;
+            _dojoRunNote = "胜利→9201，等5秒检血（已过" + _dojoRunFloorClear + "）"
+                           + FormatDojoLayerLabel();
+            WriteLog("dojo-run battle win clears=" + _dojoRunFloorClear
+                     + " layer=" + _dojoRunLayer + " floor=" + floor);
+            return true;
+        }
+
+        // 胜利却已在 1154：结果与地图不一致，暂停
+        if (floor == DojoWarpTargetFloor)
+        {
+            _dojoRunAwaitPostBattleMap = false;
+            StopDojoRun("胜利判定后却在1154，脚本暂停");
+            return true;
+        }
+
+        // 胜利，地图尚未落到 9201
+        _dojoRunAwaitPostBattleMap = true;
+        _dojoRunPhase = DojoRunAfterBattle;
+        _dojoRunDelayUntilMs = now + 800;
+        _dojoRunNote = "胜利，确认9201… 现" + floor + " " + floorName;
+        WriteLog("dojo-run battle win settle floor=" + floor + " name=" + floorName);
+        return true;
+    }
+
+    private static string BrawlPhaseName(int phase)
+    {
+        switch (phase)
+        {
+            case BrawlReturn: return "回城点6";
+            case BrawlWaitReturn: return "等回城(233,78)";
+            case BrawlNavWarp: return "走(238,64)";
+            case BrawlWaitWarp: return "等切1154";
+            case BrawlNavStand: return "走(43,29)";
+            case BrawlTalk: return "对话管理员";
+            case BrawlSignup: return "点报名比赛";
+            case BrawlConfirm: return "点确定";
+            case BrawlWaitResult: return "等1秒看地图";
+            default: return "就绪";
+        }
+    }
+
+    private static void ToggleBrawlSign()
+    {
+        if (_brawlSignActive)
+        {
+            StopBrawlSign("手动停止");
+            return;
+        }
+
+        StartBrawlSign();
+    }
+
+    /// <summary>
+    /// 检查通过后、开跑前：打开 PVP 允许自动、打开官方自动战斗、关掉跳过动画、战斗模式切常规。
+    /// 自动战斗与切护航相同：场外只写 IsAutoBattle。另置 PVP 保持，避免进战后官方强制关掉。
+    /// </summary>
+    private static void PrepareBrawlSignCombat()
+    {
+        try
+        {
+            if (!AllowPvpAutoBattle)
+            {
+                AllowPvpAutoBattle = true;
+                WriteLog("brawl-sign AllowPvpAutoBattle=true");
+                Tip("PVP允许自动战斗：开");
+            }
+
+            _pvpAutoHold = true;
+            WriteLog("brawl-sign pvp auto hold on");
+        }
+        catch (Exception ex)
+        {
+            WriteLog("brawl-sign pvp auto EX: " + RootMessage(ex));
+        }
+
+        EnsureOfficialAutoBattleOn("大乱斗报名", "大乱斗报名：已打开自动战斗");
+
+        try
+        {
+            if (_skipBattleAnim)
+            {
+                _skipBattleAnim = false;
+                _skipBattleAnimFlushLogged = false;
+                _skipBattleAnimCmdSinceMs = 0;
+                _skipBattleAnimManualDone = false;
+                ReleaseHeldBattleChars("brawl-sign");
+                WriteLog("brawl-sign skip anim off");
+                Tip("跳过动画已关闭");
+            }
+        }
+        catch (Exception ex)
+        {
+            WriteLog("brawl-sign skip anim EX: " + RootMessage(ex));
+        }
+
+        try
+        {
+            if (_battleMode != ModeNormal)
+            {
+                SelectBattleMode(ModeNormal);
+            }
+        }
+        catch (Exception ex)
+        {
+            WriteLog("brawl-sign mode EX: " + RootMessage(ex));
+        }
+
+        if (_tab != TabSettings && _tab != TabBattle)
+        {
+            return;
+        }
+
+        try
+        {
+            ClearBody();
+            if (_tab == TabSettings)
+            {
+                BuildSettingsBody();
+            }
+            else
+            {
+                BuildBattleBody();
+            }
+
+            RefreshTabButtonLabels();
+        }
+        catch
+        {
+            // ignore
+        }
+    }
+
+    private static void StartBrawlSign()
+    {
+        if (_dojoRunActive || _dojoHellActive || _floraHealActive || _banshanTestActive
+            || _warpWaitActive || _wildExActive || _fullScriptActive)
+        {
+            Tip("请先停其它脚本");
+            return;
+        }
+
+        if (IsInBattleNow())
+        {
+            Tip("战斗中不能报名");
+            return;
+        }
+
+        int floor;
+        string floorName;
+        int mapResId;
+        TryGetCurrentMapInfo(out floor, out floorName, out mapResId);
+        if (floor != BrawlStartFloor)
+        {
+            Tip("大乱斗报名：须在地图1000（当前" + floor + "）");
+            return;
+        }
+
+        var teamNum = GetEscortTeamNum();
+        if (teamNum != BrawlTeamSize)
+        {
+            Tip("大乱斗报名：须5人队伍（当前" + teamNum + "）");
+            return;
+        }
+
+        var cap = GetCaptainUid();
+        var main = GetMainPlayerUidSafe();
+        if (string.IsNullOrEmpty(cap) || !string.Equals(cap, main, StringComparison.Ordinal))
+        {
+            Tip("大乱斗报名：请在队长客户端运行");
+            return;
+        }
+
+        var player = GetPlayer(cap);
+        var level = player == null ? 0 : Convert.ToInt32(GetMember(player, "level") ?? 0);
+        if (level < BrawlMinCaptainLevel)
+        {
+            Tip("大乱斗报名：队长须≥" + BrawlMinCaptainLevel + "级（当前" + level + "）");
+            return;
+        }
+
+        PrepareBrawlSignCombat();
+
+        _brawlSignActive = true;
+        _brawlReturnTries = 0;
+        _brawlReturnSinceMs = 0;
+        _brawlWarpSinceMs = 0;
+        _brawlLastNavMs = 0;
+        _brawlLastLookMs = 0;
+        _brawlDelayUntilMs = 0;
+        _brawlConfirmSinceMs = 0;
+        _brawlClickedSignup = false;
+        _brawlFloorAtConfirm = -1;
+        _brawlResultAtMs = 0;
+        _brawlSignPhase = BrawlReturn;
+        _brawlSignNote = "回城点6…";
+        Tip("大乱斗报名已启动");
+        WriteLog("brawl-sign start floor=" + floor + " team=" + teamNum + " lv=" + level);
+        RefreshScriptTabIfVisible();
+        RefreshScriptRunStatus();
+    }
+
+    private static void StopBrawlSign(string reason)
+    {
+        if (!_brawlSignActive && _brawlSignPhase == BrawlIdle)
+        {
+            Tip("大乱斗报名：未在运行");
+            return;
+        }
+
+        _brawlSignActive = false;
+        _brawlSignPhase = BrawlIdle;
+        _brawlClickedSignup = false;
+        _brawlSignNote = string.IsNullOrEmpty(reason) ? "已停止" : reason;
+        StopTaskNavigation(false);
+        Tip("大乱斗报名：" + _brawlSignNote);
+        WriteLog("brawl-sign stop " + _brawlSignNote);
+        RefreshScriptTabIfVisible();
+        RefreshScriptRunStatus();
+    }
+
+    private static void TickBrawlSign()
+    {
+        if (!_brawlSignActive)
+        {
+            return;
+        }
+
+        var now = NowMs();
+        if (_brawlDelayUntilMs > 0 && now < _brawlDelayUntilMs)
+        {
+            RefreshScriptRunStatus();
+            return;
+        }
+
+        _brawlDelayUntilMs = 0;
+        int floor;
+        string floorName;
+        int mapResId;
+        TryGetCurrentMapInfo(out floor, out floorName, out mapResId);
+        int px;
+        int py;
+        TryGetPlayerXY(out px, out py);
+
+        if (IsInBattleNow())
+        {
+            _brawlSignNote = "战斗中，暂停";
+            RefreshScriptRunStatus();
+            return;
+        }
+
+        switch (_brawlSignPhase)
+        {
+            case BrawlReturn:
+                _brawlReturnTries++;
+                if (!DojoSendReturnCity())
+                {
+                    _brawlSignNote = "回城发包失败，重试";
+                    _brawlDelayUntilMs = now + 1500;
+                    break;
+                }
+
+                _brawlSignPhase = BrawlWaitReturn;
+                _brawlReturnSinceMs = now;
+                _brawlSignNote = "已发回城点6，等(233,78)";
+                WriteLog("brawl-sign return SendMenu(3,6) try=" + _brawlReturnTries);
+                break;
+
+            case BrawlWaitReturn:
+                if (floor == DojoReturnFloor
+                    && Math.Abs(px - DojoReturnX) + Math.Abs(py - DojoReturnY) <= 3)
+                {
+                    _brawlSignPhase = BrawlNavWarp;
+                    _brawlLastNavMs = 0;
+                    _brawlSignNote = "已回城，去(238,64)切图";
+                    break;
+                }
+
+                if (now - _brawlReturnSinceMs >= DojoReturnWaitMs)
+                {
+                    if (_brawlReturnTries >= 5)
+                    {
+                        StopBrawlSign("回城点6多次未到位");
+                        return;
+                    }
+
+                    _brawlSignPhase = BrawlReturn;
+                    _brawlSignNote = "回城未到位，再发";
+                    break;
+                }
+
+                _brawlSignNote = "等回城(233,78) 现" + floor + " " + px + "," + py;
+                break;
+
+            case BrawlNavWarp:
+                if (floor == DojoWarpTargetFloor)
+                {
+                    _brawlSignPhase = BrawlNavStand;
+                    _brawlLastNavMs = 0;
+                    _brawlSignNote = "已在1154，去(43,29)";
+                    break;
+                }
+
+                if (Math.Abs(px - DojoWarpStandX) + Math.Abs(py - DojoWarpStandY) <= 1
+                    && floor == DojoReturnFloor)
+                {
+                    _brawlSignPhase = BrawlWaitWarp;
+                    _brawlWarpSinceMs = now;
+                    _brawlSignNote = "已到(238,64)，等切1154";
+                    break;
+                }
+
+                if (_brawlLastNavMs == 0 || now - _brawlLastNavMs >= DojoNavRetryMs)
+                {
+                    string how;
+                    _brawlSignNote = TryNavigateTo(DojoReturnFloor, DojoWarpStandX, DojoWarpStandY, out how)
+                        ? ("寻路(238,64) " + how)
+                        : ("寻路(238,64)失败 " + how);
+                    _brawlLastNavMs = now;
+                }
+
+                break;
+
+            case BrawlWaitWarp:
+                if (floor == DojoWarpTargetFloor)
+                {
+                    _brawlSignPhase = BrawlNavStand;
+                    _brawlLastNavMs = 0;
+                    _brawlSignNote = "已切1154，去(43,29)";
+                    break;
+                }
+
+                if (now - _brawlWarpSinceMs >= DojoWarpTimeoutMs)
+                {
+                    WriteLog("brawl-sign warp timeout floor=" + floor);
+                    Tip("切图1154失败，重新回城");
+                    _brawlReturnTries = 0;
+                    _brawlSignPhase = BrawlReturn;
+                    _brawlSignNote = "切1154超时，重头回城";
+                    break;
+                }
+
+                _brawlSignNote = "等切1154 " + ((now - _brawlWarpSinceMs) / 1000) + "s 现图" + floor;
+                break;
+
+            case BrawlNavStand:
+                if (floor != DojoWarpTargetFloor)
+                {
+                    _brawlReturnTries = 0;
+                    _brawlSignPhase = BrawlReturn;
+                    _brawlSignNote = "离开1154，重头回城";
+                    break;
+                }
+
+                if (Math.Abs(px - BrawlStandX) + Math.Abs(py - BrawlStandY) <= 1)
+                {
+                    _brawlSignPhase = BrawlTalk;
+                    _brawlLastLookMs = 0;
+                    _brawlClickedSignup = false;
+                    _brawlSignNote = "已到(43,29)，对话" + BrawlNpcName;
+                    break;
+                }
+
+                if (_brawlLastNavMs == 0 || now - _brawlLastNavMs >= DojoNavRetryMs)
+                {
+                    string how;
+                    _brawlSignNote = TryNavigateTo(DojoWarpTargetFloor, BrawlStandX, BrawlStandY, out how)
+                        ? ("寻路(43,29) " + how)
+                        : ("寻路(43,29)失败 " + how);
+                    _brawlLastNavMs = now;
+                }
+
+                break;
+
+            case BrawlTalk:
+                if (IsBrawlSignupUiOpen() || IsDialoguePanelOpen())
+                {
+                    _brawlSignPhase = BrawlSignup;
+                    _brawlSignNote = "界面已开，点报名比赛";
+                    break;
+                }
+
+                if (_brawlLastLookMs == 0 || now - _brawlLastLookMs >= DojoLookRetryMs)
+                {
+                    var obj = FindNpcObjIndexByNameOrPos(BrawlNpcName, "大乱斗", BrawlNpcX, BrawlNpcY);
+                    if (obj >= 0 && FullScriptSendLookNpc(obj))
+                    {
+                        _brawlSignNote = "已点NPC「" + BrawlNpcName + "」";
+                        WriteLog("brawl-sign LookNpc obj=" + obj);
+                    }
+                    else
+                    {
+                        _brawlSignNote = "未找到NPC@" + BrawlNpcX + "," + BrawlNpcY;
+                    }
+
+                    _brawlLastLookMs = now;
+                }
+
+                break;
+
+            case BrawlSignup:
+                if (TryClickBrawlSignupButton())
+                {
+                    _brawlClickedSignup = true;
+                    _brawlSignPhase = BrawlConfirm;
+                    _brawlConfirmSinceMs = now;
+                    _brawlSignNote = "已点报名比赛，等确定弹窗";
+                    break;
+                }
+
+                if (IsDialoguePanelOpen() && TryPickDialogueContaining("报名比赛"))
+                {
+                    _brawlSignNote = "已点对话「报名比赛」，等界面";
+                    _brawlDelayUntilMs = now + 600;
+                    break;
+                }
+
+                if (!IsDialoguePanelOpen() && !IsBrawlSignupUiOpen())
+                {
+                    _brawlSignPhase = BrawlTalk;
+                    _brawlLastLookMs = 0;
+                    _brawlSignNote = "界面未开，再对话";
+                }
+
+                break;
+
+            case BrawlConfirm:
+                if (TryClickBrawlPanelConfirm()
+                    || TryConfirmMessageBoxPanel()
+                    || TryClickWindowsMessageOkOnly()
+                    || (IsDialoguePanelOpen() && TryPickDialogueContaining("确定")))
+                {
+                    _brawlFloorAtConfirm = floor;
+                    _brawlResultAtMs = now + 1000;
+                    _brawlSignPhase = BrawlWaitResult;
+                    _brawlSignNote = "已点确定，1秒后看地图（现" + floor + "）";
+                    WriteLog("brawl-sign confirm floor=" + floor);
+                    break;
+                }
+
+                if (!_brawlClickedSignup && TryClickBrawlSignupButton())
+                {
+                    _brawlClickedSignup = true;
+                    _brawlSignNote = "已点报名比赛，等确定";
+                    break;
+                }
+
+                if (now - _brawlConfirmSinceMs >= 8000)
+                {
+                    StopBrawlSign("报名失败：未点到确定弹窗");
+                    return;
+                }
+
+                _brawlSignNote = "等确定弹窗 " + ((now - _brawlConfirmSinceMs) / 1000) + "s";
+                break;
+
+            case BrawlWaitResult:
+                if (now < _brawlResultAtMs)
+                {
+                    _brawlSignNote = "等1秒 现图" + floor;
+                    break;
+                }
+
+                if (floor != _brawlFloorAtConfirm && floor > 0)
+                {
+                    StopBrawlSign("报名成功 " + _brawlFloorAtConfirm + "→" + floor);
+                }
+                else
+                {
+                    StopBrawlSign("报名失败，地图仍为" + floor);
+                }
+
+                return;
+        }
+
+        RefreshScriptRunStatus();
+    }
+
+    private static bool IsBrawlSignupUiOpen()
+    {
+        var panel = GetUiPanel("FlurryPKPanel");
+        return panel != null && IsUnityObjectActive(panel);
+    }
+
+    private static bool TryClickBrawlSignupButton()
+    {
+        try
+        {
+            var panel = GetUiPanel("FlurryPKPanel");
+            if (panel == null || !IsUnityObjectActive(panel))
+            {
+                return false;
+            }
+
+            var click = panel.GetType().GetMethod(
+                "OnClickSiginInBtn",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+                null,
+                Type.EmptyTypes,
+                null);
+            if (click == null)
+            {
+                return false;
+            }
+
+            click.Invoke(panel, null);
+            WriteLog("brawl-sign FlurryPKPanel.OnClickSiginInBtn");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            WriteLog("TryClickBrawlSignupButton EX " + RootMessage(ex));
+            return false;
+        }
+    }
+
+    /// <summary>新版报名键只打开面板内确认，真正发包在 OnClickConfirm。</summary>
+    private static bool TryClickBrawlPanelConfirm()
+    {
+        try
+        {
+            var panel = GetUiPanel("FlurryPKPanel");
+            if (panel == null || !IsUnityObjectActive(panel))
+            {
+                return false;
+            }
+
+            var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+            var click = panel.GetType().GetMethod("OnClickConfirm", flags, null, Type.EmptyTypes, null);
+            if (click == null)
+            {
+                var btn = GetMember(panel, "m_Btn_Confirm");
+                if (btn == null || !IsUnityObjectActive(btn))
+                {
+                    return false;
+                }
+
+                WriteLog("brawl-sign FlurryPKPanel.m_Btn_Confirm");
+                return InvokeButtonClick(btn);
+            }
+
+            click.Invoke(panel, null);
+            WriteLog("brawl-sign FlurryPKPanel.OnClickConfirm");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            WriteLog("TryClickBrawlPanelConfirm EX " + RootMessage(ex));
+            return false;
+        }
+    }
+
+    private static bool TryPickDialogueContaining(string keyword)
+    {
+        if (string.IsNullOrEmpty(keyword))
+        {
+            return false;
+        }
+
+        try
+        {
+            var npcMgr = GetManagerInstance("NpcManager");
+            var wmdb = npcMgr == null ? null : GetMember(npcMgr, "wmdb");
+            var buttonData = wmdb == null ? null : GetMember(wmdb, "buttonData") as Array;
+            if (buttonData == null)
+            {
+                return false;
+            }
+
+            int pickValue = -1;
+            string pickName = null;
+            for (var i = 0; i < buttonData.Length && i < 9; i++)
+            {
+                var btn = buttonData.GetValue(i);
+                if (btn == null)
+                {
+                    continue;
+                }
+
+                var name = (Convert.ToString(GetMember(btn, "name") ?? "") ?? "").Trim();
+                var value = Convert.ToInt32(GetMember(btn, "value") ?? -1);
+                if (string.IsNullOrEmpty(name) || value < 0 || IsDialogueCancelName(name))
+                {
+                    continue;
+                }
+
+                if (name.IndexOf(keyword, StringComparison.Ordinal) < 0)
+                {
+                    continue;
+                }
+
+                pickValue = value;
+                pickName = name;
+                break;
+            }
+
+            if (pickValue < 0)
+            {
+                return false;
+            }
+
+            return SendPickedDialogue(npcMgr, wmdb, pickValue, pickName);
+        }
+        catch (Exception ex)
+        {
+            WriteLog("TryPickDialogueContaining EX " + RootMessage(ex));
+            return false;
+        }
+    }
+
+    private static bool SendPickedDialogue(object npcMgr, object wmdb, int pickValue, string pickName)
+    {
+        try
+        {
+            int select;
+            string data;
+            if (pickValue > 64)
+            {
+                select = 0;
+                data = (pickValue - 64).ToString();
+            }
+            else
+            {
+                select = pickValue;
+                data = "";
+            }
+
+            var loc = GetStaticMember("PlayerDataHolder", "location");
+            var x = Convert.ToInt32(GetMember(loc, "x") ?? GetMember(loc, "X") ?? 0);
+            var y = Convert.ToInt32(GetMember(loc, "y") ?? GetMember(loc, "Y") ?? 0);
+            var seqno = Convert.ToInt32(GetMember(wmdb, "seqno") ?? 0);
+            var objindex = Convert.ToInt32(GetMember(wmdb, "objindex") ?? 0);
+            var uid = Convert.ToString(GetMember(wmdb, "m_Uid") ?? "") ?? "";
+            var windowType = Convert.ToInt32(GetMember(wmdb, "windowType") ?? 0);
+            MethodInfo send8 = null;
+            foreach (var m in npcMgr.GetType().GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+            {
+                if (m.Name != "SendWindows")
+                {
+                    continue;
+                }
+
+                if (m.GetParameters().Length >= 8)
+                {
+                    send8 = m;
+                    break;
+                }
+            }
+
+            if (send8 == null)
+            {
+                return false;
+            }
+
+            var psAll = send8.GetParameters();
+            var args = new object[psAll.Length];
+            args[0] = x;
+            args[1] = y;
+            args[2] = seqno;
+            args[3] = objindex;
+            args[4] = select;
+            args[5] = data ?? "";
+            args[6] = windowType;
+            args[7] = uid;
+            for (var i = 8; i < psAll.Length; i++)
+            {
+                args[i] = psAll[i].ParameterType.IsValueType
+                    ? Activator.CreateInstance(psAll[i].ParameterType)
+                    : null;
+            }
+
+            send8.Invoke(npcMgr, args);
+            WriteLog("brawl-sign pick " + pickName + " v=" + pickValue);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            WriteLog("SendPickedDialogue EX " + RootMessage(ex));
+            return false;
+        }
+    }
+
+    private static void TickDojoRun()
+    {
+        if (!EnableDojoRunScript || !_dojoRunActive)
+        {
+            return;
+        }
+
+        var now = NowMs();
+        if (_dojoRunDelayUntilMs > 0 && now < _dojoRunDelayUntilMs)
+        {
+            return;
+        }
+
+        _dojoRunDelayUntilMs = 0;
+        int floor;
+        string floorName;
+        int mapResId;
+        TryGetCurrentMapInfo(out floor, out floorName, out mapResId);
+        RefreshDojoLayerFromName(floorName);
+        int px;
+        int py;
+        TryGetPlayerXY(out px, out py);
+        var inBattle = IsInBattleNow();
+
+        if (inBattle && !_dojoRunPrevInBattle)
+        {
+            _dojoRunSawForceQuit = false;
+            _dojoRunAwaitPostBattleMap = false;
+            if (_dojoRunPhase == DojoRunWaitBattle || _dojoRunPhase == DojoRunTalk || _dojoRunPhase == DojoRunNav
+                || _dojoRunPhase == DojoRunEnter || _dojoRunPhase == DojoRunWaitFloor)
+            {
+                _dojoRunPhase = DojoRunInBattle;
+                _dojoRunNote = "已进战 " + FormatDojoLayerLabel();
+                WriteLog("dojo-run battle enter layer=" + _dojoRunLayer + " name=" + floorName);
+            }
+        }
+
+        if (inBattle && IsForceQuitBattleNow())
+        {
+            _dojoRunSawForceQuit = true;
+        }
+
+        if (!inBattle && _dojoRunPrevInBattle)
+        {
+            // 先战斗结果，再（胜利时）确认 9201 + 检血
+            if (_dojoRunPhase == DojoRunInBattle || _dojoRunPhase == DojoRunWaitBattle)
+            {
+                if (TryDojoHandleBattleEnded(floor, floorName, now))
+                {
+                    _dojoRunPrevInBattle = false;
+                    RefreshScriptRunStatus();
+                    return;
+                }
+            }
+        }
+
+        _dojoRunPrevInBattle = inBattle;
+        if (inBattle)
+        {
+            _dojoRunNote = "战斗中… " + FormatDojoLayerLabel();
+            RefreshScriptRunStatus();
+            return;
+        }
+
+        // 胜利后地图晚到：继续等 9201
+        if (_dojoRunAwaitPostBattleMap && _dojoRunPhase == DojoRunAfterBattle)
+        {
+            if (TryDojoHandleBattleEnded(floor, floorName, now))
+            {
+                RefreshScriptRunStatus();
+                return;
+            }
+        }
+
+        // 已达或超过目标层：退出道场，到 1154 后结束脚本（不重进）
+        if (IsInsideDojoMap(floor, floorName)
+            && _dojoRunLayer > 0
+            && _dojoRunLayer >= GetDojoTargetLayer()
+            && _dojoRunPhase != DojoRunExit
+            && _dojoRunPhase != DojoRunWaitExit
+            && _dojoRunPhase != DojoRunWaitFloraHeal)
+        {
+            DojoRunBeginExitThenStop(
+                "第" + _dojoRunLayer + "道场已达或超过目标" + GetDojoTargetLayer() + "，退出并停止");
+            return;
+        }
+
+        switch (_dojoRunPhase)
+        {
+            case DojoRunReturn:
+                _dojoRunReturnTries++;
+                if (!DojoSendReturnCity())
+                {
+                    _dojoRunNote = "回城发包失败，重试";
+                    _dojoRunDelayUntilMs = now + 1500;
+                    break;
+                }
+
+                _dojoRunPhase = DojoRunWaitReturn;
+                _dojoRunReturnSinceMs = now;
+                _dojoRunNote = "已发回城点6，等(233,78)";
+                WriteLog("dojo-run return SendMenu(3,6) try=" + _dojoRunReturnTries);
+                break;
+
+            case DojoRunWaitReturn:
+                if (floor == DojoReturnFloor
+                    && Math.Abs(px - DojoReturnX) + Math.Abs(py - DojoReturnY) <= 3)
+                {
+                    _dojoRunPhase = DojoRunNavWarp;
+                    _dojoRunLastNavMs = 0;
+                    _dojoRunNote = "已回城，去(238,64)切图";
+                    break;
+                }
+
+                if (now - _dojoRunReturnSinceMs >= DojoReturnWaitMs)
+                {
+                    if (_dojoRunReturnTries >= 5)
+                    {
+                        StopDojoRun("回城点6多次未到位");
+                        return;
+                    }
+
+                    _dojoRunPhase = DojoRunReturn;
+                    _dojoRunNote = "回城未到位，再发";
+                    break;
+                }
+
+                _dojoRunNote = "等回城(233,78) 现" + floor + " " + px + "," + py;
+                break;
+
+            case DojoRunNavWarp:
+                if (floor == DojoWarpTargetFloor)
+                {
+                    _dojoRunPhase = DojoRunNavOpen;
+                    _dojoRunLastNavMs = 0;
+                    _dojoRunNote = "已在1154，去(39,31)";
+                    break;
+                }
+
+                if (Math.Abs(px - DojoWarpStandX) + Math.Abs(py - DojoWarpStandY) <= 1
+                    && floor == DojoReturnFloor)
+                {
+                    _dojoRunPhase = DojoRunWaitWarp;
+                    _dojoRunWarpWaitSinceMs = now;
+                    _dojoRunNote = "已到(238,64)，等切1154";
+                    break;
+                }
+
+                if (_dojoRunLastNavMs == 0 || now - _dojoRunLastNavMs >= DojoNavRetryMs)
+                {
+                    string how;
+                    if (TryNavigateTo(DojoReturnFloor, DojoWarpStandX, DojoWarpStandY, out how))
+                    {
+                        _dojoRunNote = "寻路(238,64) " + how;
+                    }
+                    else
+                    {
+                        _dojoRunNote = "寻路(238,64)失败 " + how;
+                    }
+
+                    _dojoRunLastNavMs = now;
+                }
+
+                break;
+
+            case DojoRunWaitWarp:
+                if (floor == DojoWarpTargetFloor)
+                {
+                    _dojoRunPhase = DojoRunNavOpen;
+                    _dojoRunLastNavMs = 0;
+                    _dojoRunWarpWaitSinceMs = 0;
+                    _dojoRunNote = "已切1154，去(39,31)";
+                    break;
+                }
+
+                if (now - _dojoRunWarpWaitSinceMs >= DojoWarpTimeoutMs)
+                {
+                    WriteLog("dojo-run warp timeout floor=" + floor + " → restart return");
+                    Tip("切图1154失败，重新回城");
+                    DojoRunBeginReturn("切1154超时，重头回城");
+                    break;
+                }
+
+                _dojoRunNote = "等切1154 "
+                               + ((now - _dojoRunWarpWaitSinceMs) / 1000) + "s 现图" + floor;
+                break;
+
+            case DojoRunExit:
+                _dojoRunExitTries++;
+                TryConfirmMessageBoxPanel();
+                if (!DojoSendExitDojo())
+                {
+                    _dojoRunNote = "退出道场发包失败，重试";
+                    _dojoRunDelayUntilMs = now + 1500;
+                    break;
+                }
+
+                _dojoRunPhase = DojoRunWaitExit;
+                _dojoRunExitSinceMs = now;
+                _dojoRunNote = "已发退出道场，等1154";
+                WriteLog("dojo-run exit try=" + _dojoRunExitTries);
+                break;
+
+            case DojoRunWaitExit:
+                TryConfirmMessageBoxPanel();
+                if (floor == DojoWarpTargetFloor)
+                {
+                    if (_dojoRunExitThenStop)
+                    {
+                        StopDojoRun("第" + _dojoRunLayer + "道场已达或超过目标"
+                                    + GetDojoTargetLayer() + "，已退出并停止");
+                        return;
+                    }
+
+                    if (_dojoRunExpectExitReenter)
+                    {
+                        DojoRunBeginFloraThenRestart("已退到1154，法兰治疗→回城点6重跑");
+                        break;
+                    }
+
+                    // 非低血退出路径落到此处：仍从脚本头重跑
+                    DojoRunBeginReturn("已退到1154，回城点6重跑");
+                    break;
+                }
+
+                if (now - _dojoRunExitSinceMs >= DojoExitWaitMs)
+                {
+                    if (_dojoRunExitTries >= 5)
+                    {
+                        StopDojoRun("退出道场多次未到1154");
+                        return;
+                    }
+
+                    _dojoRunPhase = DojoRunExit;
+                    _dojoRunNote = "退出未到位，再发";
+                    break;
+                }
+
+                _dojoRunNote = "等退出到1154 现" + floor + " " + floorName;
+                break;
+
+            case DojoRunWaitFloraHeal:
+                if (_floraHealActive)
+                {
+                    _dojoRunNote = "法兰治疗中… " + FloraHealPhaseName(_floraHealPhase)
+                                   + " · " + (_floraHealNote ?? "");
+                    break;
+                }
+
+                if (_floraHealLastOk)
+                {
+                    DojoRunBeginReturn("治疗完成，回城点6重跑");
+                    break;
+                }
+
+                StopDojoRun("法兰治疗失败，百人暂停");
+                return;
+
+            case DojoRunNavOpen:
+                if (floor != DojoWarpTargetFloor)
+                {
+                    if (IsInsideDojoMap(floor, floorName))
+                    {
+                        _dojoRunPhase = DojoRunNav;
+                        _dojoRunNote = "已进" + FormatDojoLayerLabel();
+                        break;
+                    }
+
+                    DojoRunBeginReturn("离开1154，重头回城");
+                    break;
+                }
+
+                if (Math.Abs(px - DojoOpenStandX) + Math.Abs(py - DojoOpenStandY) <= 1)
+                {
+                    _dojoRunPhase = DojoRunTalkOpen;
+                    _dojoRunOpenTalkPicked = false;
+                    _dojoRunLastLookMs = 0;
+                    _dojoRunNote = "已到站，对话百人道场NPC";
+                    break;
+                }
+
+                if (_dojoRunLastNavMs == 0 || now - _dojoRunLastNavMs >= DojoNavRetryMs)
+                {
+                    string how;
+                    if (TryNavigateTo(DojoWarpTargetFloor, DojoOpenStandX, DojoOpenStandY, out how))
+                    {
+                        _dojoRunNote = "寻路(39,31) " + how;
+                    }
+                    else
+                    {
+                        _dojoRunNote = "寻路(39,31)失败 " + how;
+                    }
+
+                    _dojoRunLastNavMs = now;
+                }
+
+                break;
+
+            case DojoRunTalkOpen:
+                // 必须对话 NPC 打开面板，禁止发「百人道场」协议开面板
+                if (IsDojoEntryPanelOpen())
+                {
+                    _dojoRunPhase = DojoRunEnter;
+                    _dojoRunLastEnterMs = 0;
+                    _dojoRunNote = "面板已开，点进入道场";
+                    break;
+                }
+
+                if (IsDialoguePanelOpen())
+                {
+                    if (!_dojoRunOpenTalkPicked)
+                    {
+                        if (TryPickFirstDialogueOption() || TryAutoPickDialogue())
+                        {
+                            _dojoRunOpenTalkPicked = true;
+                            _dojoRunNote = "已点对话，等面板";
+                        }
+                        else
+                        {
+                            TryAutoPickDialogue();
+                            _dojoRunNote = "对话中…";
+                        }
+                    }
+                    else
+                    {
+                        TryAutoPickDialogue();
+                        _dojoRunNote = "等面板打开…";
+                    }
+
+                    break;
+                }
+
+                if (_dojoRunLastLookMs == 0 || now - _dojoRunLastLookMs >= DojoLookRetryMs)
+                {
+                    var obj = FindNpcObjIndexByNameOrPos(
+                        DojoOpenNpcName, DojoOpenNpcName, DojoOpenNpcX, DojoOpenNpcY);
+                    if (obj >= 0 && FullScriptSendLookNpc(obj))
+                    {
+                        _dojoRunOpenTalkPicked = false;
+                        _dojoRunNote = "已点NPC「百人道场」";
+                        WriteLog("dojo-run open LookNpc obj=" + obj);
+                    }
+                    else
+                    {
+                        _dojoRunNote = "未找到NPC「百人道场」@" + DojoOpenNpcX + "," + DojoOpenNpcY;
+                    }
+
+                    _dojoRunLastLookMs = now;
+                }
+
+                break;
+
+            case DojoRunEnter:
+                if (IsInsideDojoMap(floor, floorName))
+                {
+                    _dojoRunExpectExitReenter = false;
+                    _dojoRunPhase = DojoRunNav;
+                    _dojoRunNote = "已进" + FormatDojoLayerLabel() + "，去(15,10)";
+                    break;
+                }
+
+                if (!IsDojoEntryPanelOpen())
+                {
+                    _dojoRunPhase = DojoRunTalkOpen;
+                    _dojoRunOpenTalkPicked = false;
+                    _dojoRunLastLookMs = 0;
+                    _dojoRunNote = "面板未开，回去对话NPC";
+                    break;
+                }
+
+                if (_dojoRunLastEnterMs == 0 || now - _dojoRunLastEnterMs >= DojoEnterRetryMs)
+                {
+                    if (TryDojoClickEnter())
+                    {
+                        _dojoRunNote = "已点进入，等进道场";
+                        _dojoRunPhase = DojoRunWaitFloor;
+                        WriteLog("dojo-run enter clicked");
+                    }
+                    else
+                    {
+                        _dojoRunNote = "未点到进入：面板在但无按钮";
+                    }
+
+                    _dojoRunLastEnterMs = now;
+                }
+
+                break;
+
+            case DojoRunWaitFloor:
+                if (IsInsideDojoMap(floor, floorName))
+                {
+                    _dojoRunExpectExitReenter = false;
+                    if (_dojoRunLayer > 0 && _dojoRunLayer >= GetDojoTargetLayer())
+                    {
+                        DojoRunBeginExitThenStop(
+                            "第" + _dojoRunLayer + "道场已达或超过目标" + GetDojoTargetLayer() + "，退出并停止");
+                        return;
+                    }
+
+                    _dojoRunPhase = DojoRunNav;
+                    _dojoRunNote = "到达" + FormatDojoLayerLabel() + "，去(15,10)";
+                    _dojoRunLastNavMs = 0;
+                    break;
+                }
+
+                if (_dojoRunLastEnterMs > 0 && now - _dojoRunLastEnterMs > 60000)
+                {
+                    StopDojoRun("等进道场超时 现图" + floor + " " + floorName);
+                    return;
+                }
+
+                if (now - _dojoRunLastEnterMs >= DojoEnterRetryMs)
+                {
+                    TryDojoClickEnter();
+                    _dojoRunLastEnterMs = now;
+                }
+
+                _dojoRunNote = "等进道场 现" + floor + " " + floorName;
+                break;
+
+            case DojoRunNav:
+                if (!IsInsideDojoMap(floor, floorName))
+                {
+                    if (floor == DojoWarpTargetFloor)
+                    {
+                        if (_dojoRunExpectExitReenter)
+                        {
+                            DojoRunBeginFloraThenRestart("已在1154，法兰治疗→回城点6重跑");
+                            break;
+                        }
+
+                        StopDojoRun("战败→1154（" + FormatDojoLayerLabel() + "），脚本暂停");
+                        return;
+                    }
+
+                    DojoRunBeginReturn("不在道场内，重头回城");
+                    break;
+                }
+
+                if (Math.Abs(px - DojoStandX) + Math.Abs(py - DojoStandY) <= 1)
+                {
+                    _dojoRunPhase = DojoRunTalk;
+                    _dojoRunTalkPicked = false;
+                    _dojoRunLastLookMs = 0;
+                    _dojoRunNote = FormatDojoLayerLabel() + " 已到站，点道场NPC";
+                    break;
+                }
+
+                if (_dojoRunLastNavMs == 0 || now - _dojoRunLastNavMs >= DojoNavRetryMs)
+                {
+                    string how;
+                    if (TryNavigateTo(floor, DojoStandX, DojoStandY, out how))
+                    {
+                        _dojoRunNote = FormatDojoLayerLabel() + " 寻路(15,10) " + how;
+                    }
+                    else
+                    {
+                        _dojoRunNote = "寻路失败 " + how + " 现" + px + "," + py;
+                    }
+
+                    _dojoRunLastNavMs = now;
+                }
+                else
+                {
+                    _dojoRunNote = FormatDojoLayerLabel() + " 走向(15,10) 现" + px + "," + py;
+                }
+
+                break;
+
+            case DojoRunTalk:
+                if (IsDialoguePanelOpen())
+                {
+                    if (!_dojoRunTalkPicked)
+                    {
+                        if (TryPickFirstDialogueOption())
+                        {
+                            _dojoRunTalkPicked = true;
+                            _dojoRunNote = "已选第一项，等进战";
+                            _dojoRunPhase = DojoRunWaitBattle;
+                            WriteLog("dojo-run talk first option layer=" + _dojoRunLayer);
+                        }
+                        else
+                        {
+                            _dojoRunNote = "对话已开，选第一项…";
+                        }
+                    }
+                    else
+                    {
+                        _dojoRunPhase = DojoRunWaitBattle;
+                        _dojoRunNote = "等进战…";
+                    }
+
+                    break;
+                }
+
+                if (_dojoRunLastLookMs == 0 || now - _dojoRunLastLookMs >= DojoLookRetryMs)
+                {
+                    var obj = FindNpcObjIndexByNameOrPos(
+                        DojoNpcNameKey, DojoNpcNameKey, DojoNpcX, DojoNpcY);
+                    if (obj >= 0 && FullScriptSendLookNpc(obj))
+                    {
+                        _dojoRunNote = FormatDojoLayerLabel() + " 已点道场NPC";
+                        WriteLog("dojo-run LookNpc obj=" + obj + " layer=" + _dojoRunLayer);
+                    }
+                    else
+                    {
+                        _dojoRunNote = "未找到名含「道场」的NPC @" + DojoNpcX + "," + DojoNpcY;
+                    }
+
+                    _dojoRunLastLookMs = now;
+                }
+
+                break;
+
+            case DojoRunWaitBattle:
+                if (IsDialoguePanelOpen() && !_dojoRunTalkPicked)
+                {
+                    if (TryPickFirstDialogueOption())
+                    {
+                        _dojoRunTalkPicked = true;
+                        _dojoRunNote = "已选第一项，等进战";
+                    }
+                }
+                else
+                {
+                    _dojoRunNote = "等进战 " + FormatDojoLayerLabel();
+                }
+
+                if (_dojoRunLastLookMs > 0 && now - _dojoRunLastLookMs > 45000)
+                {
+                    _dojoRunPhase = DojoRunTalk;
+                    _dojoRunTalkPicked = false;
+                    _dojoRunLastLookMs = 0;
+                    _dojoRunNote = "未进战，重试对话";
+                }
+
+                break;
+
+            case DojoRunAfterBattle:
+                if (_dojoRunAwaitPostBattleMap)
+                {
+                    if (TryDojoHandleBattleEnded(floor, floorName, now))
+                    {
+                        return;
+                    }
+
+                    break;
+                }
+
+                if (!IsInsideDojoMap(floor, floorName))
+                {
+                    if (floor == DojoWarpTargetFloor && !_dojoRunExpectExitReenter)
+                    {
+                        StopDojoRun("战后不在9201而在1154，脚本暂停");
+                        return;
+                    }
+
+                    _dojoRunNote = "胜利后未在9201，等待… 现" + floor + " " + floorName;
+                    _dojoRunDelayUntilMs = now + 800;
+                    break;
+                }
+
+                if (_dojoRunLayer > 0 && _dojoRunLayer >= GetDojoTargetLayer())
+                {
+                    DojoRunBeginExitThenStop(
+                        "第" + _dojoRunLayer + "道场已达或超过目标" + GetDojoTargetLayer() + "，退出并停止");
+                    return;
+                }
+
+                string hpDetail;
+                if (DojoTeamOrPetHpBelowHalf(out hpDetail))
+                {
+                    Tip("百人低血退出：" + hpDetail);
+                    DojoRunBeginExitForHeal("低血(" + hpDetail + ")退出道场重进");
+                    break;
+                }
+
+                _dojoRunPhase = DojoRunNav;
+                _dojoRunLastNavMs = 0;
+                _dojoRunTalkPicked = false;
+                _dojoRunNote = "血量健康，下层：" + FormatDojoLayerLabel() + " 去(15,10)";
+                WriteLog("dojo-run next layer=" + _dojoRunLayer + " name=" + floorName);
+                break;
+        }
+
+        RefreshScriptRunStatus();
+    }
+
+    private static string FormatDojoHellStatus()
+    {
+        if (!_dojoHellActive)
+        {
+            return "噩梦百人: 未启动 层" + GetDojoHellFloor()
+                   + "\n每轮：法兰治疗→回城点6→进图对话；十连打完重头；战败停止";
+        }
+
+        return "噩梦百人: " + DojoHellPhaseName(_dojoHellPhase)
+               + " " + FormatDojoHellFloorLabel()
+               + " 轮" + _dojoHellRound
+               + " 战" + _dojoHellBattleCount
+               + (_dojoHellRemain >= 0 ? (" 剩" + _dojoHellRemain) : "")
+               + "\n" + (_dojoHellNote ?? "");
+    }
+
+    private static string DojoHellPhaseName(int phase)
+    {
+        switch (phase)
+        {
+            case HellReturn: return "回城点6";
+            case HellWaitReturn: return "等回城";
+            case HellNavWarp: return "走(238,64)";
+            case HellWaitWarp: return "等切1154";
+            case HellNavOpen: return "走(39,31)";
+            case HellTalkOpen: return "对话开面板";
+            case HellPickFloor: return "查次数并挑战";
+            case HellWaitMap: return "等进噩梦图";
+            case HellNav: return "走到(15,10)";
+            case HellTalk: return "点挑战";
+            case HellWaitBattle: return "等进战";
+            case HellInBattle: return "十连中";
+            case HellGap: return "等下一场";
+            case HellExit: return "退出道场";
+            case HellWaitExit: return "等退到1154";
+            case HellWaitFlora: return "法兰治疗";
+            default: return "就绪";
+        }
+    }
+
+    private static int GetDojoHellFloor()
+    {
+        return _dojoHellFloor > 0 ? _dojoHellFloor : DojoHellDefaultFloor;
+    }
+
+    private static void ReadDojoHellFloorFromUi()
+    {
+        try
+        {
+            if (_dojoHellFloorInput != null)
+            {
+                var t = ReadInputFieldText(_dojoHellFloorInput);
+                if (!string.IsNullOrEmpty(t))
+                {
+                    _dojoHellFloorStr = t.Trim();
+                }
+            }
+        }
+        catch
+        {
+            // keep cached
+        }
+
+        int n;
+        if (int.TryParse(_dojoHellFloorStr, out n) && n > 0)
+        {
+            _dojoHellFloor = n;
+        }
+        else
+        {
+            _dojoHellFloor = DojoHellDefaultFloor;
+            _dojoHellFloorStr = DojoHellDefaultFloor.ToString();
+        }
+    }
+
+    private static void ToggleDojoHell()
+    {
+        if (_dojoHellActive)
+        {
+            StopDojoHell("手动停止");
+            return;
+        }
+
+        StartDojoHell();
+    }
+
+    private static void StartDojoHell()
+    {
+        if (_dojoRunActive || _floraHealActive || _banshanTestActive || _warpWaitActive
+            || _wildExActive || _fullScriptActive || _brawlSignActive)
+        {
+            Tip("请先停其它脚本");
+            return;
+        }
+
+        if (IsInBattleNow())
+        {
+            Tip("战斗中不能启动噩梦百人");
+            return;
+        }
+
+        if (string.IsNullOrEmpty(GetMainPlayerUidSafe()))
+        {
+            Tip("未找到角色");
+            return;
+        }
+
+        ReadDojoHellFloorFromUi();
+        PrepareDojoRunCombat();
+        TryEnsureDojoHighestBattlePets();
+        TrySendLocalAutoBattle("停止挂机");
+        StopTaskNavigation(false);
+        _dojoHellActive = true;
+        _dojoHellRound = 0;
+        _dojoHellBattleCount = 0;
+        _dojoHellRemain = -1;
+        _dojoHellUseFloor = 0;
+        _dojoHellDroppedTo = 0;
+        _dojoHellOpenTalkPicked = false;
+        _dojoHellTalkPicked = false;
+        _dojoHellPrevInBattle = false;
+        _dojoHellSawForceQuit = false;
+        _dojoHellDelayUntilMs = 0;
+        _dojoHellLastNavMs = 0;
+        _dojoHellLastLookMs = 0;
+        _dojoHellLastEnterMs = 0;
+        _dojoHellWarpWaitSinceMs = 0;
+        _dojoHellReturnSinceMs = 0;
+        _dojoHellExitSinceMs = 0;
+        _dojoHellGapSinceMs = 0;
+        _dojoHellPickSinceMs = 0;
+        _dojoHellReturnTries = 0;
+        _dojoHellExitTries = 0;
+
+        int floor;
+        string floorName;
+        int mapResId;
+        TryGetCurrentMapInfo(out floor, out floorName, out mapResId);
+        DojoHellBeginFullRestart(floor, "开跑：法兰治疗→回城点6→进图对话");
+
+        Tip("噩梦百人已启动（第" + GetDojoHellFloor() + "层）");
+        WriteLog("dojo-hell start floor=" + floor + " name=" + floorName
+                 + " target=" + GetDojoHellFloor());
+        RefreshScriptTabIfVisible();
+        RefreshScriptRunStatus();
+    }
+
+    private static void StopDojoHell(string reason)
+    {
+        if (!_dojoHellActive && _dojoHellPhase == HellIdle)
+        {
+            Tip("噩梦百人：未在运行");
+            return;
+        }
+
+        var stopFlora = _dojoHellPhase == HellWaitFlora && _floraHealActive;
+        _dojoHellActive = false;
+        _dojoHellPhase = HellIdle;
+        _dojoHellNote = string.IsNullOrEmpty(reason) ? "已停止" : reason;
+        StopTaskNavigation(false);
+        if (stopFlora)
+        {
+            StopFloraHeal("噩梦已停止", false);
+        }
+        Tip("噩梦百人：" + _dojoHellNote
+            + "（轮" + _dojoHellRound + " 战" + _dojoHellBattleCount + "）");
+        WriteLog("dojo-hell stop " + _dojoHellNote
+                 + " round=" + _dojoHellRound + " battles=" + _dojoHellBattleCount);
+        RefreshScriptTabIfVisible();
+        RefreshScriptRunStatus();
+    }
+
+    private static void DojoHellBeginReturn(string note)
+    {
+        _dojoHellPhase = HellReturn;
+        _dojoHellReturnTries = 0;
+        _dojoHellReturnSinceMs = 0;
+        _dojoHellLastNavMs = 0;
+        _dojoHellWarpWaitSinceMs = 0;
+        _dojoHellOpenTalkPicked = false;
+        _dojoHellNote = note ?? "回城点6";
+        WriteLog("dojo-hell begin-return " + _dojoHellNote);
+        TryEnsureDojoHighestBattlePets();
+    }
+
+    private static void DojoHellBeginExit(string note)
+    {
+        _dojoHellPhase = HellExit;
+        _dojoHellExitTries = 0;
+        _dojoHellExitSinceMs = 0;
+        _dojoHellLastNavMs = 0;
+        _dojoHellOpenTalkPicked = false;
+        _dojoHellNote = note ?? "退出道场";
+        WriteLog("dojo-hell begin-exit " + _dojoHellNote);
+    }
+
+    private static void DojoHellBeginLobby(string note)
+    {
+        _dojoHellPhase = HellNavOpen;
+        _dojoHellLastNavMs = 0;
+        _dojoHellLastLookMs = 0;
+        _dojoHellOpenTalkPicked = false;
+        _dojoHellPickSinceMs = 0;
+        _dojoHellBattleCount = 0;
+        _dojoHellNote = note ?? "下一轮，去(39,31)";
+        WriteLog("dojo-hell next-round " + _dojoHellNote);
+    }
+
+    /// <summary>一轮开始：场内先退出，否则直接法兰治疗，治完再回城点6走全流程。</summary>
+    private static void DojoHellBeginFullRestart(int floor, string note)
+    {
+        if (floor == DojoBattleFloor)
+        {
+            DojoHellBeginExit(note ?? "退出道场后治疗，再回城点6");
+            return;
+        }
+
+        DojoHellBeginFlora(note ?? "法兰治疗，再回城点6");
+    }
+
+    private static void DojoHellBeginFlora(string note)
+    {
+        _dojoHellPhase = HellWaitFlora;
+        _dojoHellOpenTalkPicked = false;
+        _dojoHellBattleCount = 0;
+        _dojoHellNote = note ?? "法兰治疗";
+        WriteLog("dojo-hell begin-flora " + _dojoHellNote);
+        if (_floraHealActive)
+        {
+            return;
+        }
+
+        StartFloraHeal(false);
+        if (!_floraHealActive)
+        {
+            StopDojoHell("法兰治疗未能启动");
+        }
+    }
+
+    private static bool IsDojoHellMap(int floor, string floorName)
+    {
+        if (floor != DojoBattleFloor || string.IsNullOrEmpty(floorName))
+        {
+            return false;
+        }
+
+        return floorName.IndexOf("噩梦", StringComparison.Ordinal) >= 0
+               || floorName.IndexOf("恶梦", StringComparison.Ordinal) >= 0;
+    }
+
+    private static bool TryReadDojoHellRemain(out int remain)
+    {
+        remain = -1;
+        try
+        {
+            var panel = GetUiPanel("DoJoSecEditonPanel");
+            if (panel == null || !IsUnityObjectActive(panel))
+            {
+                return false;
+            }
+
+            var info = GetMember(panel, "m_Info");
+            if (info == null)
+            {
+                return false;
+            }
+
+            remain = Convert.ToInt32(GetMember(info, "HellRemain") ?? -1);
+            return remain >= 0;
+        }
+        catch (Exception ex)
+        {
+            WriteLog("dojo-hell read HellRemain EX: " + RootMessage(ex));
+            return false;
+        }
+    }
+
+    /// <summary>设定层若未解锁则降到能打的最高层，最低 1。1 也锁则当 bug。</summary>
+    private static bool TryResolveDojoHellChallengeFloor(out int floor, out string fail)
+    {
+        floor = 0;
+        fail = "";
+        try
+        {
+            var panel = GetUiPanel("DoJoSecEditonPanel");
+            if (panel == null || !IsUnityObjectActive(panel))
+            {
+                fail = "wait";
+                return false;
+            }
+
+            var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+            var tab = panel.GetType().GetMethod("OnClickTab2", flags);
+            if (tab != null)
+            {
+                tab.Invoke(panel, new object[] { true });
+            }
+            else
+            {
+                SetMember(panel, "m_Grade", 2);
+            }
+
+            var prog = panel.GetType().GetMethod("GetProgress", flags);
+            if (prog == null)
+            {
+                fail = "读不到噩梦解锁进度";
+                return false;
+            }
+
+            var args = new object[] { 0, 0 };
+            prog.Invoke(panel, args);
+            var unlocked = Convert.ToInt32(args[1]);
+            var wanted = GetDojoHellFloor();
+            if (wanted < 1)
+            {
+                wanted = 1;
+            }
+
+            var use = wanted;
+            while (use > unlocked && use > 1)
+            {
+                use--;
+            }
+
+            if (use > unlocked)
+            {
+                fail = "噩梦第1层也不能打（解锁" + unlocked + "），当bug停止";
+                WriteLog("dojo-hell floor locked wanted=" + wanted + " unlocked=" + unlocked);
+                return false;
+            }
+
+            if (use < wanted && _dojoHellDroppedTo != use)
+            {
+                _dojoHellDroppedTo = use;
+                WriteLog("dojo-hell floor drop " + wanted + " -> " + use + " unlocked=" + unlocked);
+                Tip("噩梦第" + wanted + "层不能打，改打第" + use + "层");
+            }
+
+            floor = use;
+            return true;
+        }
+        catch (Exception ex)
+        {
+            WriteLog("dojo-hell resolve floor EX: " + RootMessage(ex));
+            fail = "判断噩梦难度失败";
+            return false;
+        }
+    }
+
+    private static string FormatDojoHellFloorLabel()
+    {
+        var setFloor = GetDojoHellFloor();
+        if (_dojoHellUseFloor > 0 && _dojoHellUseFloor != setFloor)
+        {
+            return "设定" + setFloor + " 实打" + _dojoHellUseFloor;
+        }
+
+        return "第" + setFloor + "层";
+    }
+
+    /// <summary>切噩梦页、选第 N 组、点开始挑战。Floor=组序号（第3层=3），不是 21-30。</summary>
+    private static bool TryDojoHellStartChallenge(int floor)
+    {
+        try
+        {
+            var panel = GetUiPanel("DoJoSecEditonPanel");
+            if (panel == null || !IsUnityObjectActive(panel))
+            {
+                return false;
+            }
+
+            var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+            var tab = panel.GetType().GetMethod("OnClickTab2", flags);
+            if (tab != null)
+            {
+                tab.Invoke(panel, new object[] { true });
+            }
+            else
+            {
+                SetMember(panel, "m_Grade", 2);
+            }
+
+            var pick = panel.GetType().GetMethod("OnClickLevelItem", flags);
+            if (pick != null)
+            {
+                pick.Invoke(panel, new object[] { floor });
+            }
+            else
+            {
+                SetMember(panel, "m_SelectLayerId", floor);
+            }
+
+            var enter = panel.GetType().GetMethod("OnClickEnter", flags);
+            if (enter == null || enter.GetParameters().Length != 0)
+            {
+                return false;
+            }
+
+            enter.Invoke(panel, null);
+            WriteLog("dojo-hell OnClickEnter grade=2 floor=" + floor);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            WriteLog("dojo-hell start challenge EX: " + RootMessage(ex));
+            return false;
+        }
+    }
+
+    private static void TickDojoHell()
+    {
+        if (!_dojoHellActive)
+        {
+            return;
+        }
+
+        var now = NowMs();
+        if (_dojoHellDelayUntilMs > 0 && now < _dojoHellDelayUntilMs)
+        {
+            return;
+        }
+
+        _dojoHellDelayUntilMs = 0;
+        int floor;
+        string floorName;
+        int mapResId;
+        TryGetCurrentMapInfo(out floor, out floorName, out mapResId);
+        int px;
+        int py;
+        TryGetPlayerXY(out px, out py);
+        var inBattle = IsInBattleNow();
+
+        if (inBattle && !_dojoHellPrevInBattle)
+        {
+            _dojoHellSawForceQuit = false;
+            _dojoHellBattleCount++;
+            _dojoHellPhase = HellInBattle;
+            _dojoHellNote = "十连第" + _dojoHellBattleCount + "场";
+            WriteLog("dojo-hell battle enter n=" + _dojoHellBattleCount + " map=" + floorName);
+        }
+
+        if (inBattle && IsForceQuitBattleNow())
+        {
+            _dojoHellSawForceQuit = true;
+        }
+
+        if (!inBattle && _dojoHellPrevInBattle)
+        {
+            if (_dojoHellSawForceQuit || IsForceQuitBattleNow())
+            {
+                StopDojoHell("战败（第" + _dojoHellBattleCount + "场），脚本停止");
+                return;
+            }
+
+            _dojoHellPhase = HellGap;
+            _dojoHellGapSinceMs = now;
+            _dojoHellNote = "第" + _dojoHellBattleCount + "场结束，3秒内无新战则本轮完";
+            _dojoHellPrevInBattle = false;
+            RefreshScriptRunStatus();
+            return;
+        }
+
+        _dojoHellPrevInBattle = inBattle;
+        if (inBattle)
+        {
+            _dojoHellNote = "战斗中 第" + _dojoHellBattleCount + "场";
+            RefreshScriptRunStatus();
+            return;
+        }
+
+        switch (_dojoHellPhase)
+        {
+            case HellReturn:
+                _dojoHellReturnTries++;
+                if (!DojoSendReturnCity())
+                {
+                    _dojoHellNote = "回城发包失败，重试";
+                    _dojoHellDelayUntilMs = now + 1500;
+                    break;
+                }
+
+                _dojoHellPhase = HellWaitReturn;
+                _dojoHellReturnSinceMs = now;
+                _dojoHellNote = "已发回城点6，等(233,78)";
+                break;
+
+            case HellWaitReturn:
+                if (floor == DojoReturnFloor
+                    && Math.Abs(px - DojoReturnX) + Math.Abs(py - DojoReturnY) <= 3)
+                {
+                    _dojoHellPhase = HellNavWarp;
+                    _dojoHellLastNavMs = 0;
+                    _dojoHellNote = "已回城，去(238,64)";
+                    break;
+                }
+
+                if (now - _dojoHellReturnSinceMs >= DojoReturnWaitMs)
+                {
+                    if (_dojoHellReturnTries >= 5)
+                    {
+                        StopDojoHell("回城点6多次未到位");
+                        return;
+                    }
+
+                    _dojoHellPhase = HellReturn;
+                    _dojoHellNote = "回城未到位，再发";
+                    break;
+                }
+
+                _dojoHellNote = "等回城 现" + floor + " " + px + "," + py;
+                break;
+
+            case HellNavWarp:
+                if (floor == DojoWarpTargetFloor)
+                {
+                    DojoHellBeginLobby("已在1154");
+                    break;
+                }
+
+                if (Math.Abs(px - DojoWarpStandX) + Math.Abs(py - DojoWarpStandY) <= 1
+                    && floor == DojoReturnFloor)
+                {
+                    _dojoHellPhase = HellWaitWarp;
+                    _dojoHellWarpWaitSinceMs = now;
+                    _dojoHellNote = "已到(238,64)，等切1154";
+                    break;
+                }
+
+                if (_dojoHellLastNavMs == 0 || now - _dojoHellLastNavMs >= DojoNavRetryMs)
+                {
+                    string how;
+                    if (TryNavigateTo(DojoReturnFloor, DojoWarpStandX, DojoWarpStandY, out how))
+                    {
+                        _dojoHellNote = "寻路(238,64) " + how;
+                    }
+                    else
+                    {
+                        _dojoHellNote = "寻路(238,64)失败 " + how;
+                    }
+
+                    _dojoHellLastNavMs = now;
+                }
+
+                break;
+
+            case HellWaitWarp:
+                if (floor == DojoWarpTargetFloor)
+                {
+                    DojoHellBeginLobby("已切1154");
+                    break;
+                }
+
+                if (now - _dojoHellWarpWaitSinceMs >= DojoWarpTimeoutMs)
+                {
+                    DojoHellBeginReturn("切1154超时，重头回城");
+                    break;
+                }
+
+                _dojoHellNote = "等切1154 现图" + floor;
+                break;
+
+            case HellExit:
+                _dojoHellExitTries++;
+                TryConfirmMessageBoxPanel();
+                if (!DojoSendExitDojo())
+                {
+                    _dojoHellNote = "退出道场发包失败，重试";
+                    _dojoHellDelayUntilMs = now + 1500;
+                    break;
+                }
+
+                _dojoHellPhase = HellWaitExit;
+                _dojoHellExitSinceMs = now;
+                _dojoHellNote = "已发退出道场，等1154";
+                break;
+
+            case HellWaitExit:
+                TryConfirmMessageBoxPanel();
+                if (floor == DojoWarpTargetFloor)
+                {
+                    DojoHellBeginFlora("已退到1154，法兰治疗再回城点6");
+                    break;
+                }
+
+                if (now - _dojoHellExitSinceMs >= DojoExitWaitMs)
+                {
+                    if (_dojoHellExitTries >= 5)
+                    {
+                        StopDojoHell("退出道场多次未到1154");
+                        return;
+                    }
+
+                    _dojoHellPhase = HellExit;
+                    _dojoHellNote = "退出未到位，再发";
+                    break;
+                }
+
+                _dojoHellNote = "等退出到1154 现" + floor + " " + floorName;
+                break;
+
+            case HellWaitFlora:
+                if (_floraHealActive)
+                {
+                    _dojoHellNote = "法兰治疗中… " + (_floraHealNote ?? "");
+                    break;
+                }
+
+                if (_floraHealLastOk)
+                {
+                    DojoHellBeginReturn("治疗完成，回城点6再进图");
+                    break;
+                }
+
+                StopDojoHell("法兰治疗失败，噩梦停止");
+                return;
+
+            case HellNavOpen:
+                if (floor != DojoWarpTargetFloor)
+                {
+                    if (IsDojoHellMap(floor, floorName))
+                    {
+                        _dojoHellPhase = HellNav;
+                        _dojoHellNote = "已进噩梦，去(15,10)";
+                        break;
+                    }
+
+                    DojoHellBeginReturn("离开1154，重头回城");
+                    break;
+                }
+
+                if (Math.Abs(px - DojoOpenStandX) + Math.Abs(py - DojoOpenStandY) <= 1)
+                {
+                    _dojoHellPhase = HellTalkOpen;
+                    _dojoHellOpenTalkPicked = false;
+                    _dojoHellLastLookMs = 0;
+                    _dojoHellNote = "已到站，对话百人道场NPC";
+                    break;
+                }
+
+                if (_dojoHellLastNavMs == 0 || now - _dojoHellLastNavMs >= DojoNavRetryMs)
+                {
+                    string how;
+                    if (TryNavigateTo(DojoWarpTargetFloor, DojoOpenStandX, DojoOpenStandY, out how))
+                    {
+                        _dojoHellNote = "寻路(39,31) " + how;
+                    }
+                    else
+                    {
+                        _dojoHellNote = "寻路(39,31)失败 " + how;
+                    }
+
+                    _dojoHellLastNavMs = now;
+                }
+
+                break;
+
+            case HellTalkOpen:
+                if (IsDojoEntryPanelOpen())
+                {
+                    _dojoHellPhase = HellPickFloor;
+                    _dojoHellPickSinceMs = now;
+                    _dojoHellNote = "面板已开，查噩梦次数";
+                    break;
+                }
+
+                if (IsDialoguePanelOpen())
+                {
+                    if (!_dojoHellOpenTalkPicked)
+                    {
+                        if (TryPickFirstDialogueOption() || TryAutoPickDialogue())
+                        {
+                            _dojoHellOpenTalkPicked = true;
+                            _dojoHellNote = "已点对话，等面板";
+                        }
+                        else
+                        {
+                            _dojoHellNote = "对话中…";
+                        }
+                    }
+                    else
+                    {
+                        TryAutoPickDialogue();
+                        _dojoHellNote = "等面板打开…";
+                    }
+
+                    break;
+                }
+
+                if (_dojoHellLastLookMs == 0 || now - _dojoHellLastLookMs >= DojoLookRetryMs)
+                {
+                    var obj = FindNpcObjIndexByNameOrPos(
+                        DojoOpenNpcName, DojoOpenNpcName, DojoOpenNpcX, DojoOpenNpcY);
+                    if (obj >= 0 && FullScriptSendLookNpc(obj))
+                    {
+                        _dojoHellOpenTalkPicked = false;
+                        _dojoHellNote = "已点NPC「百人道场」";
+                    }
+                    else
+                    {
+                        _dojoHellNote = "未找到NPC「百人道场」";
+                    }
+
+                    _dojoHellLastLookMs = now;
+                }
+
+                break;
+
+            case HellPickFloor:
+                if (!IsDojoEntryPanelOpen())
+                {
+                    _dojoHellPhase = HellTalkOpen;
+                    _dojoHellOpenTalkPicked = false;
+                    _dojoHellLastLookMs = 0;
+                    _dojoHellNote = "面板关了，重新对话";
+                    break;
+                }
+
+                int remain;
+                if (!TryReadDojoHellRemain(out remain))
+                {
+                    if (now - _dojoHellPickSinceMs >= 8000)
+                    {
+                        StopDojoHell("读不到噩梦剩余次数");
+                        return;
+                    }
+
+                    _dojoHellNote = "读剩余次数…";
+                    _dojoHellDelayUntilMs = now + 400;
+                    break;
+                }
+
+                _dojoHellRemain = remain;
+                if (remain <= 0)
+                {
+                    StopDojoHell("噩梦剩余次数为0，停止");
+                    return;
+                }
+
+                ReadDojoHellFloorFromUi();
+                int useFloor;
+                string floorFail;
+                if (!TryResolveDojoHellChallengeFloor(out useFloor, out floorFail))
+                {
+                    if (floorFail == "wait")
+                    {
+                        _dojoHellNote = "等噩梦面板…";
+                        _dojoHellDelayUntilMs = now + 400;
+                        break;
+                    }
+
+                    StopDojoHell(floorFail);
+                    return;
+                }
+
+                _dojoHellUseFloor = useFloor;
+                if (!TryDojoHellStartChallenge(useFloor))
+                {
+                    _dojoHellNote = "点开始挑战失败，重试";
+                    _dojoHellDelayUntilMs = now + 1500;
+                    break;
+                }
+
+                _dojoHellPhase = HellWaitMap;
+                _dojoHellLastEnterMs = now;
+                _dojoHellBattleCount = 0;
+                _dojoHellNote = "已挑战噩梦第" + useFloor + "层"
+                    + (useFloor != GetDojoHellFloor() ? ("（设定" + GetDojoHellFloor() + "）") : "")
+                    + "，剩" + remain + "次";
+                break;
+
+            case HellWaitMap:
+                TryConfirmMessageBoxPanel();
+                if (IsDojoHellMap(floor, floorName)
+                    || (floor == DojoBattleFloor
+                        && _dojoHellLastEnterMs > 0
+                        && now - _dojoHellLastEnterMs >= 12000
+                        && floorName.IndexOf("道场", StringComparison.Ordinal) >= 0))
+                {
+                    _dojoHellRound++;
+                    _dojoHellPhase = HellNav;
+                    _dojoHellLastNavMs = 0;
+                    _dojoHellTalkPicked = false;
+                    _dojoHellBattleCount = 0;
+                    _dojoHellNote = "到达 " + floorName + "，去(15,10)";
+                    WriteLog("dojo-hell entered " + floorName + " round=" + _dojoHellRound);
+                    break;
+                }
+
+                if (_dojoHellLastEnterMs > 0 && now - _dojoHellLastEnterMs > 60000)
+                {
+                    StopDojoHell("等进噩梦图超时 现" + floor + " " + floorName);
+                    return;
+                }
+
+                _dojoHellNote = "等噩梦图 现" + floor + " " + floorName;
+                break;
+
+            case HellNav:
+                if (!IsDojoHellMap(floor, floorName) && floor != DojoBattleFloor)
+                {
+                    if (floor == DojoWarpTargetFloor)
+                    {
+                        DojoHellBeginFullRestart(floor, "已到1154，从头治疗再回城点6");
+                        break;
+                    }
+
+                    DojoHellBeginReturn("离开道场，重头回城");
+                    break;
+                }
+
+                if (Math.Abs(px - DojoStandX) + Math.Abs(py - DojoStandY) <= 1)
+                {
+                    _dojoHellPhase = HellTalk;
+                    _dojoHellTalkPicked = false;
+                    _dojoHellLastLookMs = 0;
+                    _dojoHellNote = "已到站，点道场NPC";
+                    break;
+                }
+
+                if (_dojoHellLastNavMs == 0 || now - _dojoHellLastNavMs >= DojoNavRetryMs)
+                {
+                    string how;
+                    if (TryNavigateTo(floor, DojoStandX, DojoStandY, out how))
+                    {
+                        _dojoHellNote = "寻路(15,10) " + how;
+                    }
+                    else
+                    {
+                        _dojoHellNote = "寻路失败 " + how;
+                    }
+
+                    _dojoHellLastNavMs = now;
+                }
+
+                break;
+
+            case HellTalk:
+                if (IsDialoguePanelOpen())
+                {
+                    if (!_dojoHellTalkPicked && (TryPickFirstDialogueOption() || TryAutoPickDialogue()))
+                    {
+                        _dojoHellTalkPicked = true;
+                        _dojoHellPhase = HellWaitBattle;
+                        _dojoHellNote = "已点挑战，等十连";
+                        WriteLog("dojo-hell talk challenge");
+                    }
+                    else if (_dojoHellTalkPicked)
+                    {
+                        _dojoHellPhase = HellWaitBattle;
+                    }
+                    else
+                    {
+                        _dojoHellNote = "对话已开，选挑战…";
+                    }
+
+                    break;
+                }
+
+                if (_dojoHellLastLookMs == 0 || now - _dojoHellLastLookMs >= DojoLookRetryMs)
+                {
+                    var obj = FindNpcObjIndexByNameOrPos(
+                        DojoNpcNameKey, DojoNpcNameKey, DojoNpcX, DojoNpcY);
+                    if (obj >= 0 && FullScriptSendLookNpc(obj))
+                    {
+                        _dojoHellNote = "已点道场NPC";
+                    }
+                    else
+                    {
+                        _dojoHellNote = "未找到道场NPC";
+                    }
+
+                    _dojoHellLastLookMs = now;
+                }
+
+                break;
+
+            case HellWaitBattle:
+                if (IsDialoguePanelOpen() && !_dojoHellTalkPicked)
+                {
+                    if (TryPickFirstDialogueOption() || TryAutoPickDialogue())
+                    {
+                        _dojoHellTalkPicked = true;
+                        _dojoHellNote = "已点挑战，等进战";
+                    }
+                }
+                else
+                {
+                    _dojoHellNote = "等进战";
+                }
+
+                if (_dojoHellLastLookMs > 0 && now - _dojoHellLastLookMs > 45000)
+                {
+                    _dojoHellPhase = HellTalk;
+                    _dojoHellTalkPicked = false;
+                    _dojoHellLastLookMs = 0;
+                    _dojoHellNote = "未进战，重试对话";
+                }
+
+                break;
+
+            case HellGap:
+                if (now - _dojoHellGapSinceMs < DojoHellGapMs)
+                {
+                    var left = (DojoHellGapMs - (now - _dojoHellGapSinceMs) + 999) / 1000;
+                    _dojoHellNote = "等下一场 " + left + "秒（已打" + _dojoHellBattleCount + "场）";
+                    break;
+                }
+
+                WriteLog("dojo-hell streak end battles=" + _dojoHellBattleCount
+                         + " floor=" + floor + " name=" + floorName);
+                DojoHellBeginFullRestart(floor, "十连结束，从头：治疗→回城点6→进图对话");
+
+                break;
+
+            case HellInBattle:
+                _dojoHellNote = "战斗中 第" + _dojoHellBattleCount + "场";
+                break;
+        }
+
+        RefreshScriptRunStatus();
+    }
+
+    /// <summary>百人启动面板是否真正显示（非仅缓存实例）。</summary>
+    private static bool IsDojoEntryPanelOpen()
+    {
+        var sec = GetUiPanel("DoJoSecEditonPanel");
+        if (sec != null && IsUnityObjectActive(sec))
+        {
+            return true;
+        }
+
+        var old = GetUiPanel("HunderdDoJoPanel");
+        return old != null && IsUnityObjectActive(old);
+    }
+
+    /// <summary>只点面板上的进入/开始挑战；不发协议开面板或开始挑战。</summary>
+    private static bool TryDojoClickEnter()
+    {
+        try
+        {
+            var panel = GetUiPanel("DoJoSecEditonPanel");
+            if (panel != null && IsUnityObjectActive(panel))
+            {
+                var click = panel.GetType().GetMethod(
+                    "OnClickEnter",
+                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                if (click != null && click.GetParameters().Length == 0)
+                {
+                    click.Invoke(panel, null);
+                    WriteLog("dojo-run DoJoSecEditonPanel.OnClickEnter");
+                    return true;
+                }
+            }
+
+            var oldPanel = GetUiPanel("HunderdDoJoPanel");
+            if (oldPanel != null && IsUnityObjectActive(oldPanel))
+            {
+                var items = GetMember(oldPanel, "m_DoJoInfoItem") as Array;
+                if (items != null && items.Length > 0 && items.GetValue(0) != null)
+                {
+                    var item = items.GetValue(0);
+                    var enter = item.GetType().GetMethod(
+                        "OnClickEnter",
+                        BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                    if (enter != null && enter.GetParameters().Length == 0)
+                    {
+                        enter.Invoke(item, null);
+                        WriteLog("dojo-run Com_DoJoItem[0].OnClickEnter");
+                        return true;
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            WriteLog("TryDojoClickEnter EX: " + RootMessage(ex));
+        }
+
+        return false;
     }
 
     private static bool TryUseBagItemByKeyword(string uid, string keyword)
@@ -18179,6 +23210,7 @@ public static class SeqChapterTestUi
             new[] { "ruby", "露比试炼" },
             new[] { "petreform", "宠物改造" },
             new[] { "familyhall", "公会领地传送" },
+            new[] { "dojo", "百人界面" },
             new[] { "sevenday", "七日加速" },
             new[] { "gm2", "GM道具商店" },
         };
@@ -18272,6 +23304,10 @@ public static class SeqChapterTestUi
                     ok = TryOpenFamilyHallTeleport();
                     tip = ok ? "已发送公会领地传送" : "公会传送失败";
                     break;
+                case "dojo":
+                    ok = TryOpenDojoPanel();
+                    tip = ok ? "已请求百人界面" : "打开百人界面失败";
+                    break;
                 case "sevenday":
                     ok = TryOpenSevenDaySpeedUp();
                     tip = ok ? "已打开七日加速" : "打开七日加速失败（暂无活动数据？）";
@@ -18293,6 +23329,74 @@ public static class SeqChapterTestUi
         {
             WriteLog("OpenFeaturePanel EX: " + RootMessage(ex));
             Tip("打开失败: " + RootMessage(ex));
+        }
+    }
+
+    /// <summary>
+    /// 与侧边栏 OnClickDoJoCallback 相同：发「百人道场」，服务端回包后打开面板。
+    /// </summary>
+    private static bool TryOpenDojoPanel()
+    {
+        try
+        {
+            var uid = GetMainPlayerUidSafe();
+            if (string.IsNullOrEmpty(uid))
+            {
+                uid = Convert.ToString(GetStaticMember("PlayerDataHolder", "MainPlayerUid") ?? "") ?? "";
+            }
+
+            if (string.IsNullOrEmpty(uid))
+            {
+                return false;
+            }
+
+            var mgr = GetManagerInstance("BountyOfferedManager");
+            if (mgr == null)
+            {
+                return false;
+            }
+
+            MethodInfo send = null;
+            foreach (var m in mgr.GetType().GetMethods(
+                         BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+            {
+                if (m.Name != "SendHunderdDoJoMsg")
+                {
+                    continue;
+                }
+
+                var ps = m.GetParameters();
+                if (ps.Length >= 2
+                    && ps[0].ParameterType == typeof(string)
+                    && ps[1].ParameterType == typeof(string))
+                {
+                    send = m;
+                    break;
+                }
+            }
+
+            if (send == null)
+            {
+                WriteLog("TryOpenDojoPanel SendHunderdDoJoMsg miss");
+                return false;
+            }
+
+            var args = new object[send.GetParameters().Length];
+            args[0] = "百人道场";
+            args[1] = uid;
+            for (var i = 2; i < args.Length; i++)
+            {
+                args[i] = 0;
+            }
+
+            send.Invoke(mgr, args);
+            WriteLog("TryOpenDojoPanel 百人道场 uid尾" + TailUid(uid));
+            return true;
+        }
+        catch (Exception ex)
+        {
+            WriteLog("TryOpenDojoPanel EX " + RootMessage(ex));
+            return false;
         }
     }
 
@@ -21471,7 +26575,8 @@ public static class SeqChapterTestUi
 
     private static void StartWarpWait()
     {
-        if (_floraHealActive || _banshanTestActive || _wildExActive)
+        if (_floraHealActive || _banshanTestActive || _wildExActive || _dojoRunActive || _dojoHellActive
+            || _brawlSignActive)
         {
             Tip("请先停其它脚本");
             return;
@@ -39584,6 +44689,11 @@ public static class SeqChapterTestUi
     private static long NowMs()
     {
         return DateTime.UtcNow.Ticks / TimeSpan.TicksPerMillisecond;
+    }
+
+    private static long UnixNow()
+    {
+        return (long)(DateTime.UtcNow - new DateTime(1970, 1, 1)).TotalSeconds;
     }
 
     private static string RootMessage(Exception ex)

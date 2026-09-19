@@ -14,6 +14,7 @@ _mutex_handle: int | None = None
 _lock_path: Path | None = None
 
 MULTI_LAUNCHER_LOCK_KEY = "seqchapter_multi_launcher"
+CENTRAL_CONTROL_LOCK_KEY = "seqchapter_central_control"
 
 
 def _pid_alive(pid: int) -> bool:

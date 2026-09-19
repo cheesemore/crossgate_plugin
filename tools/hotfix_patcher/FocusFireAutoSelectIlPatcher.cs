@@ -174,7 +174,7 @@ internal static class FocusFireAutoSelectIlPatcher
             ReadWrite = true,
         });
 
-        InjectIfNeeded(asm);
+        InjectIfNeeded(asm, reinject: true);
 
         using var ms = new MemoryStream();
         asm.Write(ms);
@@ -190,12 +190,6 @@ internal static class FocusFireAutoSelectIlPatcher
         File.WriteAllBytes(outputPath, padded);
         HotfixSize.EnsureUnchanged(File.ReadAllBytes(outputPath), expectedSize);
         Console.WriteLine("[PATCH] BattleRoleSelector.AutoSelect：合击/随机优先 AI 独占锚点");
-    }
-
-    /// <summary>对已打开的 Assembly 幂等注入（供 wiki-test-ui 同次写出）。</summary>
-    public static void InjectIfNeeded(AssemblyDefinition asm)
-    {
-        InjectIfNeeded(asm, reinject: true);
     }
 
     /// <param name="reinject">false=只拆除旧块，不注入（紧急恢复普通 Auto）。</param>
@@ -221,11 +215,22 @@ internal static class FocusFireAutoSelectIlPatcher
         if (!reinject)
         {
             Console.WriteLine("[AI-AUTOSELECT] 仅拆除，不注入（普通 Auto 应恢复）");
+            // 类型可留着；助手仍可写 Index，AutoSelect 不读则零干预
+            EnsureAiTargetType(asm.MainModule);
             return;
         }
 
-        // 暂停注入：先前版本会卡战斗（疑似 JIT/字典导入），待验证后再开
-        Console.WriteLine("[AI-AUTOSELECT] 注入已禁用（防卡战斗）；AI 目标改走其它路径");
+        // Index==-1 时首条 Beq 直接回落官方合击/随机；有有效 Index 且 CanSelect 才改目标
+        // 注意：现网默认不走此路径（易卡自动）；仅 --inject / 显式 reinject:true
+        var indexField = EnsureAiTargetType(asm.MainModule);
+        if (!HasMarker(method, Marker))
+        {
+            InjectPreferAiTarget(method, asm.MainModule, indexField);
+        }
+        else
+        {
+            Console.WriteLine("[AI-AUTOSELECT] 已有注入 marker，跳过");
+        }
     }
 
     /// <summary>只拆除、不注入。用于紧急恢复。</summary>

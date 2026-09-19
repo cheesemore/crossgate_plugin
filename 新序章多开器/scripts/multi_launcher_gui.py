@@ -261,7 +261,7 @@ class MultiLauncherApp:
         )
         ttk.Checkbutton(
             tile_frm,
-            text="序章助手自动打开（登录+召唤完成，或进游戏已组队时启动；约3秒后缩到右上角；已手动打开则跳过）",
+            text="序章助手自动打开（一进游戏就开，再拉多控/召唤；约3秒后缩到右上角；已手动打开则跳过）",
             variable=self.auto_open_helper_var,
             command=self._persist_auto_open_helper,
         ).pack(anchor=tk.W, pady=(4, 0))
@@ -674,12 +674,16 @@ class MultiLauncherApp:
             if not ipc.wait_for_bridge(instance_id, timeout=240):
                 self._set_status(f"[{label}] 桥接连接超时（未注入精简桥接？）")
                 return
-            self._set_status(f"[{label}] 桥接已连接，自动登录/拉多控/召唤…")
-            ipc.workflow_step1_five_chars(instance_id, phone, password)
+            self._set_status(f"[{label}] 桥接已连接，自动登录/开助手/拉多控/召唤…")
+            ipc.workflow_step1_five_chars(
+                instance_id,
+                phone,
+                password,
+                open_helper=self._want_auto_open_helper(),
+            )
             ok, msg = ipc.wait_workflow_done(instance_id, timeout=600)
             if ok:
                 self._set_status(f"[{label}] 流程完成")
-                self._maybe_open_helper(instance_id, label)
             else:
                 self._set_status(f"[{label}] 流程失败: {msg}")
         except Exception as exc:
@@ -740,12 +744,18 @@ class MultiLauncherApp:
                     self._maybe_open_helper(iid, label)
                     continue
                 if phase == "in_game":
-                    self._set_batch_status(f"[{label}] 已进游戏，拉起离线多控…")
+                    self._set_batch_status(f"[{label}] 已进游戏，先开助手再拉多控…")
+                    self._maybe_open_helper(iid, label)
                     ipc.multi_login_offline_all(iid)
                     multi_ok = ipc.wait_multi_ready(iid, timeout=120)
                 else:
-                    self._set_batch_status(f"[{label}] 登录→进游戏→拉起多控…")
-                    ipc.workflow_login_enter(iid, acc.phone, acc.password)
+                    self._set_batch_status(f"[{label}] 登录→进游戏(开助手)→拉起多控…")
+                    ipc.workflow_login_enter(
+                        iid,
+                        acc.phone,
+                        acc.password,
+                        open_helper=self._want_auto_open_helper(),
+                    )
                     entered = ipc.wait_for_in_game(iid, timeout=300)
                     if not entered:
                         ok, msg = ipc.wait_workflow_done(iid, timeout=60)
@@ -758,7 +768,6 @@ class MultiLauncherApp:
                         ok_count += 1
                         lines.append(f"[OK] {label}: 已在队伍中，跳过拉取")
                         self._set_batch_status(f"[{label}] 已组队，视为成功")
-                        self._maybe_open_helper(iid, label)
                         continue
                     ipc.multi_login_offline_all(iid)
                     multi_ok = ipc.wait_multi_ready(iid, timeout=120)
@@ -770,7 +779,6 @@ class MultiLauncherApp:
                     else:
                         lines.append(f"[OK] {label}: 已进游戏并拉起多控")
                     self._set_batch_status(f"[{label}] 完成")
-                    self._maybe_open_helper(iid, label)
                 else:
                     lines.append(f"[WARN] {label}: 已进游戏但多控未全部上线（可稍后一键召唤）")
                     self._set_batch_status(f"[{label}] 多控未全上线")
@@ -802,12 +810,12 @@ class MultiLauncherApp:
                 self._maybe_open_helper(iid, iid)
                 continue
             self._set_batch_status(f"[{iid}] 一键召唤…")
+            self._maybe_open_helper(iid, iid)
             ipc.one_key_summon(iid)
             ok = ipc.wait_for_team(iid, timeout=90)
             if ok:
                 ok_count += 1
                 lines.append(f"[OK] {iid}: 队伍聚齐 (team≥5)")
-                self._maybe_open_helper(iid, iid)
             else:
                 # 补一发队伍召集再试
                 ipc.team_gather(iid)
@@ -815,7 +823,6 @@ class MultiLauncherApp:
                 if ok2:
                     ok_count += 1
                     lines.append(f"[OK] {iid}: 队伍召集后聚齐")
-                    self._maybe_open_helper(iid, iid)
                 else:
                     lines.append(f"[FAIL] {iid}: 召唤/召集未聚齐")
         summary = f"一键召唤完成：成功 {ok_count}/{len(iids)}"
@@ -926,7 +933,13 @@ def cli_launch_and_login(label: str, *, login_only: bool = False) -> int:
 
     if login_only:
         print(f"[INFO] [{name}] 一键登录…", flush=True)
-        ipc.workflow_login_enter(inst.instance_id, acc.phone, acc.password)
+        want_helper = bool(load_settings().get("auto_open_helper"))
+        ipc.workflow_login_enter(
+            inst.instance_id,
+            acc.phone,
+            acc.password,
+            open_helper=want_helper,
+        )
         ok, msg, _st = ipc.wait_for_in_game(inst.instance_id, timeout=300)
         if ok:
             uid = str(msg or "")
@@ -936,14 +949,17 @@ def cli_launch_and_login(label: str, *, login_only: bool = False) -> int:
         print(f"[FAIL] [{name}] 登录失败 {msg} pid={inst.pid}", flush=True)
         return 3
 
-    print(f"[INFO] [{name}] 登录→拉多控→召唤…", flush=True)
-    ipc.workflow_step1_five_chars(inst.instance_id, acc.phone, acc.password)
+    print(f"[INFO] [{name}] 登录→开助手→拉多控→召唤…", flush=True)
+    want_helper = bool(load_settings().get("auto_open_helper"))
+    ipc.workflow_step1_five_chars(
+        inst.instance_id,
+        acc.phone,
+        acc.password,
+        open_helper=want_helper,
+    )
     ok, msg = ipc.wait_workflow_done(inst.instance_id, timeout=600)
     if ok:
         print(f"[OK] [{name}] 流程完成 pid={inst.pid}", flush=True)
-        if load_settings().get("auto_open_helper"):
-            ipc.open_helper_minimized(inst.instance_id)
-            print(f"[INFO] [{name}] 已请求打开序章助手", flush=True)
         return 0
     print(f"[FAIL] [{name}] {msg} pid={inst.pid}", flush=True)
     return 3

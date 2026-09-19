@@ -14,8 +14,16 @@ alwaysApply: true
 ## 重写攻防序（开关）
 
 - AI 页按钮「重写攻防序」：默认开。
-- **开**：每回合写 `SeqChapterAiBattleTarget.Index`（杂兵→精英→首领 / 特殊 AI）。
+- **开**：每回合写官方 VIP `focusFireIndex`（及内部 `SeqChapterAiBattleTarget.Index`）；出手交给自动/VIP。
 - **关**：清锚点 `-1`，选目标完全交给官方 AutoSelect。
+- **禁止**向 `BattleRoleSelector.AutoSelect` 注入 IL（会弄坏 leave 目标、卡普通自动）。dll-only / 全量补丁只拆除不注入；坏了从 `hotfix.dll.bytes.orig` 重打。
+
+## AI百人（开关）
+
+- AI 页按钮「AI百人」：默认关；与攻防序并列。
+- **开**：战斗标题归类为「AI战斗-百人」；优先击杀名单只改锚点，其余同普通首领战。
+- 名单配置：`hotfixdata/super_ai_dojo_priority.json`（`priority` 数组顺序=优先级；名含关键词即命中）。默认：诺利→艾汀→盖美拉→露比→艾尔卡丝→佛利→阿卡斯。
+- 名单命中时即使「重写攻防序」关也会写锚点；无命中则走普通首领攻防序。
 
 ## 血瓶（昨天规则 + 配对规划）
 
