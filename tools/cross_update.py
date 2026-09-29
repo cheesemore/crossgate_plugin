@@ -16,7 +16,7 @@
   diff        对比两个目录，生成更新报告（反外挂相关高亮）
   sync        把 crosscopy 中的官方差异同步到 cross（需关闭游戏）
   anti-cheat  只读：对比旧底稿与 crosscopy 新 hotfix，做反外挂深度分析
-  auto-update 一条龙：检测更新→探测反外挂→同步→换新底稿→重打默认组合补丁
+  auto-update 一条龙：检测更新→探测反外挂→锚点自检→同步→换新底稿→重打默认组合补丁
 
 固定流程（crosscopy 更新后）：
   python tools/cross_update.py auto-update --dry-run   # 先只读探测反外挂
@@ -644,6 +644,71 @@ def cmd_sync(cross: Path, copy: Path, args) -> int:
     return 0
 
 
+# 默认组合会改的元数据名。只做只读探测，不要求体积等于工具常量。
+# 不查 Start / Update / Tip 这类短名，避免误报。
+_REQUIRED_ANCHORS: tuple[tuple[str, str], ...] = (
+    ("倍速上报 CheckTimeScaleWarning", "CheckTimeScaleWarning"),
+    ("倍速上报 SendTimeScaleWarning", "SendTimeScaleWarning"),
+    ("客服按钮 OnClickCustom", "OnClickCustom"),
+    ("跑速 set_Running", "set_Running"),
+    ("长按 OnLongPress", "OnLongPress"),
+    ("月卡门闩 DoAutoFight", "DoAutoFight"),
+    ("月卡属性 MonthCardOpen", "MonthCardOpen"),
+    ("桥接 OnApplicationPause", "OnApplicationPause"),
+    ("桥接 GameManagerHotfix", "GameManagerHotfix"),
+    ("战斗 AutoFight_PlayerAction", "AutoFight_PlayerAction"),
+    ("战斗 AutoFight_PlayerAction2", "AutoFight_PlayerAction2"),
+    ("战斗 AutoFight_PetAction", "AutoFight_PetAction"),
+    ("战斗 DoVipPlayerAutoFight", "DoVipPlayerAutoFight"),
+    ("战斗 DoVipPetAutoFight", "DoVipPetAutoFight"),
+    ("分享 OnClickShareCallback", "OnClickShareCallback"),
+    ("百科 OnClickWiki", "OnClickWiki"),
+    ("指令 SendBattleCommond", "SendBattleCommond"),
+    ("进战 OnCommandCharCallback", "OnCommandCharCallback"),
+    ("形象 EntityFactory", "EntityFactory"),
+)
+_OPTIONAL_ANCHORS: tuple[tuple[str, str], ...] = (
+    ("跳过动画上报 TryReportBattleAnimSkipWarning", "TryReportBattleAnimSkipWarning"),
+    ("遇敌一级 LevelOneFlag", "LevelOneFlag"),
+)
+
+
+def _name_in_pe(data: bytes, name: str) -> bool:
+    if name.encode("utf-8") in data:
+        return True
+    return name.encode("utf-16le") in data
+
+
+def _preflight_anchors(data: bytes) -> tuple[list[str], list[str]]:
+    missing = [label for label, name in _REQUIRED_ANCHORS if not _name_in_pe(data, name)]
+    optional = [label for label, name in _OPTIONAL_ANCHORS if not _name_in_pe(data, name)]
+    return missing, optional
+
+
+def _log_anchor_preflight(hotfix: Path, previous_size: int | None) -> int:
+    """只读：新 hotfix 里默认组合的锚点还在不在。缺了就返回 5，调用方不得写入。"""
+    data = hotfix.read_bytes()
+    size = len(data)
+    _log(f"\n[锚点] 只读探测 {hotfix}（{size:,} 字节）…")
+    if previous_size and previous_size != size:
+        _log(
+            f"  体积 {previous_size:,} → {size:,}。"
+            "锚点通过后才会改 EXPECTED_SIZE 并重建引擎。"
+        )
+    elif previous_size:
+        _log(f"  体积未变（{size:,}），不必为体积重建引擎。")
+    missing, optional = _preflight_anchors(data)
+    for label in optional:
+        _log(f"  [可选缺失] {label}（补丁侧会跳过或按内建处理）")
+    if not missing:
+        _log("  默认组合用到的方法名都还在。")
+        return 0
+    _log("  以下锚点在新 hotfix 里找不到。先改补丁，本次不会同步、不会重建、不会打补丁：")
+    for label in missing:
+        _log(f"    - {label}")
+    return 5
+
+
 def _load_baseline_meta(cross: Path) -> dict | None:
     meta = cross / "tools" / "hotfix_baseline.json"
     if not meta.is_file():
@@ -678,18 +743,20 @@ def _apply_default_combo(cross: Path, on_log=None) -> list[str]:
 
 
 def cmd_auto_update(cross: Path, copy: Path, args) -> int:
-    """一条龙：crosscopy 有更新 → 探测反外挂 → 同步 → 换新底稿 → 重打默认组合补丁。
+    """一条龙：crosscopy 有更新 → 探测反外挂 → 锚点自检 → 同步 → 换新底稿 → 重打。
 
     流程（固定化，减少人工判断）：
       1) 对比 crosscopy hotfix 与 baseline neworig_sha256 —— 是否官方更新。
       2) 有更新 → 反外挂深度分析（cross .orig 旧底稿 vs crosscopy 新 hotfix）。
          - verdict=yes 或 --require-clear 且非 no → 停下，报告人工核对。
-      3) --dry-run 只到第 2 步（只读，不写任何文件）。
-      4) sync 同步官方文件到 cross（复用 cmd_sync 逻辑）。
-      5) 从 crosscopy 复制干净 hotfix 到 cross 的 tools/hotfix.dll.bytes.neworig，
+      3) 只读锚点自检：默认组合要钩的方法名还在不在。缺了就停，不写 cross。
+      4) --dry-run 只到第 3 步（只读，不写任何文件）。
+      5) sync 同步官方文件到 cross（复用 cmd_sync 逻辑）。
+      6) 从 crosscopy 复制干净 hotfix 到 cross 的 tools/hotfix.dll.bytes.neworig，
          更新 EXPECTED_SIZE 常量（体积变时）并重建引擎。
-      6) sync_client_baseline（对齐 .orig + baseline meta）。
-      7) 重打默认组合补丁（from_orig=True，从干净底稿出发）。
+      7) sync_client_baseline（对齐 .orig + baseline meta）。
+      8) 重打默认组合补丁（from_orig=True，从干净底稿出发）。
+         傻瓜包不在这一步发布。
     """
     ensure_roots(cross, copy)
 
@@ -727,6 +794,16 @@ def cmd_auto_update(cross: Path, copy: Path, args) -> int:
         new_label = f"{copy.parent.name}/{copy.name}/hotfix.dll.bytes"
         ac = analyze_hotfix_anticheat(old_path.read_bytes(), copy_hotfix.read_bytes())
         print(format_anticheat_report(ac, old_label, new_label))
+
+    prev_size = None
+    if meta and meta.get("expected_size"):
+        try:
+            prev_size = int(meta["expected_size"])
+        except (TypeError, ValueError):
+            prev_size = None
+    anchor_rc = _log_anchor_preflight(copy_hotfix, prev_size)
+    if anchor_rc != 0:
+        return anchor_rc
 
     if args.dry_run:
         _log("\n--dry-run：仅探测，未做任何写入。")
@@ -780,11 +857,18 @@ def cmd_auto_update(cross: Path, copy: Path, args) -> int:
 
     # ---- 6) 重打默认组合补丁 ----
     _log("\n[补丁] 从干净 .orig 重打默认组合…")
-    msgs = _apply_default_combo(cross)
+    try:
+        msgs = _apply_default_combo(cross)
+    except Exception as exc:
+        _log(f"\n[补丁失败] {exc}")
+        _log("官方文件已经同步到 cross，但默认组合没打完。")
+        _log("改完锚点或余量后，关游戏再跑：python tools/workflow.py repatch")
+        return 6
     for m in msgs:
         _log("  [OK] " + m)
     _log("\n完成：cross 已更新至 crosscopy 版本并重打默认组合补丁。")
-    _log("提示：请关闭游戏后再打补丁；运行中的客户端需重启新窗口才生效。")
+    _log("傻瓜包没有自动发布。要给玩家发包时再跑：python tools/workflow.py publish-foolproof")
+    _log("提示：运行中的客户端需重启新窗口才生效。")
     return 0
 
 
@@ -812,9 +896,9 @@ def main(argv: list[str] | None = None) -> int:
 
     p_au = sub.add_parser(
         "auto-update",
-        help="一条龙：crosscopy 有更新→探测反外挂→同步→换新底稿→重打默认组合补丁",
+        help="一条龙：crosscopy 有更新→反外挂→锚点自检→同步→换新底稿→重打",
     )
-    p_au.add_argument("--dry-run", action="store_true", help="只探测反外挂，不写任何文件")
+    p_au.add_argument("--dry-run", action="store_true", help="只做反外挂和锚点探测，不写任何文件")
     p_au.add_argument("--force", action="store_true", help="基线一致时也强制重打补丁")
     p_au.add_argument("--require-clear", action="store_true", help="反外挂结论非 no 即停止（默认仅 yes 停止）")
     p_au.add_argument("--confirm-anticheat", action="store_true", help="人工已核对反外挂变化无风险，跳过拦截继续同步补丁")

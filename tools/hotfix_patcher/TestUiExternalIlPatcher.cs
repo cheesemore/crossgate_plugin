@@ -411,10 +411,12 @@ internal static class TestUiExternalIlPatcher
         File.WriteAllBytes(dllPath, ms.ToArray());
         Console.WriteLine($"[HELPER] 已编译助手面板 DLL（{refs.Count} 个引用，含 UnityEngine 桩）");
         DeployDojoPriorityConfig(hotfixDataDir, srcDir);
+        DeploySingleToAoeConfig(hotfixDataDir, srcDir);
         return dllPath;
     }
 
     private const string DojoPriorityConfigFileName = "super_ai_dojo_priority.json";
+    private const string SingleToAoeConfigFileName = "single_to_aoe_skills.json";
 
     private static void DeployDojoPriorityConfig(string hotfixDataDir, string srcDir)
     {
@@ -426,6 +428,20 @@ internal static class TestUiExternalIlPatcher
         }
 
         var dst = Path.Combine(hotfixDataDir, DojoPriorityConfigFileName);
+        File.Copy(src, dst, overwrite: true);
+        Console.WriteLine("[HELPER] 已部署 " + dst);
+    }
+
+    private static void DeploySingleToAoeConfig(string hotfixDataDir, string srcDir)
+    {
+        var src = Path.Combine(srcDir, SingleToAoeConfigFileName);
+        if (!File.Exists(src))
+        {
+            Console.WriteLine("[HELPER] 未找到 " + SingleToAoeConfigFileName + "（跳过复制）");
+            return;
+        }
+
+        var dst = Path.Combine(hotfixDataDir, SingleToAoeConfigFileName);
         File.Copy(src, dst, overwrite: true);
         Console.WriteLine("[HELPER] 已部署 " + dst);
     }

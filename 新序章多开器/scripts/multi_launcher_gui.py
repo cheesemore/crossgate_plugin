@@ -22,7 +22,13 @@ SHARED = Path(__file__).resolve().parents[2] / "序章助手共享"
 sys.path.insert(0, str(SHARED))
 
 from assistant_common import ipc  # noqa: E402
-from assistant_common.accounts import AccountProfile, delete_account, load_accounts, upsert_account  # noqa: E402
+from assistant_common.accounts import (  # noqa: E402
+    AccountProfile,
+    delete_account,
+    load_accounts,
+    normalize_secondary_code,
+    upsert_account,
+)
 from assistant_common.config import get_game_root, load_settings, save_settings, set_game_root  # noqa: E402
 from assistant_common.game import GameInstance, launch_game  # noqa: E402
 from assistant_common.patch_bridge import is_mini_bridge_ready  # noqa: E402
@@ -238,7 +244,7 @@ class MultiLauncherApp:
         )
         self.launch_all_btn.pack(side=tk.LEFT, padx=(8, 0))
         ttk.Button(btn_frm, text="批量录入", command=self.import_accounts_excel, width=12).pack(side=tk.RIGHT)
-        ttk.Button(btn_frm, text="生成模板", command=self.export_accounts_excel_template, width=12).pack(
+        ttk.Button(btn_frm, text="批量导出", command=self.export_accounts_excel, width=12).pack(
             side=tk.RIGHT, padx=(0, 8)
         )
         ttk.Button(btn_frm, text="录入账号", command=self.add_account, width=12).pack(side=tk.RIGHT, padx=(0, 8))
@@ -355,33 +361,49 @@ class MultiLauncherApp:
         upsert_account(AccountProfile.create(label, phone, password))
         self.reload_accounts()
 
-    def export_accounts_excel_template(self) -> None:
-        """生成 Excel 批量录入模板（备注 / 手机号 / 密码）。"""
+    def export_accounts_excel(self) -> None:
+        """批量导出当前账号。表格式与批量录入相同，导出的文件可直接再录入。"""
         try:
             from openpyxl import Workbook
             from openpyxl.styles import Alignment, Font, PatternFill
         except ImportError:
             messagebox.showerror(
                 "缺少依赖",
-                "需要 openpyxl 才能生成 Excel 模板。\n请先执行：pip install openpyxl",
+                "需要 openpyxl 才能批量导出。\n请先执行：pip install openpyxl",
                 parent=self.root,
             )
             return
 
         path = filedialog.asksaveasfilename(
-            title="保存账号批量录入模板",
+            title="批量导出账号",
             defaultextension=".xlsx",
             filetypes=[("Excel 工作簿", "*.xlsx")],
-            initialfile="多开器账号批量录入模板.xlsx",
+            initialfile="多开器账号批量导出.xlsx",
             parent=self.root,
         )
         if not path:
             return
 
+        seen: set[str] = set()
+        rows: list[tuple[str, str, str, str]] = []
+        for acc in load_accounts():
+            phone = (acc.phone or "").strip()
+            if not phone or phone in seen:
+                continue
+            seen.add(phone)
+            rows.append(
+                (
+                    (acc.label or phone).strip(),
+                    phone,
+                    acc.password or "",
+                    acc.secondary_code or "",
+                )
+            )
+
         wb = Workbook()
         ws = wb.active
         ws.title = "账号"
-        headers = ("备注", "手机号", "密码")
+        headers = ("备注", "手机号", "密码", "二级码")
         ws.append(list(headers))
         header_font = Font(name="微软雅黑", bold=True, color="FFFFFF")
         header_fill = PatternFill("solid", fgColor="1F4E79")
@@ -390,22 +412,30 @@ class MultiLauncherApp:
             cell.font = header_font
             cell.fill = header_fill
             cell.alignment = Alignment(horizontal="center", vertical="center")
-        ws.append(["号1备注", "13800000001", "密码示例"])
-        ws.append(["号2备注", "13800000002", "密码示例"])
+        for label, phone, password, sec in rows:
+            ws.append([label, phone, password, sec])
+            row_i = ws.max_row
+            for col in (1, 2, 3, 4):
+                cell = ws.cell(row=row_i, column=col)
+                cell.number_format = "@"
+                cell.alignment = Alignment(vertical="center")
         ws.column_dimensions["A"].width = 18
         ws.column_dimensions["B"].width = 18
         ws.column_dimensions["C"].width = 18
+        ws.column_dimensions["D"].width = 12
 
         tip = wb.create_sheet("说明", 0)
-        tip.column_dimensions["A"].width = 72
-        tip["A1"] = "多开器账号批量录入说明"
+        tip.column_dimensions["A"].width = 78
+        tip["A1"] = "多开器账号批量导出"
         tip["A1"].font = Font(name="微软雅黑", bold=True, size=14)
         tips = [
-            "1. 在「账号」表填写：备注（可选）、手机号（必填）、密码（必填）。",
-            "2. 表头必须保留「备注 / 手机号 / 密码」三列（也可用 账号备注、账号、password 等同义列名）。",
-            "3. 手机号已存在：更新备注与密码；不存在：新增。",
-            "4. 空行、手机号或密码为空的行会跳过。",
-            "5. 填好后点多开器「批量录入」选择本文件即可。",
+            "本文件由「批量导出」生成，可直接用多开器或中控的「批量录入」导入。",
+            "1. 「账号」表列：备注、手机号、密码、二级码。表头不要改名。",
+            "2. 二级码可空；填写则必须是 6 位数字。",
+            "3. 手机号相同视为同一账号：已有则更新，没有则新增。",
+            "4. 备注/密码/二级码与库里不一致时，以本表录入的内容为准。",
+            "5. 同一文件里手机号重复时，靠后的那一行生效。",
+            "6. 空行、手机号或密码为空的行会跳过。",
         ]
         for i, line in enumerate(tips, start=3):
             tip[f"A{i}"] = line
@@ -416,8 +446,12 @@ class MultiLauncherApp:
             messagebox.showerror("保存失败", str(exc), parent=self.root)
             return
 
-        self._set_status(f"已生成模板：{path}")
-        messagebox.showinfo("完成", f"模板已保存：\n{path}", parent=self.root)
+        self._set_status(f"已批量导出 {len(rows)} 个账号：{path}")
+        messagebox.showinfo(
+            "完成",
+            f"已导出 {len(rows)} 个账号：\n{path}\n\n该文件可直接用于「批量录入」。",
+            parent=self.root,
+        )
 
     def import_accounts_excel(self) -> None:
         """从 Excel 批量录入账号（同手机号则更新）。"""
@@ -490,6 +524,7 @@ class MultiLauncherApp:
             "label": ("备注", "账号备注", "名称", "label", "name"),
             "phone": ("手机号", "手机", "账号", "帐号", "phone", "user", "username"),
             "password": ("密码", "password", "pwd", "pass"),
+            "secondary_code": ("二级码", "二级密码", "安全锁", "secondary_code", "sec", "code"),
         }
         for idx, raw in enumerate(header or ()):
             key = norm(raw).lower()
@@ -498,9 +533,14 @@ class MultiLauncherApp:
                     col_map[field] = idx
         if "phone" not in col_map or "password" not in col_map:
             wb.close()
-            raise ValueError("表头需包含「手机号」「密码」列（备注可选）")
+            raise ValueError("表头需包含「手机号」「密码」列（备注/二级码可选）")
 
-        existing = {a.phone: a for a in load_accounts() if a.phone}
+        existing_by_phone: dict[str, AccountProfile] = {}
+        for acc in load_accounts():
+            phone_key = (acc.phone or "").strip()
+            if phone_key and phone_key not in existing_by_phone:
+                existing_by_phone[phone_key] = acc
+        pending: dict[str, tuple[str, str, str, bool]] = {}
         added = updated = skipped = 0
         errors: list[str] = []
         for row_i, row in enumerate(rows, start=2):
@@ -512,22 +552,48 @@ class MultiLauncherApp:
             label = ""
             if "label" in col_map and col_map["label"] < len(cells):
                 label = norm(cells[col_map["label"]])
-            if not phone and not password and not label:
+            sec_raw = ""
+            has_sec_col = "secondary_code" in col_map
+            if has_sec_col and col_map["secondary_code"] < len(cells):
+                sec_raw = norm(cells[col_map["secondary_code"]])
+            if not phone and not password and not label and not sec_raw:
                 continue
             if not phone or not password:
                 skipped += 1
                 errors.append(f"第{row_i}行：手机号或密码为空，已跳过")
                 continue
-            if phone in existing:
-                acc = existing[phone]
-                acc.label = label or acc.label or phone
+            sec = ""
+            if has_sec_col:
+                sec, err = normalize_secondary_code(sec_raw)
+                if err:
+                    skipped += 1
+                    errors.append(f"第{row_i}行：{err}，已跳过")
+                    continue
+            pending[phone] = (label, password, sec, has_sec_col)
+
+        for phone, (label, password, sec, has_sec_col) in pending.items():
+            label_use = label or phone
+            if phone in existing_by_phone:
+                acc = existing_by_phone[phone]
+                same = (
+                    acc.label == label_use
+                    and acc.password == password
+                    and (not has_sec_col or acc.secondary_code == sec)
+                )
+                if same:
+                    continue
+                acc.label = label_use
                 acc.password = password
+                if has_sec_col:
+                    acc.secondary_code = sec
                 upsert_account(acc)
                 updated += 1
             else:
-                acc = AccountProfile.create(label, phone, password)
+                acc = AccountProfile.create(
+                    label, phone, password, secondary_code=sec if has_sec_col else ""
+                )
                 upsert_account(acc)
-                existing[phone] = acc
+                existing_by_phone[phone] = acc
                 added += 1
 
         wb.close()

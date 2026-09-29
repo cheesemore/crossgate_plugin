@@ -6,13 +6,13 @@ using System.Reflection;
 /// <summary>
 /// 采集自动提取 DLL。部署为 hotfixdata/SeqChapterAreaExtract.dll.bytes
 /// 由助手面板「战斗」页开关；仅「护航战斗」模式每 30 场强制提取一轮。
-/// 「脚本」页有「立刻提取」按钮（ExtractNowFromUi，绕过冷却强制提取一轮）。
+/// 「脚本」页「提取采集物」为开关：开启后立刻跑一轮，之后每 5 分钟再跑；单格多次仍满则跳过该格（不卡死、不因偶发失败关开关）。
 /// 不需要自动采集：对账号所有在线角色逐个请求采集数据，已采物品共 5 格，
 /// 单格达到 999 时对该格发 SendArea("取出物品到账号仓库", uid, index+1, pile) 提取到账号银行。
 /// 节奏：状态机 + 主线程 Timer；按角色 uid 取数/提取（只改 SelectPlayerUid，不发头像切换）。
 /// 未满格立刻看下一格，不空转。每 tick 最多发 1 条协议。
 /// 角色覆盖：MultiInfo 在线角色（五开）→ 当前队伍 → 保底主角色。
-/// 触发：开启/立刻提取强制一轮；采集推送仅在空闲且冷却后排队；每 10 分钟兜底。
+/// 触发：开启/立刻提取强制一轮；采集推送仅在空闲且冷却后排队；每 10 分钟兜底（总开关）。
 /// </summary>
 public static class SeqChapterAreaExtract
 {
@@ -28,11 +28,11 @@ public static class SeqChapterAreaExtract
     /// <summary>节奏 tick 间隔（秒）。</summary>
     private const float StepSec = 0.15f;
 
-    /// <summary>发包后至少等待这么多 tick 再读回包（约 0.3s）。</summary>
-    private const int MinWaitAfterSendTicks = 2;
+    /// <summary>发包后至少等待这么多 tick 再读回包（约 0.45s）。</summary>
+    private const int MinWaitAfterSendTicks = 3;
 
-    /// <summary>等待服务端回推的最大 tick 数（约 1.2s）。</summary>
-    private const int WaitTicksMax = 8;
+    /// <summary>等待服务端回推的最大 tick 数（约 3.6s；过短会把慢回包当失败）。</summary>
+    private const int WaitTicksMax = 24;
 
     /// <summary>切号后最少等这么多 tick 再取数（约 0.45s）。</summary>
     private const int MinWaitSwitchTicks = 3;
@@ -46,17 +46,26 @@ public static class SeqChapterAreaExtract
     /// <summary>每个等待操作超时后再重发次数，之后跳过。</summary>
     private const int MaxOpRetries = 2;
 
-    /// <summary>每格提取最多尝试次数（1 次 + 重试）。</summary>
-    private const int MaxAttemptsPerSlot = 2;
+    /// <summary>每格提取最多尝试次数；仍满格（缺金币等）则跳过该格，不卡死整轮。</summary>
+    private const int MaxAttemptsPerSlot = 5;
 
-    /// <summary>后台兜底扫描周期（毫秒）：10 分钟。</summary>
+    /// <summary>后台兜底扫描周期（毫秒）：10 分钟（战斗页总开关）。</summary>
     private const long ScanIntervalMs = 10 * 60 * 1000;
+
+    /// <summary>脚本页「提取采集物」循环间隔：5 分钟。</summary>
+    private const long ScriptLoopIntervalMs = 5 * 60 * 1000;
+
+    /// <summary>连续多格跳过才 Tip 提醒；不再因此自动关开关（以前关开关太容易「总失败」）。</summary>
+    private const int ScriptLoopWarnFails = 5;
 
     /// <summary>提取冷却（毫秒）：距上次实际发送提取不足此值则不开始新扫描，防重复发。</summary>
     private const long ExtractCooldownMs = 60_000;
 
     /// <summary>总开关。默认关闭；面板战斗页切换。</summary>
     public static volatile bool PipelineEnabled = false;
+
+    /// <summary>脚本页开关：开则立刻跑一轮，之后每 5 分钟再跑，直到手动关。</summary>
+    public static volatile bool ScriptLoopEnabled = false;
 
     private static bool _bootstrapped;
     private static bool _pipelineRunning;
@@ -80,6 +89,8 @@ public static class SeqChapterAreaExtract
     private static string _homeUid;
     private static string _switchTargetUid;
     private static int _switchNextState;
+    /// <summary>脚本循环期间单格跳过累计（本轮成功提取会清零；仅用于状态提示）。</summary>
+    private static int _scriptExtractFailCount;
 
     private static bool _areaHooked;
     private static Action<object> _onAreaEvent;
@@ -101,12 +112,23 @@ public static class SeqChapterAreaExtract
 
     public static bool IsPipelineActive()
     {
-        if (PipelineEnabled)
+        if (PipelineEnabled || ScriptLoopEnabled)
         {
             return true;
         }
 
         return ReadPipelineEnabledFromAnyCopy();
+    }
+
+    /// <summary>脚本页「提取采集物」是否开启。</summary>
+    public static bool IsScriptLoopActive()
+    {
+        return ScriptLoopEnabled;
+    }
+
+    public static int GetScriptExtractFailCount()
+    {
+        return _scriptExtractFailCount;
     }
 
     /// <summary>立刻提取 / 护航战斗满 30 场：是否还在跑这一轮。</summary>
@@ -141,37 +163,95 @@ public static class SeqChapterAreaExtract
         }
         else
         {
-            StopTimer();
-            _pipelineRunning = false;
-            _state = StIdle;
-            _uids = null;
-            _forceRun = false;
-            _pendingEvent = false;
+            // 战斗页关总开关时，不顺带关脚本循环（脚本有独立开关）
+            if (!ScriptLoopEnabled)
+            {
+                StopTimer();
+                _pipelineRunning = false;
+                _state = StIdle;
+                _uids = null;
+                _forceRun = false;
+                _pendingEvent = false;
+            }
         }
+    }
+
+    /// <summary>脚本页「提取采集物」开/关。开：立刻一轮 + 每 5 分钟；关：停循环。</summary>
+    public static void SetScriptLoopEnabled(bool enable)
+    {
+        Bootstrap();
+        ScriptLoopEnabled = enable;
+        if (enable)
+        {
+            TryHookAreaEvent();
+            EnsureTimer();
+            _scriptExtractFailCount = 0;
+            _forceRun = true;
+            _pendingEvent = true;
+            _lastSendMs = 0;
+            Tip("提取采集物已开启（每5分钟）");
+        }
+        else
+        {
+            _scriptExtractFailCount = 0;
+            if (!PipelineEnabled)
+            {
+                // 无战斗页总开关时，停掉空闲兜底；进行中的一轮仍跑完
+                _forceRun = false;
+                _pendingEvent = false;
+                if (!_pipelineRunning && _state == StIdle)
+                {
+                    StopTimer();
+                }
+            }
+
+            Tip("提取采集物已关闭");
+        }
+    }
+
+    /// <summary>脚本页切换；返回是否开启。</summary>
+    public static bool ToggleScriptLoopFromUi()
+    {
+        Bootstrap();
+        var enable = !ScriptLoopEnabled;
+        SetScriptLoopEnabled(enable);
+        return enable;
     }
 
     /// <summary>面板战斗页：切换；返回是否开启。</summary>
     public static bool ToggleFromUi()
     {
         Bootstrap();
-        var enable = !IsPipelineActive();
+        var enable = !IsBattlePipelineOn();
         SetEnabled(enable);
         return enable;
+    }
+
+    private static bool IsBattlePipelineOn()
+    {
+        return PipelineEnabled || ReadPipelineEnabledFromAnyCopy();
     }
 
     /// <summary>侧栏百科切换（兼容旧入口）。</summary>
     public static bool OnWikiClick()
     {
-        Bootstrap();
-        var enable = !IsPipelineActive();
-        SetEnabled(enable);
-        return enable;
+        return ToggleFromUi();
     }
 
     /// <summary>面板标题协调用：后缀，未开启返回空。</summary>
     public static string BuildTitleSuffix()
     {
-        if (!IsPipelineActive())
+        if (ScriptLoopEnabled)
+        {
+            if (_scriptExtractFailCount > 0)
+            {
+                return "★提取采集★跳过" + _scriptExtractFailCount;
+            }
+
+            return "★提取采集★";
+        }
+
+        if (!IsBattlePipelineOn())
         {
             return "";
         }
@@ -185,19 +265,14 @@ public static class SeqChapterAreaExtract
         return _fullSlotCount;
     }
 
-    /// <summary>立刻提取（脚本页按钮）：绕过冷却，强制开始一轮；返回当前已知满格数。</summary>
+    /// <summary>立刻提取（兼容旧入口）：绕过冷却，强制开始一轮；返回当前已知满格数。</summary>
     public static int ExtractNowFromUi()
     {
         Bootstrap();
-        if (!IsPipelineActive())
-        {
-            // 手动点按钮即使总开关未开也应执行一轮，但不改变开关状态
-        }
-
         EnsureTimer();
         _forceRun = true;
         _pendingEvent = true;
-        _lastSendMs = 0; // 立刻提取：清冷却
+        _lastSendMs = 0;
         return _fullSlotCount;
     }
 
@@ -301,7 +376,7 @@ public static class SeqChapterAreaExtract
 
     private static void Tick()
     {
-        // 总开关关闭时只允许「立刻提取 / 护航战斗满30场」这一轮跑完，不走 10 分钟兜底。
+        // 总开关与脚本循环都关时：只允许进行中的强制一轮跑完
         var forced = _forceRun || _pipelineRunning || _state != StIdle;
         if (!IsPipelineActive() && !forced)
         {
@@ -327,16 +402,18 @@ public static class SeqChapterAreaExtract
             case StIdle:
             {
                 var now = NowMs();
-                var due = _pendingEvent
-                          || _forceRun
-                          || (_uids == null && now - _lastScanMs >= ScanIntervalMs);
+                var scriptDue = ScriptLoopEnabled
+                                && now - _lastScanMs >= ScriptLoopIntervalMs;
+                var pipelineDue = IsBattlePipelineOn()
+                                  && (_uids == null && now - _lastScanMs >= ScanIntervalMs);
+                var due = _pendingEvent || _forceRun || scriptDue || pipelineDue;
                 if (!due)
                 {
                     return;
                 }
 
-                // 采集推送只排队；仅面板强制 / 立刻提取可绕过冷却
-                if (!_forceRun && now - _lastSendMs < ExtractCooldownMs)
+                // 采集推送只排队；面板强制 / 脚本循环到期 / 立刻提取可绕过冷却
+                if (!_forceRun && !scriptDue && now - _lastSendMs < ExtractCooldownMs)
                 {
                     return;
                 }
@@ -445,6 +522,7 @@ public static class SeqChapterAreaExtract
                 if (pile >= FullPile)
                 {
                     _fullSlotCount++;
+                    _attempt = 0;
                     _state = StExtract;
                     return;
                 }
@@ -467,7 +545,7 @@ public static class SeqChapterAreaExtract
                     _lastSendMs = NowMs();
                 }
 
-                _attempt = 0;
+                // 注意：勿在此清零 _attempt，否则缺金币等失败会无限重试
                 _waitTicks = 0;
                 _state = StWaitExtract;
                 return;
@@ -482,9 +560,32 @@ public static class SeqChapterAreaExtract
 
                 var uid = _uids[_uidIndex];
                 var cur = ReadSlotPile(uid, _slotIndex);
-                if (cur >= 0 && cur < FullPile)
+                // 数据暂时读不到：继续等，勿当失败（切号/回包未到）
+                if (cur < 0)
+                {
+                    if (_waitTicks >= WaitTicksMax)
+                    {
+                        // 超时仍无数据：重发提取，不计入「格失败」直到 attempt 用尽
+                        _attempt++;
+                        if (_attempt < MaxAttemptsPerSlot)
+                        {
+                            _state = StExtract;
+                        }
+                        else
+                        {
+                            OnScriptExtractSlotSkipped(uid, _slotIndex, "无回包");
+                            _state = StAdvanceSlot;
+                        }
+                    }
+
+                    return;
+                }
+
+                if (cur < FullPile)
                 {
                     _extractedCount++;
+                    // 本轮有成功：清零跳过计数，避免偶发超时累积吓人
+                    _scriptExtractFailCount = 0;
                     _state = StAdvanceSlot;
                     return;
                 }
@@ -498,6 +599,8 @@ public static class SeqChapterAreaExtract
                     }
                     else
                     {
+                        // 本格多次仍满（缺金币/银行满等）：跳过该格，继续后面
+                        OnScriptExtractSlotSkipped(uid, _slotIndex, "仍满格");
                         _state = StAdvanceSlot;
                     }
                 }
@@ -554,10 +657,26 @@ public static class SeqChapterAreaExtract
                 {
                     Tip("自动提取：本轮提取 " + _extractedCount + " 格到账号银行");
                 }
+                else if (ScriptLoopEnabled)
+                {
+                    Tip("提取采集物：本轮无满格可提");
+                }
 
                 _state = StIdle;
                 return;
             }
+        }
+    }
+
+    /// <summary>单格多次仍提不出：跳过；连续多次才 Tip，不关开关。</summary>
+    private static void OnScriptExtractSlotSkipped(string uid, int slotIndex, string reason)
+    {
+        _scriptExtractFailCount++;
+        if (ScriptLoopEnabled && _scriptExtractFailCount >= ScriptLoopWarnFails)
+        {
+            Tip("提取采集物：已连续跳过 " + _scriptExtractFailCount
+                + " 格（" + reason + "），检查金币/银行后继续");
+            _scriptExtractFailCount = ScriptLoopWarnFails / 2;
         }
     }
 

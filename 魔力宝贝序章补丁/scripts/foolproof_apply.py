@@ -117,7 +117,7 @@ def run_foolproof_patch(
     dragon_loop_ui：护航面板「龙族循环A/B」按钮开关，默认开。傻瓜补丁分「带龙族」（True）/
         「原版」（False）两版，唯一差别就是这个按钮标记。
     apply_frameskip：跳帧开关（切后台/老板键限帧 30FPS），默认开。
-    inject_bridge：多开器适配功能开关，默认开（注入精简桥接，多开器登录/拉多控/一键召唤）。
+    inject_bridge：中控适配功能开关，默认开（注入精简桥接，中控登录/拉多控/一键召唤/下发指令）。
         开启后注入 SeqChapterMiniBridge 精简桥接外部 DLL + hook（多开/账号登录/一键召唤）。
     daily_claim / newbie_gift_code：分享切页（默认开）。
     gift_codes：可编辑礼包码；None 用默认。
@@ -259,15 +259,28 @@ def run_foolproof_patch(
             "跳过动画：默认关闭（助手战斗页可手动开）",
         )
 
+    if kwargs.get("single_to_aoe_default"):
+        _emit(
+            messages,
+            on_log,
+            "单体变群体：默认开启（助手战斗页可关）",
+        )
+    else:
+        _emit(
+            messages,
+            on_log,
+            "单体变群体：默认关闭（助手战斗页可手动开）",
+        )
+
     _emit(messages, on_log, "正在余量预检（启动补丁引擎，首次可能较慢）…")
     if inject_bridge:
         _emit(
             messages,
             on_log,
-            "多开器适配功能：开启（注入精简桥接，供多开器登录/拉多控/一键召唤；占 hotfixdata 容量）",
+            "中控适配功能：开启（注入精简桥接，供中控登录/拉多控/一键召唤/下发指令；占 hotfixdata 容量）",
         )
     else:
-        _emit(messages, on_log, "多开器适配功能：关闭（需用多开器时请勾选「多开器适配功能」）")
+        _emit(messages, on_log, "中控适配功能：关闭（需用中控时请勾选「中控适配功能」）")
     try:
         precheck = ["longpress"]
         if apply_accel:
@@ -318,7 +331,7 @@ def run_foolproof_patch(
             bits.append("礼包码")
         daily_part = " · 分享切页(" + "+".join(bits) + ")"
     gm_part = " · 客服→高级自动战斗" if kwargs.get("customer_gm") else ""
-    bridge_part = " · 多开器适配(精简桥接)" if inject_bridge else ""
+    bridge_part = " · 中控适配(精简桥接)" if inject_bridge else ""
     # 九动已永久封存：新发布包一律不带，且不再特意说明「无九动」。
     nine_part = f" · 九动{nine_label}" if enable_nine else ""
     accel2_part = " · 加速2(表现加速)" if apply_accel2 else ""

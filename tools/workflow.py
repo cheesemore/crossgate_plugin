@@ -13,7 +13,7 @@
 
 说明：
   status            cross / crosscopy / 补丁状态一览
-  update            客户端更新一条龙（调用 cross_update.auto-update）
+  update            客户端更新一条龙（反外挂 + 锚点自检，通过后才同步重打）
   repatch           用 DEFAULT_COMBO_KWARGS 从 .orig 重打 cross（需关游戏）
   publish-foolproof 只打傻瓜补丁融合版
   publish-all       按 publish_packs.json 默认清单发布

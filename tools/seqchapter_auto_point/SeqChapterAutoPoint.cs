@@ -7,8 +7,8 @@ using System.Reflection;
 /// 一键加点 DLL。部署为 hotfixdata/SeqChapterAutoPoint.dll.bytes
 /// 由助手面板「脚本」页「一键加点」按钮触发（RunAllFromUi）。
 ///
-/// 人物：按「推荐加点」第一个方案加。职业匹配 PlayerData.Job % 10 == AddPlayerPointConfig.JobType，
-///      取 UpPoint[0]（第一套方案，格式 血N攻N强N速N魔N），复刻 RoleBPChildPanel.ApplyPlanAddPoint
+/// 人物：按「推荐加点」第一个方案加。职业匹配 job - job%10 == AddPlayerPointConfig.JobType，
+///      取 UpPoint[0]（第一套方案，格式如 1体2力1速），复刻 RoleBPChildPanel.ApplyPlanAddPoint
 ///      的分配算法（方案目标值分配 + 剩余点按权重分配），发 RoleManager.SendAddOrCutBp("加点", ...)。
 /// 宠物：先加力量。单属性 BP 不能超过总数值的一半（爆点上限 = floor(总BP/2)，
 ///      总BP = 当前5项BP(除100) + 可加点数）。加到爆点极限，爆了就跳过剩下的点。
@@ -23,6 +23,8 @@ public static class SeqChapterAutoPoint
     public const int PointsPerLevel = 4;
     /// <summary>分配精度：人物初始点数（复刻 ApplyPlanAddPoint）。</summary>
     public const int BasePoints = 30;
+    /// <summary>官方 m_planValue 键序：体/力/强/速/魔（对应 vital/str/tgh/dex/magic）。</summary>
+    private static readonly string[] PlanKeys = { "体", "力", "强", "速", "魔" };
 
     public static void Bootstrap()
     {
@@ -109,7 +111,7 @@ public static class SeqChapterAutoPoint
             return false;
         }
 
-        // 解析方案：weights[5] = [血, 攻, 强, 速, 魔]
+        // 解析方案：weights[5] = [体, 力, 强, 速, 魔]
         var weights = ParsePlan(plan);
         var wsum = 0;
         for (var i = 0; i < 5; i++)
@@ -309,7 +311,10 @@ public static class SeqChapterAutoPoint
         return null;
     }
 
-    /// <summary>解析 方案字符串（血N攻N强N速N魔N 或 N血N攻N强N速N魔 均兼容）→ [血, 攻, 强, 速, 魔]。</summary>
+    /// <summary>
+    /// 解析方案字符串 → [体, 力, 强, 速, 魔]。
+    /// 官方 ParsePlanValue 只认「数字+属性字」（如 1体2力1速）；属性字为 体/力/强/速/魔。
+    /// </summary>
     private static int[] ParsePlan(string plan)
     {
         var result = new int[5];
@@ -318,8 +323,6 @@ public static class SeqChapterAutoPoint
             return result;
         }
 
-        // 属性字符（与 m_planValue 键一致）
-        var keys = new[] { "血", "攻", "强", "速", "魔" };
         var i = 0;
         while (i < plan.Length)
         {
@@ -335,39 +338,52 @@ public static class SeqChapterAutoPoint
                 i++;
             }
 
-            var numEnd = i;
-            var value = int.TryParse(plan.Substring(numStart, numEnd - numStart), out var v) ? v : 0;
-
-            // 数字前面的属性字符（格式：血1攻2强3速4魔5）
-            if (numStart > 0)
+            if (i >= plan.Length)
             {
-                var prev = plan.Substring(numStart - 1, 1);
-                for (var k = 0; k < keys.Length; k++)
-                {
-                    if (string.Equals(prev, keys[k], StringComparison.Ordinal))
-                    {
-                        result[k] = value;
-                        break;
-                    }
-                }
+                break;
             }
 
-            // 数字后面的属性字符（格式：1血2攻3强4速5魔）
-            if (numEnd < plan.Length)
+            var value = int.TryParse(plan.Substring(numStart, i - numStart), out var v) ? v : 0;
+            var key = plan.Substring(i, 1);
+            var slot = PlanKeyIndex(key);
+            if (slot >= 0)
             {
-                var next = plan.Substring(numEnd, 1);
-                for (var k = 0; k < keys.Length; k++)
-                {
-                    if (string.Equals(next, keys[k], StringComparison.Ordinal))
-                    {
-                        result[k] = value;
-                        break;
-                    }
-                }
+                result[slot] = value;
             }
+
+            i++;
         }
 
         return result;
+    }
+
+    private static int PlanKeyIndex(string key)
+    {
+        if (string.IsNullOrEmpty(key))
+        {
+            return -1;
+        }
+
+        for (var k = 0; k < PlanKeys.Length; k++)
+        {
+            if (string.Equals(key, PlanKeys[k], StringComparison.Ordinal))
+            {
+                return k;
+            }
+        }
+
+        // 旧文案兜底：血→体、攻→力
+        if (string.Equals(key, "血", StringComparison.Ordinal))
+        {
+            return 0;
+        }
+
+        if (string.Equals(key, "攻", StringComparison.Ordinal))
+        {
+            return 1;
+        }
+
+        return -1;
     }
 
     /// <summary>复刻 RoleBPChildPanel.DistributeByWeight：按权重把 total 分配给各元素。</summary>

@@ -103,11 +103,11 @@ SERIES_CLEANUP_PREFIXES.extend(
 ENTRY = SCRIPTS_DIR / "foolproof_gui.py"
 BAT_NAME = "一键打补丁.bat"
 
-# 多开器（随包发布）：源码在「新序章多开器」，入口 multi_launcher_gui.py，
-# 依赖「序章助手共享/assistant_common」。PyInstaller 打成独立 exe。
-LAUNCHER_ENTRY = GAME_ROOT / "新序章多开器" / "scripts" / "multi_launcher_gui.py"
+# 中控（随包发布）：源码在「序章中控」，入口 central_control_gui.py，
+# 依赖「序章助手共享/assistant_common」和同目录 monitor_tab.py。PyInstaller 打成独立 exe。
+LAUNCHER_ENTRY = GAME_ROOT / "序章中控" / "scripts" / "central_control_gui.py"
 LAUNCHER_SHARED = GAME_ROOT / "序章助手共享"
-LAUNCHER_NAME = "多开器"
+LAUNCHER_NAME = "中控"
 
 # 窗口监视：随包发布（包根 窗口监视.exe + 窗口监视\窗口监视.exe）
 WINDOW_MONITOR_ENTRY = SCRIPTS_DIR / "window_monitor_gui.py"
@@ -155,25 +155,25 @@ def _readme_content(app_name: str) -> str:
 · 战斗模式默认：抓宠（无宠二动）/ 抓宠 / 抓宠卖银币 / 烧卡 / 计数挂机（面板内互斥切换）
 · 采集自动提取：战斗页独立开关，与战斗模式共存；对账号所有在线角色（五开/队伍）已采集5格单格满999，逐格节奏式提取到账号银行（0.4s 状态机节奏，不瞬间刷屏）；脚本页「立刻提取采集物」可手动触发一轮
 · 面板「脚本」页：做日常 / 礼包码 / 立刻提取采集物
-· 助手战斗页「跳过动画」：默认关闭（PVE 可在面板内手动开）
+· 助手战斗页「跳过动画」「单体变群体」：默认关闭（PVE 可在面板内手动开；大乱斗/PVP 会强制关）
 · 外层「移动加速」：可选地图 Sprint 8 倍（默认不勾）
 · 护航面板含七夕 #119 循环（阿凯版/哥拉尔版；存兑换券后计一轮，丢队长绿/红头盔后再法兰治疗，然后下一轮；临时活动）
-· 界面外层选项：「战斗加速」（默认关：开启→战斗倍速+心跳回传1.5x，会连带掐断倍速检测上报；关→原速+心跳回传1.0x）、「跳帧（切后台/老板键限帧 30FPS）」与「多开器适配功能」（默认不打：勾选=注入精简桥接，供包内「多开器」登录/拉多控/一键召唤；占 hotfixdata 容量）
+· 界面外层选项：「战斗加速」（默认关：开启→战斗倍速+心跳回传1.5x，会连带掐断倍速检测上报；关→原速+心跳回传1.0x）、「跳帧（切后台/老板键限帧 30FPS）」与「中控适配功能」（默认不打：勾选=注入精简桥接，供包内「中控」登录/拉多控/一键召唤/下发指令；占 hotfixdata 容量）
 · 默认含：分享改日常、礼包码
-· 随包附「多开器」（多开器\多开器.exe，界面「启动多开器」按钮）：多开器需要打「多开器适配功能」才能连接游戏
+· 随包附「中控」（中控\\中控.exe，界面「启动中控」按钮）：中控需要打「中控适配功能」才能连接游戏
 · 随包附「窗口监视.exe」（包根，也可「启动窗口监视.bat」或界面按钮）：右下角置顶，刷新 cg37 标题；可填 Bark；左侧选中窗口「开启/关闭监控」决定哪些进护航战斗监控（金色）；仅已监控窗口在停战/180秒无战斗结束/卡死时 Bark（10 分钟最多 1 次）
 · 勾选「移动加速」可在打补丁时一并开启
 
 【用法】
 1. 关掉游戏，解压到游戏目录（与 cg37.exe 同级或子文件夹）
 2. 双击「一键打补丁.bat」
-3. 勾选/取消「战斗加速」「跳帧」「多开器适配功能」后点「一键打补丁」
+3. 勾选/取消「战斗加速」「跳帧」「中控适配功能」后点「一键打补丁」
 4. 进游戏用百科面板切换战斗模式
 5. 换皮预览：界面「启动动画预览」（依赖上方填写的游戏目录资源）
-6. 多开：界面「启动多开器」→ 勾选「多开器适配功能」打补丁后，多开器可登录/拉多控/一键召唤
+6. 中控：界面「启动中控」→ 勾选「中控适配功能」打补丁后，中控可登录/拉多控/一键召唤/下发指令
 7. 窗口监视：解压后双击「窗口监视.exe」或「启动窗口监视.bat」，也可在界面点「启动窗口监视」
 
-多开：多开器/序章助手需要勾选「注入桥接」后连接（桥接含多开、账号登录、一键召唤等）。
+多开：中控/序章助手需要勾选「注入桥接」后连接（桥接含多开、账号登录、一键召唤等）。
 
 客户端不干净时：界面「从干净目录恢复…」选手选干净客户端后再打。
 """
@@ -476,15 +476,15 @@ def build_exe(app_name: str = APP_NAME, dragon_loop_ui: bool = False) -> Path:
 
 
 def _build_launcher_exe(out_dir: Path) -> None:
-    """用 PyInstaller 把新序章多开器打成独立 exe，放入傻瓜补丁包目录。
+    """用 PyInstaller 把序章中控打成独立 exe，放入傻瓜补丁包目录。
 
-    多开器依赖「序章助手共享/assistant_common」，通过 --paths 带上；
-    打出的 exe 放包根（多开器.exe），供傻瓜补丁 GUI「启动多开器」按钮调用。
+    中控依赖「序章助手共享/assistant_common」和同目录 monitor_tab.py，通过 --paths 带上；
+    打出的目录为「中控\\中控.exe」，供傻瓜补丁 GUI「启动中控」按钮调用。
     """
     if not LAUNCHER_ENTRY.is_file():
-        raise FileNotFoundError(f"找不到多开器入口: {LAUNCHER_ENTRY}")
+        raise FileNotFoundError(f"找不到中控入口: {LAUNCHER_ENTRY}")
     if not LAUNCHER_SHARED.is_dir():
-        raise FileNotFoundError(f"找不到多开器共享库: {LAUNCHER_SHARED}")
+        raise FileNotFoundError(f"找不到中控共享库: {LAUNCHER_SHARED}")
 
     launcher_dist = DIST_DIR / "_launcher_dist"
     if launcher_dist.is_dir():
@@ -530,6 +530,8 @@ def _build_launcher_exe(out_dir: Path) -> None:
         "--hidden-import",
         "assistant_common.subprocess_win",
         "--hidden-import",
+        "monitor_tab",
+        "--hidden-import",
         "openpyxl",
         "--hidden-import",
         "openpyxl.styles",
@@ -574,12 +576,12 @@ def _build_launcher_exe(out_dir: Path) -> None:
     built_dir = launcher_dist / LAUNCHER_NAME
     built = built_dir / f"{LAUNCHER_NAME}.exe"
     if not built.is_file():
-        raise RuntimeError(f"未生成多开器 exe: {built}")
+        raise RuntimeError(f"未生成中控 exe: {built}")
     dst = out_dir / LAUNCHER_NAME
     if dst.is_dir():
         shutil.rmtree(dst, ignore_errors=True)
     shutil.copytree(built_dir, dst)
-    print(f"[OK] 多开器目录 -> {dst}")
+    print(f"[OK] 中控目录 -> {dst}")
 
 
 def _build_window_monitor_exe(out_dir: Path) -> None:
@@ -676,7 +678,7 @@ def verify_pack(folder: Path, zip_path: Path, app_name: str = APP_NAME) -> None:
         folder / "patcher" / "HotfixPatcher.exe",
         folder / BAT_NAME,
         folder / WINDOW_MONITOR_BAT,
-        folder / "多开器" / "多开器.exe",
+        folder / LAUNCHER_NAME / f"{LAUNCHER_NAME}.exe",
         folder / f"{WINDOW_MONITOR_NAME}.exe",
         folder / WINDOW_MONITOR_NAME / f"{WINDOW_MONITOR_NAME}.exe",
     ]
@@ -693,7 +695,7 @@ def verify_pack(folder: Path, zip_path: Path, app_name: str = APP_NAME) -> None:
         folder / "patcher" / "seqchapter_helper_bridge",
         folder / "patcher" / "seqchapter_mini_bridge",
         folder / "tools" / "seqchapter_auto_catch_wild",
-        folder / "多开器",
+        folder / LAUNCHER_NAME,
         folder / WINDOW_MONITOR_NAME,
     ]
     missing = [str(p.relative_to(folder)) for p in file_required if not p.is_file()]
@@ -712,7 +714,7 @@ def verify_pack(folder: Path, zip_path: Path, app_name: str = APP_NAME) -> None:
         f"{app_name}/patcher/HotfixPatcher.exe",
         f"{app_name}/{BAT_NAME}",
         f"{app_name}/{WINDOW_MONITOR_BAT}",
-        f"{app_name}/多开器/多开器.exe",
+        f"{app_name}/{LAUNCHER_NAME}/{LAUNCHER_NAME}.exe",
         f"{app_name}/{WINDOW_MONITOR_NAME}.exe",
         f"{app_name}/{WINDOW_MONITOR_NAME}/{WINDOW_MONITOR_NAME}.exe",
     ]
@@ -726,7 +728,7 @@ def verify_pack(folder: Path, zip_path: Path, app_name: str = APP_NAME) -> None:
         f"{app_name}/patcher/seqchapter_helper_bridge/",
         f"{app_name}/patcher/seqchapter_mini_bridge/",
         f"{app_name}/tools/seqchapter_auto_catch_wild/",
-        f"{app_name}/多开器/_internal/",
+        f"{app_name}/{LAUNCHER_NAME}/_internal/",
     ]
     zip_missing = [n for n in zip_required if n not in names]
     zip_missing += [p for p in zip_dir_prefixes if not any(n.startswith(p) for n in names)]

@@ -33,8 +33,7 @@ public static class SeqChapterDailyClaim
     /// <summary>内置默认礼包码（无外部文件时使用）。</summary>
     private static readonly string[] DefaultNewbieGiftCodes =
     {
-        "VIP666", "VIP777", "VIP888", "VIP999",
-        "mlbb0911",
+        "mlbb0924",
     };
 
     /// <summary>运行时列表：优先读 hotfixdata/seqchapter_gift_codes.txt（一行一个，# 注释）。</summary>
@@ -74,6 +73,8 @@ public static class SeqChapterDailyClaim
     private static int _monthClaims;
     private static int _onlineClaims;
     private static int _itemUses;
+    private static int _mailClaims;
+    private static int _mailUidIndex;
     private static string _expectInfoType;
     private static string _expectUid;
 
@@ -90,6 +91,15 @@ public static class SeqChapterDailyClaim
         661330, 661331, 661332, 661333, 661334, 661335, 661538,
         // 工时小闹钟（含 3小时 / 6小时）— 使用后常弹 MessageBox 二次确认
         661355, 661536, 920043,
+    };
+
+    /// <summary>
+    /// 按名字白名单（Name/Secretname 包含即用）。与 UseItemIds 并列；
+    /// 「恢复之石」一类不依赖固定道具 Id。
+    /// </summary>
+    private static readonly string[] UseItemNameKeywords =
+    {
+        "恢复之石",
     };
 
     /// <summary>使用后需点 MessageBox 确定才会真正消耗的道具。</summary>
@@ -137,6 +147,14 @@ public static class SeqChapterDailyClaim
     private const int StDone = 12;
     private const int StGiftSend = 20;
     private const int StGiftDone = 21;
+    /// <summary>用道具之前：每个角色发一次「领取邮件」。</summary>
+    private const int StMailPrep = 22;
+    private const int StMailTick = 23;
+
+    /// <summary>最近一次日常流水线给中控看的结果。进行中时文本为「进行中」。</summary>
+    public static string ControlResultText = "";
+    public static bool ControlResultOk;
+    public static long ControlResultUnix;
 
     public static void Bootstrap()
     {
@@ -341,6 +359,25 @@ public static class SeqChapterDailyClaim
         return StartUseItemsPipeline();
     }
 
+    /// <summary>中控「做日常」。已在跑则失败，不把进行中的流水线停掉。</summary>
+    public static string StartDailyFromControl()
+    {
+        Bootstrap();
+        if (_pipelineRunning || IsAnyCopyPipelineRunning())
+        {
+            return "日常已在运行";
+        }
+
+        SetControlResult(false, "进行中");
+        if (!StartDailyPipeline())
+        {
+            SetControlResult(false, "未找到角色");
+            return "未找到角色";
+        }
+
+        return "已启动";
+    }
+
     /// <summary>
     /// 分享：切页（日常 / 新手礼包码）→ 限时内再点开始；进行中再点则停止。
     /// 返回值仅兼容加载器；提示一律走 Tip()。
@@ -436,6 +473,8 @@ public static class SeqChapterDailyClaim
         _monthClaims = 0;
         _onlineClaims = 0;
         _itemUses = 0;
+        _mailClaims = 0;
+        _mailUidIndex = 0;
         _uidIndex = 0;
         _state = StSendMonthInfo;
         _waitTicks = 0;
@@ -556,6 +595,8 @@ public static class SeqChapterDailyClaim
             case StNextUid: return "下一角色";
             case StUsePrep: return "用道具准备";
             case StUseTick: return "用道具";
+            case StMailPrep: return "领邮件准备";
+            case StMailTick: return "领邮件";
             case StDone: return "完成";
             case StGiftSend: return "发礼包码";
             case StGiftDone: return "礼包码完成";
@@ -755,10 +796,11 @@ public static class SeqChapterDailyClaim
         {
             TraceTip("整条流水线超时，强制结束");
             FinishDaily(string.Format(
-                "日常超时结束：签到{0} · 月卡{1} · 在线{2}档 · 用道具{3}次",
+                "日常超时结束：签到{0} · 月卡{1} · 在线{2}档 · 邮件{3} · 用道具{4}次",
                 _signClaims,
                 _monthClaims,
                 _onlineClaims,
+                _mailClaims,
                 _itemUses));
             return;
         }
@@ -771,8 +813,8 @@ public static class SeqChapterDailyClaim
             {
                 if (_uidIndex >= _uids.Count)
                 {
-                    TraceTip("列表角色已走完→用道具");
-                    _state = StUsePrep;
+                    TraceTip("列表角色已走完→领邮件");
+                    _state = StMailPrep;
                     return;
                 }
 
@@ -880,8 +922,8 @@ public static class SeqChapterDailyClaim
             {
                 if (_uids == null || _uidIndex >= _uids.Count)
                 {
-                    TraceTip("月卡角色已走完→用道具");
-                    _state = StUsePrep;
+                    TraceTip("月卡角色已走完→领邮件");
+                    _state = StMailPrep;
                     return;
                 }
 
@@ -1074,13 +1116,42 @@ public static class SeqChapterDailyClaim
                 _uidIndex++;
                 if (_uids == null || _uidIndex >= _uids.Count)
                 {
-                    TraceTip("全部角色领完→用道具");
-                    _state = StUsePrep;
+                    TraceTip("全部角色领完→领邮件");
+                    _state = StMailPrep;
                     return;
                 }
 
                 TraceTip("切换下一角色");
                 _state = StSendMonthInfo;
+                return;
+            }
+            case StMailPrep:
+            {
+                _mailUidIndex = 0;
+                _waitTicks = 0;
+                TraceTip("开始领取邮件");
+                _state = StMailTick;
+                return;
+            }
+            case StMailTick:
+            {
+                if (_waitTicks > 0)
+                {
+                    _waitTicks--;
+                    return;
+                }
+
+                if (_uids == null || _mailUidIndex >= _uids.Count)
+                {
+                    TraceTip("邮件领完→用道具 已发" + _mailClaims);
+                    _state = StUsePrep;
+                    return;
+                }
+
+                SendClaimAllMail(_uids[_mailUidIndex]);
+                _mailClaims++;
+                _mailUidIndex++;
+                _waitTicks = 2;
                 return;
             }
             case StUsePrep:
@@ -1158,10 +1229,11 @@ public static class SeqChapterDailyClaim
                 else
                 {
                     FinishDaily(string.Format(
-                        "日常完成：签到{0} · 月卡{1} · 在线{2}档 · 用道具{3}次",
+                        "日常完成：签到{0} · 月卡{1} · 在线{2}档 · 邮件{3} · 用道具{4}次",
                         _signClaims,
                         _monthClaims,
                         _onlineClaims,
+                        _mailClaims,
                         _itemUses));
                 }
 
@@ -1286,9 +1358,14 @@ public static class SeqChapterDailyClaim
                 var itemName = data != null
                     ? (Convert.ToString(GetMember(data, "Name") ?? "") ?? "")
                     : "";
+                var itemSecret = data != null
+                    ? (Convert.ToString(GetMember(data, "Secretname") ?? "") ?? "")
+                    : "";
                 // 不做「水晶石」：日常/单独用道具都跳过
-                if (!string.IsNullOrEmpty(itemName)
-                    && itemName.IndexOf("水晶石", StringComparison.Ordinal) >= 0)
+                if ((!string.IsNullOrEmpty(itemName)
+                     && itemName.IndexOf("水晶石", StringComparison.Ordinal) >= 0)
+                    || (!string.IsNullOrEmpty(itemSecret)
+                        && itemSecret.IndexOf("水晶石", StringComparison.Ordinal) >= 0))
                 {
                     _useSlot++;
                     _useAttempt = 0;
@@ -1296,7 +1373,7 @@ public static class SeqChapterDailyClaim
                     continue;
                 }
 
-                if (!UseItemIds.Contains(itemId))
+                if (!UseItemIds.Contains(itemId) && !ItemNameMatchesUseKeyword(itemName, itemSecret))
                 {
                     _useSlot++;
                     _useAttempt = 0;
@@ -1406,8 +1483,64 @@ public static class SeqChapterDailyClaim
         _confirmWaitTicks = 0;
         _pipelineTicks = 0;
         _skipConfirmTicks = 0;
+        if (tip != null && tip.StartsWith("日常"))
+        {
+            // 领在线礼包时客户端会打开主界面「福利」并切到在线礼包页，做完关掉。
+            TryCloseActivityPanel();
+        }
+
         Tip(tip);
         WriteStatus("daily_done", tip);
+        if (tip != null && tip.StartsWith("日常"))
+        {
+            var ok = tip.StartsWith("日常完成");
+            SetControlResult(ok, tip);
+        }
+    }
+
+    private static void SetControlResult(bool ok, string text)
+    {
+        ControlResultOk = ok;
+        ControlResultText = text ?? "";
+        ControlResultUnix = (long)(DateTime.UtcNow - new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc)).TotalSeconds;
+    }
+
+    /// <summary>每个角色一键领邮件。与邮箱「全部领取」相同：Type=领取邮件，Id=0。</summary>
+    private static void SendClaimAllMail(string uid)
+    {
+        if (string.IsNullOrEmpty(uid))
+        {
+            return;
+        }
+
+        try
+        {
+            var mgr = GetManagerInstance("ChatManager");
+            if (mgr == null)
+            {
+                TraceTip("领邮件失败：没有 ChatManager");
+                return;
+            }
+
+            var send = mgr.GetType().GetMethod(
+                "ProcessSendMail",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+                null,
+                new[] { typeof(string), typeof(string), typeof(string) },
+                null);
+            if (send == null)
+            {
+                TraceTip("领邮件失败：没有 ProcessSendMail");
+                return;
+            }
+
+            send.Invoke(mgr, new object[] { "领取邮件", "0", uid });
+            TraceTip("已领邮件 uid尾" + (uid.Length > 4 ? uid.Substring(uid.Length - 4) : uid));
+        }
+        catch (Exception ex)
+        {
+            TraceTip("领邮件异常 " + ex.GetType().Name);
+        }
     }
 
     /// <summary>强制中止：停 Timer、清状态；并尽量同步其它已 Load 的 DLL 副本。</summary>
@@ -1422,6 +1555,7 @@ public static class SeqChapterDailyClaim
             // ignore
         }
 
+        var closeWelfare = _pipelineRunning && !_runningGift && !_runningUseItems;
         _pipelineRunning = false;
         _runningGift = false;
         _runningUseItems = false;
@@ -1434,6 +1568,15 @@ public static class SeqChapterDailyClaim
         _uids = null;
         _onlineClaimable = null;
         _pendingInfo = null;
+        if (closeWelfare)
+        {
+            TryCloseActivityPanel();
+        }
+
+        if (ControlResultText == "进行中")
+        {
+            SetControlResult(false, "日常已停止");
+        }
         WriteStatus("daily_aborted", "user_stop");
 
         try
@@ -1840,12 +1983,26 @@ public static class SeqChapterDailyClaim
 
     private static void TryCloseBackPackPanel()
     {
+        TryCloseNamedPanel("BackPackPanel");
+    }
+
+    /// <summary>关掉主界面福利（ActivityPanel，在线礼包是它的切页）。已关则忽略。</summary>
+    private static void TryCloseActivityPanel()
+    {
+        if (TryCloseNamedPanel("ActivityPanel"))
+        {
+            TraceTip("已关福利界面");
+        }
+    }
+
+    private static bool TryCloseNamedPanel(string typeName)
+    {
         try
         {
-            var panel = FindExistingUiPanel("BackPackPanel");
+            var panel = FindExistingUiPanel(typeName);
             if (panel == null)
             {
-                return;
+                return false;
             }
 
             MethodInfo close = null;
@@ -1864,11 +2021,14 @@ public static class SeqChapterDailyClaim
             }
 
             close?.Invoke(panel, null);
+            return close != null;
         }
         catch
         {
             // ignore
         }
+
+        return false;
     }
 
     private static object FindExistingUiPanel(string typeName)
@@ -2196,6 +2356,35 @@ public static class SeqChapterDailyClaim
         }
 
         send.Invoke(mgr, args);
+    }
+
+    private static bool ItemNameMatchesUseKeyword(string name, string secret)
+    {
+        if (UseItemNameKeywords == null || UseItemNameKeywords.Length == 0)
+        {
+            return false;
+        }
+
+        for (var i = 0; i < UseItemNameKeywords.Length; i++)
+        {
+            var kw = UseItemNameKeywords[i];
+            if (string.IsNullOrEmpty(kw))
+            {
+                continue;
+            }
+
+            if (!string.IsNullOrEmpty(name) && name.IndexOf(kw, StringComparison.Ordinal) >= 0)
+            {
+                return true;
+            }
+
+            if (!string.IsNullOrEmpty(secret) && secret.IndexOf(kw, StringComparison.Ordinal) >= 0)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static bool SendUseItem(int haveItemIndex, string uid)

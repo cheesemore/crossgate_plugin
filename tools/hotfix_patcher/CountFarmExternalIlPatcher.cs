@@ -5,7 +5,7 @@ namespace CrossgateMod.Patcher;
 
 /// <summary>
 /// 计数挂机·DLL版：编译并部署 SeqChapterCountFarm.dll.bytes。
-/// 由助手面板战斗模式页互斥加载（EnsureFeatureType → Bootstrap 钩 EventCenter.EnterBattle）。
+/// 由助手面板战斗模式页互斥加载（EnsureFeatureType → Bootstrap 钩 EnterBattle/ExitBattle）。
 /// 只部署 DLL，不改 hotfix IL 体积。
 /// </summary>
 internal static class CountFarmExternalIlPatcher

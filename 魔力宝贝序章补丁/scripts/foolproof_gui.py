@@ -6,7 +6,7 @@
 
 界面外层选项：「战斗加速」（开→战斗倍速+心跳回传1.5x；关→原速+心跳回传1.0x）、
 「移动加速」（地图 Sprint 8 倍，默认关，可与战斗加速分开勾）、
-「跳帧」（切后台/老板键限帧 30FPS）与「注入桥接」（默认关，占容量；多开器/助手需连接时勾）。
+「跳帧」（切后台/老板键限帧 30FPS）与「中控适配功能」（默认开，占容量；中控/助手需连接时勾）。
 抓宠/烧卡等在游戏内百科助手面板切换。
 
 用法：
@@ -165,7 +165,7 @@ class FoolproofApp(tk.Tk):
             "             「加速2」（战斗加速方案2：只加速表现，可与战斗加速共存）\n"
             "             「移动加速」（默认关：地图 Sprint 8 倍，可与战斗加速分开勾）\n"
             "             「跳帧」（切后台/老板键限帧 30FPS）\n"
-            "             与「多开器适配功能」（默认开；勾选=注入精简桥接，供包内「多开器.exe」登录/拉多控/一键召唤）\n"
+            "             与「中控适配功能」（默认开；勾选=注入精简桥接，供包内「中控」登录/拉多控/一键召唤/下发指令）\n"
             "· 采集自动提取：战斗页独立开关（对账号所有在线角色，满999格逐格提入账号银行，节奏式间隔发送）\n"
             "· 脚本页「立刻提取采集物」可手动触发一次\n"
             "· 分享改日常、礼包码默认带上\n"
@@ -206,7 +206,7 @@ class FoolproofApp(tk.Tk):
         self.inject_bridge_var = tk.BooleanVar(value=True)
         ttk.Checkbutton(
             body,
-            text="多开器适配功能（默认开：注入精简桥接，供「多开器.exe」登录/拉多控/一键召唤）",
+            text="中控适配功能（默认开：注入精简桥接，供「中控」登录/拉多控/一键召唤/下发指令）",
             variable=self.inject_bridge_var,
         ).pack(anchor=tk.W, pady=(0, 6))
 
@@ -223,7 +223,7 @@ class FoolproofApp(tk.Tk):
         self.apply_btn.pack(side=tk.LEFT)
         self.launcher_btn = ttk.Button(
             btns,
-            text="启动多开器",
+            text="启动中控",
             command=self.on_launch_launcher,
         )
         self.launcher_btn.pack(side=tk.LEFT, padx=(8, 0))
@@ -390,9 +390,9 @@ class FoolproofApp(tk.Tk):
         if not cands:
             self._info(
                 f"{_profile_title()}",
-                "包内未找到「多开器.exe」。\n\n"
-                "多开器需在新版傻瓜补丁包中随附（发布时已内置）。\n"
-                "也可直接运行开发目录：新序章多开器\\scripts\\multi_launcher_gui.py",
+                "包内未找到「中控.exe」。\n\n"
+                "中控需在新版傻瓜补丁包中随附（发布时已内置）。\n"
+                "也可直接运行开发目录：序章中控\\scripts\\central_control_gui.py",
             )
             return
         try:
@@ -404,9 +404,9 @@ class FoolproofApp(tk.Tk):
                 )
             else:
                 subprocess.Popen([str(exe)], cwd=str(exe.parent))
-            self._append(f"已启动多开器：{exe}")
+            self._append(f"已启动中控：{exe}")
         except Exception as exc:
-            self._error(f"{_profile_title()} — 失败", f"无法启动多开器：\n{exc}")
+            self._error(f"{_profile_title()} — 失败", f"无法启动中控：\n{exc}")
 
     def _launcher_candidates(self) -> list[Path]:
         cands: list[Path] = []
@@ -414,17 +414,16 @@ class FoolproofApp(tk.Tk):
             exe_dir = Path(sys.executable).resolve().parent
             cands.extend(
                 [
-                    exe_dir / "多开器.exe",
-                    exe_dir / "multi_launcher_gui.exe",
-                    exe_dir / "多开器" / "多开器.exe",
+                    exe_dir / "中控.exe",
+                    exe_dir / "中控" / "中控.exe",
+                    exe_dir / "central_control_gui.exe",
                 ]
             )
         else:
             scripts = Path(__file__).resolve().parent
             cands.extend(
                 [
-                    scripts.parent.parent / "新序章多开器" / "scripts" / "multi_launcher_gui.py",
-                    scripts.parent.parent / "新序章多开器" / "multi_launcher_gui.py",
+                    scripts.parent.parent / "序章中控" / "scripts" / "central_control_gui.py",
                 ]
             )
         return [p for p in cands if p.is_file()]

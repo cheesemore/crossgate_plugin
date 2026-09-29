@@ -7,6 +7,7 @@ using System.Reflection;
 /// 由助手面板战斗模式页「计数挂机」互斥切换（SetEnabled）。
 /// 开启后：监听 EventCenter.EnterBattle，每次进战斗计数（内部用），
 /// 窗口标题追加「 ★挂机中★ 魔石94.1%」（精确到 0.1%，满显示魔石满）。
+/// 退战后若队伍不足 5 人 → 停止挂机（与护航战斗同设定）；全员魔石满亦停。
 /// 关闭时清零并恢复原标题。
 /// 仅计数与标题，不拦截任何战斗动作，可与抓宠/烧卡等同开。
 /// </summary>
@@ -15,16 +16,24 @@ public static class SeqChapterCountFarm
     public const string AssetPath = "hotfixdata/SeqChapterCountFarm.dll.bytes";
     public const string TypeName = "SeqChapterCountFarm";
 
+    /// <summary>与护航战斗一致：队伍不足此人数则停战。</summary>
+    private const int TeamMinMembers = 5;
+
     /// <summary>计数挂机总开关。默认关闭；面板战斗模式页切换。</summary>
     public static volatile bool PipelineEnabled = false;
 
     private static bool _bootstrapped;
     private static bool _enterHooked;
+    private static bool _exitHooked;
     private static Action _onEnterBattle;
+    private static Action _onExitBattle;
     private static int _battleCount;
 
     /// <summary>已因魔石满而发送过停止挂机（避免重复发）。</summary>
     private static bool _stopSentForCurrentFull;
+
+    /// <summary>已因队伍不足而发送过停止挂机（人数回升后重置）。</summary>
+    private static bool _stopSentForTeamLow;
 
     public static bool IsPipelineActive()
     {
@@ -454,6 +463,7 @@ public static class SeqChapterCountFarm
 
         _bootstrapped = true;
         TryHookEnterBattle();
+        TryHookExitBattle();
     }
 
     /// <summary>面板/外部：显式开/关（互斥模式用）。关闭时清零计数并恢复标题。</summary>
@@ -465,6 +475,7 @@ public static class SeqChapterCountFarm
         {
             _battleCount = 0;
             _stopSentForCurrentFull = false;
+            _stopSentForTeamLow = false;
         }
         else
         {
@@ -503,6 +514,56 @@ public static class SeqChapterCountFarm
         RefreshWindowTitle();
     }
 
+    /// <summary>退战：队伍不足 TeamMinMembers 则停止挂机（与护航战斗同设定）。</summary>
+    private static void OnBattleExited()
+    {
+        if (!IsPipelineActive())
+        {
+            return;
+        }
+
+        CheckStopWhenTeamLow();
+    }
+
+    /// <summary>
+    /// 战后队伍不足停战：GetTeamNum &lt; TeamMinMembers 时发「停止挂机」并 Tip。
+    /// 人数回升后重置，避免重复刷 Tip。
+    /// </summary>
+    private static void CheckStopWhenTeamLow()
+    {
+        if (!IsPipelineActive())
+        {
+            _stopSentForTeamLow = false;
+            return;
+        }
+
+        try
+        {
+            var teamNum = GetTeamNum();
+            if (teamNum >= TeamMinMembers)
+            {
+                _stopSentForTeamLow = false;
+                return;
+            }
+
+            if (_stopSentForTeamLow)
+            {
+                return;
+            }
+
+            _stopSentForTeamLow = true;
+            var sent = SendStopAutoBattleAll();
+            var reason = "战后队伍不足" + TeamMinMembers + "人（当前" + teamNum + "），已停战";
+            Tip(sent > 0
+                ? "计数挂机：" + reason + "（" + sent + " 个角色）"
+                : "计数挂机：" + reason);
+        }
+        catch
+        {
+            // ignore
+        }
+    }
+
     /// <summary>
     /// 计数挂机满魔石停止（固有行为）：全员魔石满时，对队伍/多开所有号发
     /// SendAutoBattle("停止挂机", uid)（协议 3015），并 Tip 提示。只发一次。
@@ -530,20 +591,7 @@ public static class SeqChapterCountFarm
             }
 
             _stopSentForCurrentFull = true;
-            var uids = CollectTeamOrMultiUids();
-            var sent = 0;
-            foreach (var uid in uids)
-            {
-                if (string.IsNullOrEmpty(uid))
-                {
-                    continue;
-                }
-
-                if (SendStopAutoBattle(uid))
-                {
-                    sent++;
-                }
-            }
+            var sent = SendStopAutoBattleAll();
 
             Tip(sent > 0
                 ? "魔石已满，已停止自动遇敌（" + sent + " 个角色）"
@@ -552,6 +600,54 @@ public static class SeqChapterCountFarm
         catch
         {
             // ignore
+        }
+    }
+
+    /// <summary>对队伍/多开所有号发「停止挂机」；返回实际发送数。</summary>
+    private static int SendStopAutoBattleAll()
+    {
+        var uids = CollectTeamOrMultiUids();
+        var sent = 0;
+        foreach (var uid in uids)
+        {
+            if (string.IsNullOrEmpty(uid))
+            {
+                continue;
+            }
+
+            if (SendStopAutoBattle(uid))
+            {
+                sent++;
+            }
+        }
+
+        return sent;
+    }
+
+    /// <summary>当前队伍人数：TeamManager.GetTeamNum（与护航战斗一致）。</summary>
+    private static int GetTeamNum()
+    {
+        try
+        {
+            var tm = GetManagerInstance("TeamManager");
+            if (tm == null)
+            {
+                return 0;
+            }
+
+            var m = tm.GetType().GetMethod(
+                "GetTeamNum",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            if (m == null)
+            {
+                return 0;
+            }
+
+            return Convert.ToInt32(m.Invoke(tm, null) ?? 0);
+        }
+        catch
+        {
+            return 0;
         }
     }
 
@@ -824,6 +920,69 @@ public static class SeqChapterCountFarm
         catch
         {
             // 进战钩失败：标题仍可手动刷新
+        }
+    }
+
+    private static void TryHookExitBattle()
+    {
+        if (_exitHooked)
+        {
+            return;
+        }
+
+        try
+        {
+            var ecType = FindType("EventCenter");
+            if (ecType == null)
+            {
+                return;
+            }
+
+            object instance = null;
+            for (var cur = ecType; cur != null; cur = cur.BaseType)
+            {
+                var instProp = cur.GetProperty(
+                    "Instance",
+                    BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.FlattenHierarchy);
+                if (instProp != null)
+                {
+                    instance = instProp.GetValue(null, null);
+                    if (instance != null)
+                    {
+                        break;
+                    }
+                }
+            }
+
+            if (instance == null)
+            {
+                return;
+            }
+
+            var exitEv = GetMember(instance, "ExitBattle");
+            if (exitEv == null)
+            {
+                return;
+            }
+
+            _onExitBattle = OnBattleExited;
+            var add = exitEv.GetType().GetMethod(
+                "Add",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+                null,
+                new[] { typeof(Action) },
+                null);
+            if (add == null)
+            {
+                return;
+            }
+
+            add.Invoke(exitEv, new object[] { _onExitBattle });
+            _exitHooked = true;
+        }
+        catch
+        {
+            // 退战钩失败：队伍不足停战不可用，其余功能仍可
         }
     }
 

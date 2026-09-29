@@ -325,6 +325,122 @@ public static class SeqChapterMiniBridge
                 return DoOneKeySummon(out msg);
             case "open_helper_minimized":
                 return DoOpenHelperMinimized(out msg);
+            case "money_farm":
+                return DoMoneyFarm(out msg);
+            case "daily":
+                return DoStartScript("TryStartDailyFromControl", null, out msg);
+            case "dojo_run":
+                return DoStartScript("TryStartDojoFromControl", new object[] { GetInt(prm, "layer", 0) }, out msg);
+            case "dojo_hell":
+                return DoStartScript("TryStartDojoHellFromControl", new object[] { GetInt(prm, "layer", 0) }, out msg);
+            case "crystal_challenge":
+                return DoStartScript(
+                    "TryStartCrystalChallengeFromControl",
+                    new object[] { GetInt(prm, "difficulty", 2) },
+                    out msg);
+            case "flora_heal":
+                return DoStartScript("TryStartFloraHealFromControl", null, out msg);
+            case "auto_point":
+                return DoStartScript("TryStartAutoPointFromControl", null, out msg, "已加点");
+            case "brawl_sign":
+            case "brawl":
+                return DoStartScript("TryStartBrawlSignFromControl", null, out msg);
+            case "enchant_stone":
+                return DoStartScript("TryStartEnchantStoneSortFromControl", null, out msg);
+            case "item_transfer":
+            case "wuren_gather":
+            case "wuren_filling":
+                return DoStartScript(
+                    "TryStartItemTransferFromControl",
+                    new object[] { GetStr(prm, "keyword") },
+                    out msg);
+            case "trade_probe":
+                return DoStartScript(
+                    "TryProbePlayerTradeItemsFromControl",
+                    new object[] { GetStr(prm, "keyword") },
+                    out msg,
+                    "已探测");
+            case "trade_probe_empty":
+                return DoStartScript(
+                    "TryProbeBagEmptyFromControl",
+                    null,
+                    out msg,
+                    "已探测");
+            case "trade_security_verify":
+                return DoStartScript(
+                    "TryStartTradeSecurityVerifyFromControl",
+                    new object[] { GetStr(prm, "code") },
+                    out msg,
+                    "已");
+            case "trade_goto_spot":
+                return DoStartScript("TryStartTradeGotoSpotFromControl", null, out msg);
+            case "trade_goto_lock":
+                return DoStartScript(
+                    "TryStartTradeGotoLockFromControl",
+                    new object[]
+                    {
+                        GetInt(prm, "floor", 0),
+                        GetInt(prm, "x", 0),
+                        GetInt(prm, "y", 0),
+                    },
+                    out msg);
+            case "trade_stop":
+                return DoStartScript(
+                    "TryStopCentralTradeFromControl",
+                    null,
+                    out msg,
+                    "已停止");
+            case "trade_bank_take":
+                return DoStartScript(
+                    "TryStartTradeBankTakeFromControl",
+                    new object[] { GetStr(prm, "keyword"), GetInt(prm, "stack", 20) },
+                    out msg);
+            case "trade_bank_store":
+                return DoStartScript(
+                    "TryStoreTradeKeywordFromControl",
+                    new object[] { GetStr(prm, "keyword") },
+                    out msg,
+                    "已存");
+            case "trade_bag_sort":
+                return DoStartScript(
+                    "TrySortBagFromControl",
+                    null,
+                    out msg,
+                    "已整理");
+            case "trade_prepare":
+                return DoStartScript(
+                    "TryStartPlayerTradeAsReceiver",
+                    new object[] { GetStr(prm, "expect_uid"), GetInt(prm, "need_slots", 0) },
+                    out msg);
+            case "trade_send":
+                return DoStartScript(
+                    "TryStartPlayerTradeAsSender",
+                    new object[]
+                    {
+                        GetStr(prm, "partner_uid"),
+                        GetStr(prm, "keyword"),
+                        GetInt(prm, "max_slots", 0),
+                    },
+                    out msg);
+            case "start_encounter":
+                return DoStartScript("TryStartEncounterFromControl", null, out msg, "已");
+            case "stop_encounter":
+                return DoStartScript("TryStartStopEncounterFromControl", null, out msg);
+            case "fast_punch":
+            case "one_key_punch":
+                return DoStartScript("TryStartFastPunchFromControl", null, out msg, "已打卡");
+            case "save_gold":
+                return DoStartScript("TryStartSaveGoldFromControl", null, out msg);
+            case "skip_anim":
+                return DoStartScript("TryEnableSkipAnimFromControl", null, out msg, "已");
+            case "disconnect":
+                return DoStartScript("TryForceDisconnectFromControl", null, out msg, "已断线");
+            case "boss_key":
+            case "boss_key_hide":
+                return DoStartScript("TryBossKeyHideFromControl", null, out msg, "已老板键");
+            case "boss_key_restore":
+            case "restore":
+                return DoStartScript("TryBossKeyRestoreFromControl", null, out msg, "已恢复");
             case "workflow_step1":
                 return StartWorkflowStep1(
                     GetStr(prm, "phone"),
@@ -1558,6 +1674,78 @@ public static class SeqChapterMiniBridge
         while (keep.Count > 0)
         {
             _workflow.Enqueue(keep.Dequeue());
+        }
+    }
+
+    private static bool DoStartScript(string methodName, object[] args, out string msg, string okPrefix = "已启动")
+    {
+        msg = "";
+        var t = FindType("SeqChapterTestUi");
+        if (t == null && !TryLoadTestUiDll(out msg))
+        {
+            return false;
+        }
+
+        t = FindType("SeqChapterTestUi");
+        if (t == null)
+        {
+            msg = "SeqChapterTestUi missing";
+            return false;
+        }
+
+        var method = t.GetMethod(methodName, BindingFlags.Public | BindingFlags.Static);
+        if (method == null)
+        {
+            msg = methodName + " missing";
+            return false;
+        }
+
+        try
+        {
+            msg = Convert.ToString(method.Invoke(null, args) ?? "") ?? "";
+            return msg.StartsWith(okPrefix ?? "已启动", StringComparison.Ordinal);
+        }
+        catch (Exception ex)
+        {
+            var inner = ex.InnerException ?? ex;
+            msg = inner.Message;
+            return false;
+        }
+    }
+
+    private static bool DoMoneyFarm(out string msg)
+    {
+        msg = "";
+        var t = FindType("SeqChapterTestUi");
+        if (t == null && !TryLoadTestUiDll(out msg))
+        {
+            return false;
+        }
+
+        t = FindType("SeqChapterTestUi");
+        if (t == null)
+        {
+            msg = "SeqChapterTestUi missing";
+            return false;
+        }
+
+        var method = t.GetMethod("TryStartMoneyFarm", BindingFlags.Public | BindingFlags.Static);
+        if (method == null)
+        {
+            msg = "TryStartMoneyFarm missing";
+            return false;
+        }
+
+        try
+        {
+            msg = Convert.ToString(method.Invoke(null, null) ?? "") ?? "";
+            return msg == "已启动";
+        }
+        catch (Exception ex)
+        {
+            var inner = ex.InnerException ?? ex;
+            msg = inner.Message;
+            return false;
         }
     }
 
