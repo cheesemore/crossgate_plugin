@@ -2,7 +2,9 @@
 # -*- coding: utf-8 -*-
 """构建「傻瓜补丁」独立包 → <游戏目录上级>/发布plugin/*.zip。
 
-只产融合版（护航面板无龙族按钮）。说明不提龙族。
+默认打两版：融合版、高阶版。说明不提龙族。
+融合版不显示、不开启「圣骑士魔剑士」，说明里也不写。
+高阶版显示该按钮并默认开启，说明里单独写这一段。
 
 发布目录：相对游戏根的上一级 ``发布plugin``（本机常见为 ``../发布plugin``，
 勿写死盘符；也可用环境变量 SEQCHAPTER_RELEASE_DIR 覆盖）。
@@ -78,14 +80,15 @@ ANIMATOR_DATA = [
     "battle_appear.json",
 ]
 
-# 九动版已无限期停发：本脚本只构建融合版，忽略任何 --nine-pack 类参数。
+# 默认打融合版 + 高阶版。九动版已停发，忽略任何 --nine-pack 类参数。
 APP_NAME = "傻瓜补丁_融合版"
+ADVANCED_APP_NAME = "傻瓜补丁_高阶版"
 # 「带龙族」版：与「原版」唯一区别是护航面板显示龙族循环 A/B 按钮（包内含 带龙族.flag）。
 DRAGON_APP_NAME = "傻瓜补丁_带龙族"
 PANEL_MODES = "常规 / 抓宠（无宠二动）/ 抓宠 / 抓宠卖银币 / 烧卡 / 计数挂机 / 采集自动提取"
 PANEL_SCRIPT_BTNS = "做日常 / 礼包码 / 立刻提取采集物"
 
-SERIES_CLEANUP_PREFIXES = [APP_NAME, DRAGON_APP_NAME]
+SERIES_CLEANUP_PREFIXES = [APP_NAME, ADVANCED_APP_NAME, DRAGON_APP_NAME]
 # 清理旧系列命名，避免发布目录堆积
 SERIES_CLEANUP_PREFIXES.extend(
     [
@@ -147,7 +150,14 @@ pause
 """
 
 
-def _readme_content(app_name: str) -> str:
+def _readme_content(app_name: str, *, advanced: bool = False) -> str:
+    paladin = ""
+    if advanced:
+        paladin = """
+【高阶：圣骑士魔剑士】
+· 助手战斗页显示「圣骑士魔剑士」，打补丁后默认开启，面板内可关
+· 白名单单体技能改为群体；大乱斗 / PVP 会强制关闭
+"""
     return f"""魔力宝贝：序章 — {app_name}
 
 【本包做什么】
@@ -155,7 +165,7 @@ def _readme_content(app_name: str) -> str:
 · 战斗模式默认：抓宠（无宠二动）/ 抓宠 / 抓宠卖银币 / 烧卡 / 计数挂机（面板内互斥切换）
 · 采集自动提取：战斗页独立开关，与战斗模式共存；对账号所有在线角色（五开/队伍）已采集5格单格满999，逐格节奏式提取到账号银行（0.4s 状态机节奏，不瞬间刷屏）；脚本页「立刻提取采集物」可手动触发一轮
 · 面板「脚本」页：做日常 / 礼包码 / 立刻提取采集物
-· 助手战斗页「跳过动画」「单体变群体」：默认关闭（PVE 可在面板内手动开；大乱斗/PVP 会强制关）
+· 助手战斗页「跳过动画」：默认关闭（PVE 可在面板内手动开；大乱斗/PVP 会强制关）
 · 外层「移动加速」：可选地图 Sprint 8 倍（默认不勾）
 · 护航面板含七夕 #119 循环（阿凯版/哥拉尔版；存兑换券后计一轮，丢队长绿/红头盔后再法兰治疗，然后下一轮；临时活动）
 · 界面外层选项：「战斗加速」（默认关：开启→战斗倍速+心跳回传1.5x，会连带掐断倍速检测上报；关→原速+心跳回传1.0x）、「跳帧（切后台/老板键限帧 30FPS）」与「中控适配功能」（默认不打：勾选=注入精简桥接，供包内「中控」登录/拉多控/一键召唤/下发指令；占 hotfixdata 容量）
@@ -163,7 +173,7 @@ def _readme_content(app_name: str) -> str:
 · 随包附「中控」（中控\\中控.exe，界面「启动中控」按钮）：中控需要打「中控适配功能」才能连接游戏
 · 随包附「窗口监视.exe」（包根，也可「启动窗口监视.bat」或界面按钮）：右下角置顶，刷新 cg37 标题；可填 Bark；左侧选中窗口「开启/关闭监控」决定哪些进护航战斗监控（金色）；仅已监控窗口在停战/180秒无战斗结束/卡死时 Bark（10 分钟最多 1 次）
 · 勾选「移动加速」可在打补丁时一并开启
-
+{paladin}
 【用法】
 1. 关掉游戏，解压到游戏目录（与 cg37.exe 同级或子文件夹）
 2. 双击「一键打补丁.bat」
@@ -292,7 +302,7 @@ def publish_patcher() -> Path:
     return exe
 
 
-def build_exe(app_name: str = APP_NAME, dragon_loop_ui: bool = False) -> Path:
+def build_exe(app_name: str = APP_NAME, dragon_loop_ui: bool = False, advanced: bool = False) -> Path:
     try:
         import PyInstaller  # noqa: F401
     except ImportError:
@@ -466,8 +476,13 @@ def build_exe(app_name: str = APP_NAME, dragon_loop_ui: bool = False) -> Path:
 
     (out_dir / BAT_NAME).write_text(_bat_content(app_name), encoding="utf-8")
     (out_dir / WINDOW_MONITOR_BAT).write_text(_window_monitor_bat(), encoding="utf-8")
-    (out_dir / "使用说明.txt").write_text(_readme_content(app_name), encoding="utf-8")
-    (out_dir / "融合版.flag").write_text("1\n", encoding="utf-8")
+    (out_dir / "使用说明.txt").write_text(
+        _readme_content(app_name, advanced=advanced), encoding="utf-8"
+    )
+    if advanced:
+        (out_dir / "高阶版.flag").write_text("1\n", encoding="utf-8")
+    else:
+        (out_dir / "融合版.flag").write_text("1\n", encoding="utf-8")
     if dragon_loop_ui:
         # 「带龙族」版标记：GUI 检测到后打补丁时把龙族循环 A/B 按钮标记一并写入 hotfixdata。
         (out_dir / "带龙族.flag").write_text("1\n", encoding="utf-8")
@@ -751,12 +766,12 @@ def main() -> int:
     cleanup_series_old_releases(RELEASE_DIR, SERIES_CLEANUP_PREFIXES)
 
     publish_patcher()
-    # 只产融合版。带龙族.zip 不再构建；清理前缀仍含旧「带龙族」以便发布目录不堆积。
-    variants = [(APP_NAME, False)]
+    # 融合版 + 高阶版。带龙族.zip 不再构建；清理前缀仍含旧「带龙族」以便发布目录不堆积。
+    variants = [(APP_NAME, False, False), (ADVANCED_APP_NAME, False, True)]
     zipped: list[Path] = []
-    for app_name, dragon_loop_ui in variants:
+    for app_name, dragon_loop_ui, advanced in variants:
         print(f"\n--- 构建 {app_name} ---")
-        out_dir = build_exe(app_name, dragon_loop_ui=dragon_loop_ui)
+        out_dir = build_exe(app_name, dragon_loop_ui=dragon_loop_ui, advanced=advanced)
         zip_path = RELEASE_DIR / f"{app_name}_{stamp}.zip"
         zip_folder(out_dir, zip_path)
         verify_pack(out_dir, zip_path, app_name)

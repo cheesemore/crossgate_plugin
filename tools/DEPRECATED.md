@@ -7,6 +7,7 @@
 |---|---|---|
 | `tools/seqchapter_nine_action/` | **永久封存** | 神奇九动。傻瓜补丁不发、默认组合 `battle_nine_*=False`，对外文案不再提「无九动」。 |
 | `tools/seqchapter_escort_loops_backup/` | **卸下/删除** | 龙族/七夕：卸下面板；**中元循环已永久删除**（快照 `ZhongyuanLoop.extracted.cs`）。战斗页「抓野生宠」独立保留。 |
+| 护航「洗礼预备」 | **永久下架** | 入口已换成魔物遗迹循环。旧实现仍留在 `SeqChapterTestUi.cs`，不要再挂按钮或从中控拉起。 |
 | `tools/hotfix_patcher/*Nine*` / `battle-nine-*` | 封存 | 九动 IL/DLL patcher 子命令仍在引擎里，但默认不跑。 |
 | `tools/seqchapter_wiki_chat_test/` | 废弃实验 | 百科聊天测试，勿当正式功能。 |
 | `tools/seqchapter_wiki_skin_cycle/` | 旁路 | 仅傻瓜「换装」包使用；日常组合默认不打。 |

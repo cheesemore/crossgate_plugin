@@ -95,6 +95,7 @@ def run_foolproof_patch(
     dragon_loop_ui: bool = True,
     apply_frameskip: bool = True,
     inject_bridge: bool = True,
+    advanced: bool = False,
     on_log: LogFn | None = None,
     # 旧多档参数已废弃：一律走百科助手面板，忽略下列开关
     burn_seal: bool = False,
@@ -119,6 +120,7 @@ def run_foolproof_patch(
     apply_frameskip：跳帧开关（切后台/老板键限帧 30FPS），默认开。
     inject_bridge：中控适配功能开关，默认开（注入精简桥接，中控登录/拉多控/一键召唤/下发指令）。
         开启后注入 SeqChapterMiniBridge 精简桥接外部 DLL + hook（多开/账号登录/一键召唤）。
+    advanced：高阶版 True 时显示并默认开启「圣骑士魔剑士」；融合版 False 时不显示、不开启。
     daily_claim / newbie_gift_code：分享切页（默认开）。
     gift_codes：可编辑礼包码；None 用默认。
     """
@@ -192,6 +194,8 @@ def run_foolproof_patch(
     kwargs["newbie_gift_code"] = bool(newbie_gift_code)
     kwargs["pet_recycle_capture_allow"] = False  # 傻瓜包不打捕捉金卡回收
     kwargs["gift_codes"] = gift_codes
+    kwargs["single_to_aoe_ui"] = bool(advanced)
+    kwargs["single_to_aoe_default"] = bool(advanced)
     kwargs["game_root"] = root
     kwargs["on_log"] = on_log
 
@@ -259,17 +263,11 @@ def run_foolproof_patch(
             "跳过动画：默认关闭（助手战斗页可手动开）",
         )
 
-    if kwargs.get("single_to_aoe_default"):
+    if advanced:
         _emit(
             messages,
             on_log,
-            "单体变群体：默认开启（助手战斗页可关）",
-        )
-    else:
-        _emit(
-            messages,
-            on_log,
-            "单体变群体：默认关闭（助手战斗页可手动开）",
+            "圣骑士魔剑士：显示并默认开启（助手战斗页可关；大乱斗/PVP 会强制关）",
         )
 
     _emit(messages, on_log, "正在余量预检（启动补丁引擎，首次可能较慢）…")

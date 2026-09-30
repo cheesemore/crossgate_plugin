@@ -70,6 +70,7 @@ def write_gift_codes_file(hotfix_dir: Path, codes: list[str] | str | None) -> Pa
 DRAGON_LOOP_FLAG_NAME = "seqchapter_dragon_loop.flag"
 SKIP_BATTLE_ANIM_FLAG_NAME = "seqchapter_skip_battle_anim.flag"
 SINGLE_TO_AOE_FLAG_NAME = "seqchapter_single_to_aoe.flag"
+SINGLE_TO_AOE_UI_FLAG_NAME = "seqchapter_single_to_aoe_ui.flag"
 
 
 def sync_dragon_loop_flag(hotfix_dir: Path, enabled: bool) -> Path | None:
@@ -108,9 +109,26 @@ def sync_skip_battle_anim_flag(hotfix_dir: Path, enabled: bool) -> Path | None:
 
 
 def sync_single_to_aoe_flag(hotfix_dir: Path, enabled: bool) -> Path | None:
-    """写/删「单体变群体」默认开标记：hotfixdata/seqchapter_single_to_aoe.flag。"""
+    """写/删「圣骑士魔剑士」默认开标记：hotfixdata/seqchapter_single_to_aoe.flag。"""
     path = hotfix_dir / SINGLE_TO_AOE_FLAG_NAME
     if enabled:
+        path.write_text("1\n", encoding="utf-8")
+        return path
+    if path.is_file():
+        try:
+            path.unlink()
+        except OSError:
+            pass
+    return None
+
+
+def sync_single_to_aoe_ui_flag(hotfix_dir: Path, visible: bool) -> Path | None:
+    """写/删「圣骑士魔剑士」按钮显示标记：hotfixdata/seqchapter_single_to_aoe_ui.flag。
+
+    没有标记时战斗页不画这个按钮，功能也不默认开。
+    """
+    path = hotfix_dir / SINGLE_TO_AOE_UI_FLAG_NAME
+    if visible:
         path.write_text("1\n", encoding="utf-8")
         return path
     if path.is_file():
@@ -1394,6 +1412,7 @@ def apply_combo(
     dragon_loop_ui: bool = True,
     skip_battle_anim_default: bool = False,
     single_to_aoe_default: bool = False,
+    single_to_aoe_ui: bool = False,
     daily_claim: bool = True,
     newbie_gift_code: bool = True,
     gift_codes: list[str] | str | None = None,
@@ -1660,13 +1679,16 @@ def apply_combo(
         + ("默认开启（助手战斗页可关）" if skip_flag else "默认关闭（面板内手动开）"),
     )
 
-    aoe_flag = sync_single_to_aoe_flag(hotfix.parent, single_to_aoe_default)
-    _emit_combo(
-        messages,
-        on_log,
-        "单体变群体："
-        + ("默认开启（助手战斗页可关）" if aoe_flag else "默认关闭（面板内手动开）"),
-    )
+    aoe_on = bool(single_to_aoe_default and single_to_aoe_ui)
+    aoe_flag = sync_single_to_aoe_flag(hotfix.parent, aoe_on)
+    aoe_ui_flag = sync_single_to_aoe_ui_flag(hotfix.parent, single_to_aoe_ui)
+    if aoe_ui_flag and aoe_flag:
+        aoe_note = "圣骑士魔剑士：显示并默认开启（助手战斗页可关）"
+    elif aoe_ui_flag:
+        aoe_note = "圣骑士魔剑士：显示，默认关闭（面板内手动开）"
+    else:
+        aoe_note = "圣骑士魔剑士：不显示、不开启"
+    _emit_combo(messages, on_log, aoe_note)
 
     state = {
         "vip": vip,
@@ -1705,7 +1727,8 @@ def apply_combo(
         "wiki_label": wiki_label,
         "dragon_loop_ui": dragon_loop_ui,
         "skip_battle_anim_default": skip_battle_anim_default,
-        "single_to_aoe_default": single_to_aoe_default,
+        "single_to_aoe_default": bool(single_to_aoe_default and single_to_aoe_ui),
+        "single_to_aoe_ui": single_to_aoe_ui,
         "daily_claim": daily_claim,
         "newbie_gift_code": newbie_gift_code,
         "gift_codes": normalize_gift_codes(gift_codes) if newbie_gift_code else [],

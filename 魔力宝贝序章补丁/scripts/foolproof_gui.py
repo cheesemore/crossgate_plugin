@@ -69,6 +69,14 @@ def _detect_dragon_loop_pack() -> bool:
 DRAGON_LOOP_PACK = _detect_dragon_loop_pack()
 
 
+def _detect_advanced_pack() -> bool:
+    # 高阶版：战斗页显示「圣骑士魔剑士」并默认开启。融合版没有这个标记。
+    return _has_flag("高阶版.flag", "ADVANCED_PACK")
+
+
+ADVANCED_PACK = _detect_advanced_pack()
+
+
 def show_popup(title: str, text: str, *, error: bool = False) -> None:
     root = tk.Tk()
     root.withdraw()
@@ -88,6 +96,8 @@ def show_popup(title: str, text: str, *, error: bool = False) -> None:
 
 
 def _profile_title() -> str:
+    if ADVANCED_PACK:
+        return "傻瓜补丁（高阶版）"
     return "傻瓜补丁（融合版）"
 
 
@@ -122,6 +132,7 @@ def run_auto() -> int:
             dragon_loop_ui=DRAGON_LOOP_PACK,
             apply_frameskip=apply_frameskip,
             inject_bridge=inject_bridge,
+            advanced=ADVANCED_PACK,
             on_log=lambda line: print(line, flush=True),
         )
         detail = "\n".join(msgs[-8:]) if msgs else "补丁已打好。"
@@ -157,7 +168,7 @@ class FoolproofApp(tk.Tk):
         )
         ttk.Button(row, text="浏览…", command=self.browse).pack(side=tk.LEFT)
 
-        pack_name = "融合版"
+        pack_name = "高阶版" if ADVANCED_PACK else "融合版"
         tip = (
             f"本包：傻瓜补丁·{pack_name}\n"
             f"· 侧栏「百科」→ 助手面板，战斗模式：{_panel_modes_tip()}\n"
@@ -169,7 +180,12 @@ class FoolproofApp(tk.Tk):
             "· 采集自动提取：战斗页独立开关（对账号所有在线角色，满999格逐格提入账号银行，节奏式间隔发送）\n"
             "· 脚本页「立刻提取采集物」可手动触发一次\n"
             "· 分享改日常、礼包码默认带上\n"
-            "· 「启动动画预览」使用上方游戏目录读取资源（需已填对目录）\n"
+            + (
+                "· 「圣骑士魔剑士」：战斗页显示该按钮，打补丁后默认开启，面板内可关；大乱斗/PVP 会强制关\n"
+                if ADVANCED_PACK
+                else ""
+            )
+            + "· 「启动动画预览」使用上方游戏目录读取资源（需已填对目录）\n"
             "· 「启动窗口监视」：右下角置顶，刷新 cg37 标题；卡死/卡循环会推送\n"
             "若提示客户端不干净：可点「从干净目录恢复…」。"
         )
@@ -638,6 +654,7 @@ class FoolproofApp(tk.Tk):
                     dragon_loop_ui=DRAGON_LOOP_PACK,
                     apply_frameskip=bool(self.apply_frameskip_var.get()),
                     inject_bridge=bool(self.inject_bridge_var.get()),
+                    advanced=ADVANCED_PACK,
                     on_log=on_log,
                 )
                 self.after(0, lambda: self._set_progress("", done=True))

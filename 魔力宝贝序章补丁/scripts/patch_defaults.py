@@ -49,7 +49,8 @@ DEFAULT_COMBO_KWARGS = {
     "battle_appear": False,  # 进战形象钩子：总是部署（游戏内可开），勾选=打补丁后默认开启形象
     "kill_timescale_report": True,  # 默认拦截倍速/跳过动画上报（Check/SendTimeScaleWarning + TryReportBattleAnimSkip）
     "skip_battle_anim_default": True,  # 本地打补丁：助手「跳过动画」默认开
-    "single_to_aoe_default": True,  # 本地打补丁：助手「单体变群体」默认开
+    "single_to_aoe_default": True,  # 本地打补丁：圣骑士魔剑士默认开
+    "single_to_aoe_ui": True,  # 本地打补丁：战斗页显示该按钮
     "pet_recycle_capture_allow": False,  # 捕捉金卡可回收：默认关（需显式勾选）
     "inject_bridge": True,  # 注入精简多开桥接（登录/拉多控/一键召唤，供新序章多开器直接驱动；默认开启）
     "from_orig": True,
@@ -62,7 +63,7 @@ DEFAULT_COMBO_KWARGS = {
 # 加速默认关闭（2026-08 起）：战斗倍速补丁默认连带掐断倍速检测上报
 #   （CheckTimeScaleWarning / SendTimeScaleWarning 空方法），默认不打。
 #   GUI 勾选「战斗加速」时才置 vip=True + vip_echo=1.5。
-# 傻瓜包只产融合版：护航面板不显示龙族循环按钮。
+# 傻瓜包默认打两版：融合版不显示「圣骑士魔剑士」；高阶版显示且默认开。
 FOOLPROOF_COMBO_KWARGS = {
     **DEFAULT_COMBO_KWARGS,
     "battle_nine_action": False,
@@ -79,7 +80,8 @@ FOOLPROOF_COMBO_KWARGS = {
     "map_sprint": False,  # 移动加速默认关
     "dragon_loop_ui": False,  # 融合版不显示龙族循环按钮
     "skip_battle_anim_default": False,  # 傻瓜包：跳过动画默认关（面板内手动开）
-    "single_to_aoe_default": False,  # 傻瓜包：单体变群体默认关
+    "single_to_aoe_default": False,  # 融合版：不开启
+    "single_to_aoe_ui": False,  # 融合版：战斗页不显示按钮
     "pet_recycle_capture_allow": False,  # 傻瓜包不打捕捉金卡回收
 }
 

@@ -5,14 +5,17 @@ alwaysApply: true
 
 # 独立护航脚本：战败保护
 
-凡 **独立编写** 的护航流水线（洗礼预备，以及后续同类「预备/循环+护航」脚本），**原则上都必须带战败保护**。遇到例外再改。
+凡 **独立编写** 的护航流水线（魔物遗迹循环，以及后续同类「预备/循环+护航」脚本），**原则上都必须带战败保护**。遇到例外再改。
+
+洗礼预备已永久下架，不要再加回护航入口。
 
 ## 要求
 
 1. 战斗中检测 `BattleDataHolder.forceQuitBattle`（战败 / 踢出 / 逃跑类）。
-2. 出战边沿若见过 forceQuit：`PauseEscort(原因, true)`，**暂停脚本、保留队列**，等玩家处理后点「继续护航」。
-3. 参考实现：`SeqChapterTestUi.TickEscortBattleExitTeamGuard` + `_baptismSawForceQuit`。
-4. Tip 需写明是战败暂停，勿静默停死。
+2. 出战边沿若见过 forceQuit：默认 `PauseEscort(原因, true)`，**暂停脚本、保留队列**，等玩家处理后点「继续护航」。
+3. **魔物遗迹循环**是用户指定的例外：战败直接 `StopRelicLoop`，不保留续跑。
+4. 参考实现：`SeqChapterTestUi.TickEscortBattleExitTeamGuard` + `_baptismSawForceQuit`（旧护航暂停）；魔物遗迹看 `TickRelicLoop`。
+5. Tip 需写明是战败暂停或战败停止，勿静默停死。
 
 ## 不要
 

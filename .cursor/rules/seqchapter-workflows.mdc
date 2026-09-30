@@ -14,7 +14,7 @@ alwaysApply: true
 | 有没有更新 / 状态 | `python tools/workflow.py status` |
 | crosscopy 更新了 / 一条龙 | `python tools/workflow.py update`；可先 `--dry-run`；反外挂误报 `--confirm-anticheat` |
 | 重打 / 给 cross 打补丁 | `python tools/workflow.py repatch`（默认 `DEFAULT_COMBO_KWARGS`） |
-| 打傻瓜补丁包 | `python tools/workflow.py publish-foolproof`（只产融合版） |
+| 打傻瓜补丁包 | `python tools/workflow.py publish-foolproof`（融合版 + 高阶版） |
 | 按清单发布 | `python tools/workflow.py publish-all` |
 
 细节仍以 `游戏更新与补丁规范.md`、`tools/cross_update.py`、`魔力宝贝序章补丁/scripts/publish_foolproof.py`、`patch_defaults.DEFAULT_COMBO_KWARGS` 为准。
