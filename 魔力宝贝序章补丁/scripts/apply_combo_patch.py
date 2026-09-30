@@ -37,7 +37,7 @@ from patch_slack import assert_combo_slack_ok, format_slack_summary
 STATE_PATH = toolkit_root() / "combo_patch_state.json"
 
 DEFAULT_GIFT_CODES = [
-    "mlbb0924",
+    "mlbb0930",
 ]
 
 

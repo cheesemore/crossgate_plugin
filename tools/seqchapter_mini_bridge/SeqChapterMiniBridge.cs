@@ -329,6 +329,8 @@ public static class SeqChapterMiniBridge
                 return DoMoneyFarm(out msg);
             case "daily":
                 return DoStartScript("TryStartDailyFromControl", null, out msg);
+            case "junk_drop":
+                return DoStartScript("TryStartJunkDropFromControl", null, out msg);
             case "dojo_run":
                 return DoStartScript("TryStartDojoFromControl", new object[] { GetInt(prm, "layer", 0) }, out msg);
             case "dojo_hell":

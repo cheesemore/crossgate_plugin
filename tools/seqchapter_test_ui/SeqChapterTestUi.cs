@@ -1605,6 +1605,8 @@ public static partial class SeqChapterTestUi
 
     // ----- 一键丢弃垃圾（5 角色背包，关键字 / 低级未鉴定宝石装备 / 图鉴卡） -----
     private static bool _junkDropActive;
+    /// <summary>这次丢弃是中控拉起的。脚本页自己点开时不改中控结果。</summary>
+    private static bool _junkDropFromControl;
     private static List<string> _junkDropUids;
     private static int _junkDropUidIdx;
     private static long _junkDropNextAtMs;
@@ -3697,6 +3699,7 @@ public static partial class SeqChapterTestUi
 
             if (uids.Count == 0)
             {
+                _junkDropNote = "未找到角色";
                 Tip("一键丢弃：未找到角色");
                 return;
             }
@@ -3720,19 +3723,52 @@ public static partial class SeqChapterTestUi
         }
         catch (Exception ex)
         {
+            _junkDropNote = "失败: " + RootMessage(ex);
             WriteLog("StartJunkDrop EX: " + RootMessage(ex));
             Tip("一键丢弃失败: " + RootMessage(ex));
         }
     }
 
+    /// <summary>中控「一键丢弃道具」。与脚本页「一键丢弃」同一条流水线。成功返回「已启动」。</summary>
+    public static string TryStartJunkDropFromControl()
+    {
+        if (_junkDropActive)
+        {
+            SetControlResult(false, "一键丢弃已在运行");
+            return "一键丢弃已在运行";
+        }
+
+        _junkDropFromControl = false;
+        _junkDropNote = "";
+        StartJunkDrop();
+        if (!_junkDropActive)
+        {
+            var note = string.IsNullOrEmpty(_junkDropNote) ? "未启动" : _junkDropNote;
+            SetControlResult(false, "一键丢弃 " + note);
+            return note;
+        }
+
+        _junkDropFromControl = true;
+        SetControlResult(false, "进行中 一键丢弃");
+        return "已启动";
+    }
+
     private static void StopJunkDrop(string reason)
     {
+        var fromControl = _junkDropFromControl;
+        _junkDropFromControl = false;
         _junkDropActive = false;
         _junkDropPending = false;
         _junkDropUids = null;
         _junkDropNote = reason ?? "";
         Tip("一键丢弃：" + reason);
         WriteLog("JunkDrop stop: " + reason + " dropped=" + _junkDropDropped);
+        if (fromControl)
+        {
+            var note = reason ?? "";
+            var ok = note.StartsWith("完成", StringComparison.Ordinal);
+            SetControlResult(ok, "一键丢弃 " + note);
+        }
     }
 
     private static string FormatJunkDropStatus()
@@ -13898,7 +13934,8 @@ public static partial class SeqChapterTestUi
 
     /// <summary>
     /// 攻击无效重写（独立于 AI）：VIP 开着且列表有 59 时，给无攻无 buff 友方强制套；
-    /// 无人可套则 return false，其余 VIP 技能照常。菲尔尼各阶段人物走 VIP，本钩让路。
+    /// 无人可套则 return false，其余 VIP 技能照常。
+    /// AI 已开时不介入（牛鬼攻无走 PartyInvalid；百人/普通首领交给自动/VIP，避免巫师一直攻无）。
     /// </summary>
     private static bool TryVipAtkInvalidRewriteHook(bool forPlayer, string tag)
     {
@@ -13909,21 +13946,15 @@ public static partial class SeqChapterTestUi
                 return false;
             }
 
-            if (!Convert.ToBoolean(GetStaticMember("BattleDataHolder", "IsInBattle") ?? false))
+            // AI 接管时：攻无只留给牛鬼特例；勿用 VIP 重写污染百人 A 瓶等逻辑
+            if (_superAiActive)
             {
                 return false;
             }
 
-            // AI 菲尔尼特殊阶段优先，不抢出手
-            if (_superAiActive && _superAiIsBossBattle)
+            if (!Convert.ToBoolean(GetStaticMember("BattleDataHolder", "IsInBattle") ?? false))
             {
-                var ferni = ResolveSuperAiFerniPhase();
-                if (ferni == SuperAiFerniPhase.Drain
-                    || ferni == SuperAiFerniPhase.Focus
-                    || ferni == SuperAiFerniPhase.Cleanup)
-                {
-                    return false;
-                }
+                return false;
             }
 
             CollectSuperAiRoundUnits();
@@ -14995,15 +15026,7 @@ public static partial class SeqChapterTestUi
                 AddSuperAiPlannedCmd(playerActor, forceStr, "强制·" + forceLabel, true);
                 player.Suggest = forceStr;
             }
-            else if (_superAiVipType14Rewrite
-                     && ferniPhase != SuperAiFerniPhase.Drain
-                     && ferniPhase != SuperAiFerniPhase.Focus
-                     && ferniPhase != SuperAiFerniPhase.Cleanup
-                     && TryBuildSuperAiType14Cmd(player, true, out forceStr, out forceLabel))
-            {
-                AddSuperAiPlannedCmd(playerActor, forceStr, "强制·" + forceLabel, true);
-                player.Suggest = forceStr;
-            }
+            // AI 开着时不做 VIP 攻无重写（避免百人巫师一直攻无；牛鬼走 PartyInvalid）
             else
             {
                 var handoff = ferniPhase != SuperAiFerniPhase.None
@@ -15053,15 +15076,6 @@ public static partial class SeqChapterTestUi
             }
             else if (IsSuperAiQiankunPetMode()
                      && TryBuildSuperAiQiankunPetCmd(player, out petForce, out petLabel))
-            {
-                AddSuperAiPlannedCmd(petActor, petForce, "强制·" + petLabel, true);
-                pet.Suggest = petForce;
-            }
-            else if (_superAiVipType14Rewrite
-                     && ferniPhase != SuperAiFerniPhase.Drain
-                     && ferniPhase != SuperAiFerniPhase.Focus
-                     && ferniPhase != SuperAiFerniPhase.Cleanup
-                     && TryBuildSuperAiType14Cmd(player, false, out petForce, out petLabel))
             {
                 AddSuperAiPlannedCmd(petActor, petForce, "强制·" + petLabel, true);
                 pet.Suggest = petForce;
@@ -18102,6 +18116,12 @@ public static partial class SeqChapterTestUi
         var priest = IsSuperAiPriestJob(u);
         var wizard = IsSuperAiWizardJob(u);
         var sorcerer = IsSuperAiSorcererJob(u);
+
+        // AI百人：传教不丢血瓶（交给补血/自动），避免污染 A 瓶分工
+        if (priest && _superAiDojoMode)
+        {
+            return int.MaxValue;
+        }
 
         if (priest || wizard || sorcerer)
         {

@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """序章中控 — 多开 + 监视（state.json）+ 指令 + 交易/分发切页。
 
-指令：打钱 / 日常 / 百人 / 噩梦 / 挑战 / 治疗回城 / 一键加点 / 大乱斗报名 / 道具传递 / 开始遇敌 / 停止遇敌 / 一键打卡 / 存钱 / 跳过动画。
+指令：打钱 / 日常 / 一键丢弃道具 / 百人 / 噩梦 / 挑战 / 治疗回城 / 一键加点 / 大乱斗报名 / 道具传递 / 开始遇敌 / 停止遇敌 / 一键打卡 / 存钱 / 跳过动画。
 交易：多给出方排队→单接收方；回城点2→1000(65,73)；可选超银取/存；全部交易。
 分发：单给出方→多接收方（反向）；超银堆叠 + 单次交易数量（格）；可选超银取/存。
 
@@ -272,6 +272,7 @@ class CentralControlApp:
         self._cmd_catalog = [
             ("money", "自动打钱"),
             ("daily", "做日常"),
+            ("junk_drop", "一键丢弃道具"),
             ("dojo", "百人"),
             ("hell", "噩梦百人"),
             ("crystal", "自动打挑战"),
@@ -1332,6 +1333,8 @@ class CentralControlApp:
             self.broadcast_money_farm()
         elif key == "daily":
             self.broadcast_daily()
+        elif key == "junk_drop":
+            self.broadcast_junk_drop()
         elif key == "dojo":
             self.broadcast_dojo()
         elif key == "hell":
@@ -1366,6 +1369,9 @@ class CentralControlApp:
 
     def broadcast_daily(self) -> None:
         self._broadcast_script("做日常", "daily")
+
+    def broadcast_junk_drop(self) -> None:
+        self._broadcast_script("一键丢弃道具", "junk_drop")
 
     def broadcast_dojo(self) -> None:
         layer = self._parse_layer(self.dojo_layer_var, "百人层数")

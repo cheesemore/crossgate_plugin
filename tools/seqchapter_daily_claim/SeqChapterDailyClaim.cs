@@ -33,7 +33,7 @@ public static class SeqChapterDailyClaim
     /// <summary>内置默认礼包码（无外部文件时使用）。</summary>
     private static readonly string[] DefaultNewbieGiftCodes =
     {
-        "mlbb0924",
+        "mlbb0930",
     };
 
     /// <summary>运行时列表：优先读 hotfixdata/seqchapter_gift_codes.txt（一行一个，# 注释）。</summary>
