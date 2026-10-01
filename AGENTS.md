@@ -19,7 +19,7 @@
 | 看状态 | `python tools/workflow.py status` |
 | crosscopy 已更新 → 一条龙 | `python tools/workflow.py update`（先可 `--dry-run`；反外挂误报加 `--confirm-anticheat`） |
 | 只重打 cross 默认补丁 | `python tools/workflow.py repatch`（需关游戏） |
-| 打傻瓜补丁（融合版 + 高阶版） | `python tools/workflow.py publish-foolproof` |
+| 打傻瓜补丁融合版 | `python tools/workflow.py publish-foolproof` |
 | 按配置默认发布 | `python tools/workflow.py publish-all` |
 | 只重编助手面板 DLL | `HotfixPatcher wiki-test-ui-patch --hotfix <cross>/cg37_Data/assets/hotfixdata/hotfix.dll.bytes --dll-only` |
 
@@ -46,12 +46,11 @@ Rules（清缓存后仍生效）：`.cursor/rules/`，尤其 work-dir、do-not-p
 
 ## 傻瓜补丁
 
-`publish_foolproof.py` 默认打两版（至游戏目录上一级 `发布plugin/`，相对 `../发布plugin`）：
+`publish_foolproof.py` **只产融合版**（至游戏目录上一级 `发布plugin/`，相对 `../发布plugin`）：
 
-- `傻瓜补丁_融合版_*.zip`：不显示、不开启「圣骑士魔剑士」，说明里不写
-- `傻瓜补丁_高阶版_*.zip`：显示该按钮并默认开启，说明里单独写
+- `傻瓜补丁_融合版_*.zip`
 
-本地给 cross 打补丁（`DEFAULT_COMBO_KWARGS`）则显示并默认开启。包内含中控、窗口监视。说明文件**不提**龙族/中元循环。
+包内含多开器、窗口监视。说明文件**不提**龙族/中元循环。
 
 ## 协议复用
 
@@ -63,4 +62,4 @@ Rules（清缓存后仍生效）：`.cursor/rules/`，尤其 work-dir、do-not-p
 
 1. 能说出：**crosscopy=干净版，cross=打补丁工作区**
 2. 在 cross 根执行：`python tools/workflow.py status`
-3. 不问历史对话也能答：攻击无效重写独立于 AI；声望集火序；魔物遗迹循环战败直接停止（洗礼预备已下架）
+3. 不问历史对话也能答：声望集火序；魔物遗迹循环战败直接停止（洗礼预备已下架）；VIP 攻击无效重写已取消

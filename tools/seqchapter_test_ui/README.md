@@ -31,7 +31,7 @@
 | 开关 | 作用 |
 |------|------|
 | **重写攻防序** | 开：写 `SeqChapterAiBattleTarget` 锚点；关：官方 AutoSelect |
-| **攻击无效重写** | **独立于 AI**；只接管 SkillId 59；序 自己→己宠→队友人→队友宠 |
+| **攻击无效重写** | **已取消**。VIP 自动战斗不再改攻击无效目标 |
 | **特殊 Boss** | 菲尔尼 / 金银角 / 声望挑战等开场关键字自动切模式 |
 
 约定：[`seqchapter-ai-battle-virtual.mdc`](../../.cursor/rules/seqchapter-ai-battle-virtual.mdc) · [`VIP攻击无效接管计划.md`](../VIP攻击无效接管计划.md)
