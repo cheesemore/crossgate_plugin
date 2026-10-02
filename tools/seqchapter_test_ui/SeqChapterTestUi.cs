@@ -1575,13 +1575,19 @@ public static partial class SeqChapterTestUi
     private static bool _relicInfoWasReady;
     private static string _relicNote = "";
     private const int RelicDungeonId = 201;
-    /// <summary>货币窗第二项是金币：ConfirmRemouldPay 把选项序号 +1 写入 PriceType。</summary>
+    /// <summary>货币窗第一项是钻石、第二项是金币：选项序号 +1 写入 PriceType。</summary>
+    private const int RelicPriceTypeDiamond = 1;
     private const int RelicPriceTypeGold = 2;
     /// <summary>全队激活：BuyIndex=2，费用按 5 人计，只扣队长。</summary>
     private const int RelicBuyIndexTeam = 2;
-    /// <summary>开局必须正好 5 人，队长非绑定金币（unBindGold）至少 10 万，才打开挑战界面。</summary>
+    /// <summary>开局必须正好 5 人。金币查队长 unBindGold≥10 万；钻石查队长 crystal≥750。</summary>
     private const int RelicRequiredTeam = 5;
     private const long RelicCaptainUnbindGold = 100000;
+    private const long RelicCaptainDiamond = 750;
+    /// <summary>设置里的挑战货币。没记录时用金币。文件 SeqChapterRelicPay.txt：gold / diamond。</summary>
+    private static bool _relicPayDiamond;
+    private static bool _relicPayLoaded;
+    private const string RelicPayFileName = "SeqChapterRelicPay.txt";
     private const int RelicMap2 = 26015;
     private const int RelicMap3 = 26016;
     /// <summary>本段已解析的站位 / NPC。二层、三层各解析一次。</summary>
@@ -1656,6 +1662,9 @@ public static partial class SeqChapterTestUi
     private const long RelicWalkWaitMs = 45000;
     private const long RelicTalkWaitMs = 20000;
     private const long RelicTalkSettleMs = 1000;
+    /// <summary>到站等 1 秒后点一次；窗口没开再等 1 秒点第二次，仍没有就停。</summary>
+    private const int RelicTalkMaxAttempts = 2;
+    private static int _relicTalkAttempts;
     private const long RelicNavRetryMs = 2500;
     private const long RelicLookRetryMs = 1200;
     /// <summary>对着一个 NPC 的南边一格，人一直不动就换下一个。</summary>
@@ -6714,6 +6723,26 @@ public static partial class SeqChapterTestUi
             RefreshRelicNpcRecordLabel();
             Tip(_relicNpcRecordOn ? "魔物遗迹NPC记录：开" : "魔物遗迹NPC记录：关");
             WriteLog("relic-npc-record enabled=" + _relicNpcRecordOn + " count=" + _relicRecX.Count);
+        });
+        y -= 48f;
+
+        EnsureRelicPayLoaded();
+        var relicPayBtn = CreateUiChild(_bodyRoot, "RelicPay", rtType);
+        SetAnchoredTop(RequireRect(relicPayBtn, "rpay"), 0f, y, 540f, 36f);
+        var relicPayImg = AddComp(relicPayBtn, "UnityEngine.UI.Image");
+        SetColor(relicPayImg, 0.22f, 0.24f, 0.32f, 1f);
+        var relicPayLab = CreateUiChild(relicPayBtn, "L", rtType);
+        StretchFull(RequireRect(relicPayLab, "rpayl"));
+        var relicPayText = AddText(relicPayLab);
+        SetText(relicPayText, RelicPaySettingLabel(), 14);
+        BindButton(relicPayBtn, relicPayImg, () =>
+        {
+            EnsureRelicPayLoaded();
+            _relicPayDiamond = !_relicPayDiamond;
+            SaveRelicPay();
+            SetText(relicPayText, RelicPaySettingLabel(), 14);
+            Tip(_relicPayDiamond ? "魔物挑战货币：钻石（需750）" : "魔物挑战货币：金币（需100000）");
+            WriteLog("relic pay " + (_relicPayDiamond ? "diamond" : "gold"));
         });
         y -= 48f;
 
@@ -33902,7 +33931,7 @@ public static partial class SeqChapterTestUi
             case RelicPhaseWalkExit: return "走向出口 NPC";
             case RelicPhaseTalkExit: return "出口选第二项";
             case RelicPhaseBank: return "存改造图";
-            case RelicPhasePrep: return "检查队伍金币";
+            case RelicPhasePrep: return "检查队伍货币";
             case RelicPhaseHeal: return "法兰治疗";
             case RelicPhaseMp: return "吃锅子补魔";
             case RelicPhaseWaitLogin: return "回登入点";
@@ -33973,28 +34002,19 @@ public static partial class SeqChapterTestUi
             TryEnsureRelicHighestBattlePet();
         }
 
+        if (phase == RelicPhaseTalk2 || phase == RelicPhaseTalk3 || phase == RelicPhaseTalkExit)
+        {
+            _relicTalkAttempts = 0;
+        }
+
         WriteLog("relic phase=" + phase + " " + _relicNote);
     }
 
-    /// <summary>本窗口角色把等级最高的宠物设为出战。已经是最高级则不发包。</summary>
+    /// <summary>队伍里每个角色把等级最高的宠物设为出战。已经是最高级则不发包。</summary>
     private static void TryEnsureRelicHighestBattlePet()
     {
         try
         {
-            var uid = GetMainPlayerUidSafe();
-            if (string.IsNullOrEmpty(uid))
-            {
-                uid = GetCaptainUid();
-            }
-
-            int index;
-            int level;
-            string name;
-            if (!TryPickDojoHighestBattlePet(uid, out index, out level, out name))
-            {
-                return;
-            }
-
             var petMgr = GetManagerInstance("PetManager");
             var change = petMgr?.GetType().GetMethod(
                 "ChangePetStatus",
@@ -34008,9 +34028,32 @@ public static partial class SeqChapterTestUi
                 return;
             }
 
-            change.Invoke(petMgr, new object[] { uid, index, DojoPetStatusBattle });
-            WriteLog("relic pet uid=" + uid + " index=" + index + " lv=" + level + " " + name);
-            Tip("魔物遗迹：出战 " + (string.IsNullOrEmpty(name) ? ("Lv" + level) : name));
+            var uids = CollectTeamOrMultiUids();
+            var changed = new List<string>();
+            for (var i = 0; i < uids.Count; i++)
+            {
+                var uid = uids[i];
+                int index;
+                int level;
+                string name;
+                if (!TryPickDojoHighestBattlePet(uid, out index, out level, out name))
+                {
+                    continue;
+                }
+
+                change.Invoke(petMgr, new object[] { uid, index, DojoPetStatusBattle });
+                var player = GetPlayer(uid);
+                var who = Convert.ToString(GetMember(player, "name") ?? GetMember(player, "Name") ?? "") ?? "";
+                var pet = string.IsNullOrEmpty(name) ? ("Lv" + level) : name;
+                var label = string.IsNullOrEmpty(who) ? pet : (who + " " + pet);
+                changed.Add(label);
+                WriteLog("relic pet uid=" + uid + " index=" + index + " lv=" + level + " " + label);
+            }
+
+            if (changed.Count > 0)
+            {
+                Tip("魔物遗迹：出战 " + string.Join("、", changed.ToArray()));
+            }
         }
         catch (Exception ex)
         {
@@ -34146,16 +34189,28 @@ public static partial class SeqChapterTestUi
         why = "";
         var uid = GetCaptainUid();
         var teamNum = GetEscortTeamNum();
-        var unbindGold = GetPlayerUnbindGold(uid);
+        EnsureRelicPayLoaded();
         var parts = new List<string>();
         if (teamNum != RelicRequiredTeam)
         {
             parts.Add("队伍需5人（现" + teamNum + "）");
         }
 
-        if (unbindGold < RelicCaptainUnbindGold)
+        if (_relicPayDiamond)
         {
-            parts.Add("队长非绑定金币" + unbindGold + "（需" + RelicCaptainUnbindGold + "）");
+            var diamond = GetPlayerCrystal(uid);
+            if (diamond < RelicCaptainDiamond)
+            {
+                parts.Add("队长钻石" + diamond + "（需" + RelicCaptainDiamond + "）");
+            }
+        }
+        else
+        {
+            var unbindGold = GetPlayerUnbindGold(uid);
+            if (unbindGold < RelicCaptainUnbindGold)
+            {
+                parts.Add("队长非绑定金币" + unbindGold + "（需" + RelicCaptainUnbindGold + "）");
+            }
         }
 
         if (parts.Count == 0)
@@ -34297,9 +34352,10 @@ public static partial class SeqChapterTestUi
                 return false;
             }
 
-            send.Invoke(mgr, new object[] { RelicStageId(), RelicPriceTypeGold, RelicBuyIndexTeam, uid });
+            var priceType = RelicPriceType();
+            send.Invoke(mgr, new object[] { RelicStageId(), priceType, RelicBuyIndexTeam, uid });
             WriteLog("relic challenge id=" + RelicStageId()
-                     + " price=" + RelicPriceTypeGold + " buy=" + RelicBuyIndexTeam);
+                     + " price=" + priceType + " buy=" + RelicBuyIndexTeam);
             return true;
         }
         catch (Exception ex)
@@ -34961,7 +35017,7 @@ public static partial class SeqChapterTestUi
                 return;
             }
 
-            RelicEnter(RelicPhaseWaitBattle1, "已发全队金币：" + RelicStageLabel());
+            RelicEnter(RelicPhaseWaitBattle1, "已发全队" + RelicPayName() + "：" + RelicStageLabel());
             return;
         }
 
@@ -35118,6 +35174,13 @@ public static partial class SeqChapterTestUi
             ApplyRelicCandidate(0, px, py);
         }
 
+        var exitWalk = nextPhase == RelicPhaseTalkExit;
+        if (exitWalk && RelicExitWalkPassed(px, py))
+        {
+            TickRelicExitPullback(now, floor, px, py);
+            return;
+        }
+
         if (px == _relicStandX && py == _relicStandY)
         {
             try
@@ -35163,7 +35226,9 @@ public static partial class SeqChapterTestUi
             return;
         }
 
-        if (px != _relicCandSeenX || py != _relicCandSeenY)
+        var prevY = _relicCandSeenY;
+        var moved = px != _relicCandSeenX || py != _relicCandSeenY;
+        if (moved)
         {
             _relicCandSeenX = px;
             _relicCandSeenY = py;
@@ -35175,7 +35240,18 @@ public static partial class SeqChapterTestUi
             return;
         }
 
-        if (_relicLastActionMs == 0 || now - _relicLastActionMs >= RelicNavRetryMs)
+        var retryNav = _relicLastActionMs == 0 || now - _relicLastActionMs >= RelicNavRetryMs;
+        var walkingAway = prevY >= 0 && py > prevY;
+        if (exitWalk && retryNav && _relicLastActionMs != 0 && moved && !walkingAway)
+        {
+            var dist = Math.Abs(px - _relicStandX) + Math.Abs(py - _relicStandY);
+            if (dist > 0 && dist <= 12 && py >= _relicStandY)
+            {
+                retryNav = false;
+            }
+        }
+
+        if (retryNav)
         {
             string how;
             var npcName = _relicCandAt >= 0 && _relicCandAt < _relicCandName.Count
@@ -35195,6 +35271,68 @@ public static partial class SeqChapterTestUi
 
             _relicLastActionMs = now;
         }
+    }
+
+    /// <summary>出口从 592,22 往北走到 592,8。Y 已经小于 8 就是走过了头。</summary>
+    private static bool RelicExitWalkPassed(int px, int py)
+    {
+        return py < _relicStandY
+               && py >= _relicStandY - 4
+               && Math.Abs(px - _relicStandX) <= 2;
+    }
+
+    /// <summary>先停步，停稳后再寻路拉回站位。拉回路上不再停，避免把回程立刻掐掉。</summary>
+    private static void TickRelicExitPullback(long now, int floor, int px, int py)
+    {
+        var sliding = px != _relicCandSeenX || py != _relicCandSeenY;
+        var walkingBack = py > _relicCandSeenY;
+        if (sliding && !walkingBack)
+        {
+            try
+            {
+                StopTaskNavigation(false);
+            }
+            catch
+            {
+                // ignore
+            }
+        }
+
+        if (sliding)
+        {
+            _relicCandSeenX = px;
+            _relicCandSeenY = py;
+            _relicCandSinceMs = now;
+            _relicNote = "走过出口 " + _relicStandX + "," + _relicStandY + "，先停下 现" + px + "," + py;
+            return;
+        }
+
+        if (_relicCandSinceMs <= 0 || now - _relicCandSinceMs < 300)
+        {
+            _relicNote = "走过出口，等停稳 现" + px + "," + py;
+            return;
+        }
+
+        if (_relicLastActionMs != 0 && now - _relicLastActionMs < 800)
+        {
+            _relicNote = "走过出口，等拉回 现" + px + "," + py;
+            return;
+        }
+
+        string how;
+        if (TryNavigateTo(floor, _relicStandX, _relicStandY, out how))
+        {
+            WriteLog("relic exit pullback " + px + "," + py + " -> "
+                     + _relicStandX + "," + _relicStandY + " " + how);
+            _relicNote = "拉回出口 " + _relicStandX + "," + _relicStandY + " 现" + px + "," + py;
+        }
+        else
+        {
+            _relicNote = "拉回失败 " + how + " 现" + px + "," + py;
+        }
+
+        _relicLastActionMs = now;
+        _relicCandSinceMs = now;
     }
 
     private static void ApplyRelicCandidate(int index, int px, int py)
@@ -35960,6 +36098,57 @@ public static partial class SeqChapterTestUi
         }
     }
 
+    /// <summary>到站等 1 秒再点。窗口没开就再等 1 秒点第二次。选中选项则返回 true。</summary>
+    private static bool TickRelicNpcDialogue(
+        long now, int npcX, int npcY, int optionIndex, string openNote, string failReason)
+    {
+        if (IsDialoguePanelOpen())
+        {
+            if (TryPickFirstDialogueOption(optionIndex, false))
+            {
+                return true;
+            }
+
+            _relicNote = openNote;
+            return false;
+        }
+
+        if (_relicTalkAttempts <= 0)
+        {
+            if (now - _relicPhaseAtMs < RelicTalkSettleMs)
+            {
+                _relicNote = "到站等待 @" + npcX + "," + npcY;
+                return false;
+            }
+        }
+        else if (_relicLastActionMs != 0 && now - _relicLastActionMs < RelicTalkSettleMs)
+        {
+            _relicNote = "等对话 @" + npcX + "," + npcY;
+            return false;
+        }
+        else if (_relicTalkAttempts >= RelicTalkMaxAttempts)
+        {
+            StopRelicLoop(failReason);
+            return false;
+        }
+
+        _relicTalkAttempts++;
+        _relicLastActionMs = now;
+        var obj = FindRelicNpcObjIndex(npcX, npcY);
+        if (obj >= 0 && FullScriptSendLookNpc(obj))
+        {
+            _relicNote = "已点 NPC @" + npcX + "," + npcY + " 第" + _relicTalkAttempts + "次";
+            WriteLog("relic look try=" + _relicTalkAttempts + " obj=" + obj + " @" + npcX + "," + npcY);
+        }
+        else
+        {
+            _relicNote = "未找到 NPC @" + npcX + "," + npcY + " 第" + _relicTalkAttempts + "次";
+            WriteLog("relic look miss try=" + _relicTalkAttempts + " @" + npcX + "," + npcY);
+        }
+
+        return false;
+    }
+
     private static void TickRelicTalk(long now, int nextPhase, string note)
     {
         var npcX = _relicNpcX;
@@ -35970,51 +36159,11 @@ public static partial class SeqChapterTestUi
             return;
         }
 
-        if (IsDialoguePanelOpen())
+        if (TickRelicNpcDialogue(now, npcX, npcY, 0, "对话已开，选第一项", "没点到 NPC " + npcX + "," + npcY))
         {
-            if (TryPickFirstDialogueOption(0, false))
-            {
-                Tip("魔物遗迹：已选第一项");
-                RelicEnter(nextPhase, note);
-            }
-            else
-            {
-                _relicNote = "对话已开，选第一项";
-            }
-
-            return;
+            Tip("魔物遗迹：已选第一项");
+            RelicEnter(nextPhase, note);
         }
-
-        if (now - _relicPhaseAtMs < RelicTalkSettleMs)
-        {
-            _relicNote = "到站等待 @" + npcX + "," + npcY;
-            return;
-        }
-
-        if (now - _relicPhaseAtMs >= RelicTalkWaitMs)
-        {
-            StopRelicLoop("没点到 NPC " + npcX + "," + npcY);
-            return;
-        }
-
-        if (_relicLastActionMs != 0 && now - _relicLastActionMs < RelicLookRetryMs)
-        {
-            _relicNote = "等对话 @" + npcX + "," + npcY;
-            return;
-        }
-
-        var obj = FindRelicNpcObjIndex(npcX, npcY);
-        if (obj >= 0 && FullScriptSendLookNpc(obj))
-        {
-            _relicNote = "已点 NPC @" + npcX + "," + npcY;
-            WriteLog("relic look obj=" + obj + " @" + npcX + "," + npcY);
-        }
-        else
-        {
-            _relicNote = "未找到 NPC @" + npcX + "," + npcY;
-        }
-
-        _relicLastActionMs = now;
     }
 
     /// <summary>第三场胜利后同图传送。落到 592,22 正负 1 格再走向出口 NPC。</summary>
@@ -36063,50 +36212,42 @@ public static partial class SeqChapterTestUi
 
     private static void TickRelicTalkExit(long now)
     {
-        if (IsDialoguePanelOpen())
+        int px;
+        int py;
+        if (TryGetPlayerXY(out px, out py)
+            && (px != RelicExitStandX || py != RelicExitStandY))
         {
-            if (TryPickFirstDialogueOption(1, false))
+            try
             {
-                BeginRelicBlueprintBank();
+                StopTaskNavigation(false);
             }
-            else
+            catch
             {
-                _relicNote = "对话已开，选第二项";
+                // ignore
             }
 
-            return;
+            if (py < RelicExitStandY
+                || Math.Abs(px - RelicExitStandX) + Math.Abs(py - RelicExitStandY) > 1)
+            {
+                _relicStandX = RelicExitStandX;
+                _relicStandY = RelicExitStandY;
+                _relicNpcX = RelicExitNpcX;
+                _relicNpcY = RelicExitNpcY;
+                RelicEnter(RelicPhaseWalkExit, "出口站位偏了 " + px + "," + py);
+                return;
+            }
         }
 
-        if (now - _relicPhaseAtMs < RelicTalkSettleMs)
+        if (TickRelicNpcDialogue(
+                now,
+                RelicExitNpcX,
+                RelicExitNpcY,
+                1,
+                "对话已开，选第二项",
+                "没点到出口 NPC " + RelicExitNpcX + "," + RelicExitNpcY))
         {
-            _relicNote = "到站等待出口";
-            return;
+            BeginRelicBlueprintBank();
         }
-
-        if (now - _relicPhaseAtMs >= RelicTalkWaitMs)
-        {
-            StopRelicLoop("没点到出口 NPC " + RelicExitNpcX + "," + RelicExitNpcY);
-            return;
-        }
-
-        if (_relicLastActionMs != 0 && now - _relicLastActionMs < RelicLookRetryMs)
-        {
-            _relicNote = "等出口对话";
-            return;
-        }
-
-        var obj = FindRelicNpcObjIndex(RelicExitNpcX, RelicExitNpcY);
-        if (obj >= 0 && FullScriptSendLookNpc(obj))
-        {
-            _relicNote = "已点出口 NPC";
-            WriteLog("relic exit look obj=" + obj);
-        }
-        else
-        {
-            _relicNote = "未找到出口 NPC @" + RelicExitNpcX + "," + RelicExitNpcY;
-        }
-
-        _relicLastActionMs = now;
     }
 
     private static void BeginRelicBlueprintBank()
@@ -36725,6 +36866,97 @@ public static partial class SeqChapterTestUi
         catch
         {
             return 0;
+        }
+    }
+
+    private static long GetPlayerCrystal(string uid)
+    {
+        try
+        {
+            var player = GetPlayer(uid);
+            if (player == null)
+            {
+                return 0;
+            }
+
+            return Convert.ToInt64(GetMember(player, "crystal") ?? GetProp(player, "crystal") ?? 0);
+        }
+        catch
+        {
+            return 0;
+        }
+    }
+
+    private static bool RelicPayIsDiamond()
+    {
+        EnsureRelicPayLoaded();
+        return _relicPayDiamond;
+    }
+
+    private static int RelicPriceType()
+    {
+        return RelicPayIsDiamond() ? RelicPriceTypeDiamond : RelicPriceTypeGold;
+    }
+
+    private static string RelicPayName()
+    {
+        return RelicPayIsDiamond() ? "钻石" : "金币";
+    }
+
+    private static string RelicPaySettingLabel()
+    {
+        return RelicPayIsDiamond()
+            ? "魔物挑战货币：钻石（需750）"
+            : "魔物挑战货币：金币（需100000）";
+    }
+
+    private static string RelicPayPath()
+    {
+        EnsureLogPath();
+        var dir = Path.GetDirectoryName(GetLogPath());
+        if (string.IsNullOrEmpty(dir))
+        {
+            dir = Environment.CurrentDirectory ?? Path.GetTempPath();
+        }
+
+        return Path.Combine(dir, RelicPayFileName);
+    }
+
+    private static void EnsureRelicPayLoaded()
+    {
+        if (_relicPayLoaded)
+        {
+            return;
+        }
+
+        _relicPayLoaded = true;
+        _relicPayDiamond = false;
+        try
+        {
+            var path = RelicPayPath();
+            if (!File.Exists(path))
+            {
+                return;
+            }
+
+            var text = (File.ReadAllText(path, Encoding.UTF8) ?? "").Trim();
+            _relicPayDiamond = text.StartsWith("diamond", StringComparison.OrdinalIgnoreCase);
+        }
+        catch (Exception ex)
+        {
+            WriteLog("relic pay load EX: " + RootMessage(ex));
+        }
+    }
+
+    private static void SaveRelicPay()
+    {
+        try
+        {
+            File.WriteAllText(RelicPayPath(), _relicPayDiamond ? "diamond" : "gold", new UTF8Encoding(false));
+        }
+        catch (Exception ex)
+        {
+            WriteLog("relic pay save EX: " + RootMessage(ex));
         }
     }
 
